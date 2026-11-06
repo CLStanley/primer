@@ -108,10 +108,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "c" => enzyme_select_inside_comment,
                 "p" => enzyme_select_inside_pair,
             },
-            "a" => { "Add selection"
-                "n" => copy_selection_on_next_line,
-                "N" => copy_selection_on_prev_line,
-            },
             "r" => { "Remove selection"
                 "a" => keep_primary_selection,
                 "m" => remove_selections,
