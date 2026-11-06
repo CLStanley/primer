@@ -1,5 +1,4 @@
 pub mod default;
-pub mod enzyme;
 pub mod macros;
 
 pub use crate::commands::MappableCommand;
