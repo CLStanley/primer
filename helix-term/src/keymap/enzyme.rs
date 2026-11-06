@@ -62,26 +62,6 @@ fn enzyme_cancel_transient_selection(cx: &mut Context) {
     doc.set_selection(view.id, saved.before);
 }
 
-fn navigate_without_selecting(cx: &mut Context, command: MappableCommand, collapse: fn(Range) -> usize) {
-    command.execute(cx);
-    if cx.editor.mode == Mode::Select { return; }
-    let (view, doc) = current!(cx.editor);
-    let selection = doc.selection(view.id).clone().transform(|range| Range::point(collapse(range)));
-    doc.set_selection(view.id, selection);
-}
-
-fn structural_start(range: Range) -> usize { range.from() }
-fn motion_head(range: Range) -> usize { range.head }
-
-fn enzyme_goto_next_function(cx: &mut Context) { navigate_without_selecting(cx, MappableCommand::goto_next_function, structural_start); }
-fn enzyme_goto_previous_function(cx: &mut Context) { navigate_without_selecting(cx, MappableCommand::goto_prev_function, structural_start); }
-fn enzyme_goto_next_comment(cx: &mut Context) { navigate_without_selecting(cx, MappableCommand::goto_next_comment, structural_start); }
-fn enzyme_goto_previous_comment(cx: &mut Context) { navigate_without_selecting(cx, MappableCommand::goto_prev_comment, structural_start); }
-fn enzyme_goto_next_class(cx: &mut Context) { navigate_without_selecting(cx, MappableCommand::goto_next_class, structural_start); }
-fn enzyme_goto_previous_class(cx: &mut Context) { navigate_without_selecting(cx, MappableCommand::goto_prev_class, structural_start); }
-fn enzyme_goto_next_section(cx: &mut Context) { navigate_without_selecting(cx, MappableCommand::goto_next_paragraph, motion_head); }
-fn enzyme_goto_previous_section(cx: &mut Context) { navigate_without_selecting(cx, MappableCommand::goto_prev_paragraph, motion_head); }
-
 /// `gsl` means content start; literal column zero deliberately lives at `g0`.
 fn enzyme_goto_line_content_start(cx: &mut Context) {
     if cx.editor.mode == Mode::Select {
@@ -228,14 +208,6 @@ fn enzyme_select_file(cx: &mut Context) { remember_transient_selection(cx, |cx| 
 #[allow(non_upper_case_globals)]
 impl MappableCommand {
     pub const enzyme_cancel_transient_selection: Self = Self::Static { name: "enzyme_cancel_transient_selection", fun: enzyme_cancel_transient_selection, doc: "Cancel current transient Enzyme selection" };
-    pub const enzyme_goto_next_function: Self = Self::Static { name: "enzyme_goto_next_function", fun: enzyme_goto_next_function, doc: "Go to next function" };
-    pub const enzyme_goto_previous_function: Self = Self::Static { name: "enzyme_goto_previous_function", fun: enzyme_goto_previous_function, doc: "Go to previous function" };
-    pub const enzyme_goto_next_comment: Self = Self::Static { name: "enzyme_goto_next_comment", fun: enzyme_goto_next_comment, doc: "Go to next comment" };
-    pub const enzyme_goto_previous_comment: Self = Self::Static { name: "enzyme_goto_previous_comment", fun: enzyme_goto_previous_comment, doc: "Go to previous comment" };
-    pub const enzyme_goto_next_class: Self = Self::Static { name: "enzyme_goto_next_class", fun: enzyme_goto_next_class, doc: "Go to next class/type" };
-    pub const enzyme_goto_previous_class: Self = Self::Static { name: "enzyme_goto_previous_class", fun: enzyme_goto_previous_class, doc: "Go to previous class/type" };
-    pub const enzyme_goto_next_section: Self = Self::Static { name: "enzyme_goto_next_section", fun: enzyme_goto_next_section, doc: "Go to next section" };
-    pub const enzyme_goto_previous_section: Self = Self::Static { name: "enzyme_goto_previous_section", fun: enzyme_goto_previous_section, doc: "Go to previous section" };
     pub const enzyme_goto_line_content_start: Self = Self::Static { name: "enzyme_goto_line_content_start", fun: enzyme_goto_line_content_start, doc: "Go to first non-whitespace character of line" };
     pub const enzyme_goto_line_number: Self = Self::Static { name: "enzyme_goto_line_number", fun: enzyme_goto_line_number, doc: "Go to absolute line number" };
     pub const enzyme_goto_word_start: Self = Self::Static { name: "enzyme_goto_word_start", fun: enzyme_goto_word_start, doc: "Go to start of current word" };
