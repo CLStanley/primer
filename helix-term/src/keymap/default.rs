@@ -246,10 +246,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "e" => file_explorer,
             "." => file_explorer_in_current_buffer_directory,
             "b" => buffer_picker,
-            "p" => { "Project"
-                "f" => file_picker,
-                "s" => lsp_or_syntax_workspace_symbol_picker,
-            },
             "j" => jumplist_picker,
             "s" => { "Search"
                 "f" => { "File"
