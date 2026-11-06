@@ -93,8 +93,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "l" => split_selection_on_newline,
                 "m" => split_selection,
             },
-            "i" => { "Inside"
-            },
         },
         "A-s" => split_selection_on_newline,
         "A-minus" => merge_selections,
@@ -353,15 +351,15 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "v" => normal_mode,
         "g" => { "Go"
             "s" => { "Start of"
-                "l" => goto_first_nonwhitespace,
-                "w" => move_prev_word_start,
-                "W" => move_prev_long_word_start,
+                "l" => extend_to_first_nonwhitespace,
+                "w" => extend_prev_word_start,
+                "W" => extend_prev_word_start,
                 "F" => extend_to_file_start,
             },
             "e" => { "End of"
                 "l" => extend_to_line_end,
-                "w" => move_next_word_end,
-                "W" => move_next_long_word_end,
+                "w" => extend_next_word_end,
+                "W" => extend_next_long_word_end,
                 "F" => extend_to_last_line,
             },
             "n" => { "Next"
