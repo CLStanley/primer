@@ -633,3 +633,31 @@ The QuickShell helper remains useful as a system-wide reference and can eventual
 The guiding principle remains:
 
 > **A user should learn Primer's language by using it. Documentation should teach the first patterns; the patterns should teach the rest.**
+
+
+## Native-keymap coverage pass (2026-11-06)
+
+Implementation branch: `feature/enzyme-motions`. This pass maps existing Helix commands into Enzyme families without changing their underlying behavior. Existing native shortcuts are retained when possible. Backspace transient-selection cancellation remains an intentional exception.
+
+Mapped now:
+
+- Editing: `m` modify selection (native change), `c` toggle comments, `D` duplicate to next line, `rc` replace character, `ry` replace with yanked, `+` uppercase, `-` lowercase, `M` native Match family; legacy editing shortcuts remain where nonconflicting.
+- Selection: `sra` keep primary, `srm` remove selections by regex, `skm` keep selections by regex; existing object selection and Backspace cancellation preserved.
+- Search: `Space s f s` document symbols; `Space s p t` project text; `Space s p r` references; `Space s p s` workspace symbols.
+- Language: `Space l a/r/h/d/D/s` for code action, rename, hover, diagnostics, workspace diagnostics, document symbols.
+- Application: `Space g c` changed files, `Space p f/s` project files/workspace symbols, `Space t c` command mode. Existing native window, clipboard, debugger, picker, and other bindings remain reachable.
+
+### Deferred / needs user decision
+
+- `Space s b t`: no verified native all-open-buffers text search command.
+- `Space j`: current native jumplist picker is not the proposed visible-target jump overlay; retained existing picker rather than substituting a different behavior.
+- `Space c`: conflicts with existing comment toggle; configuration command family not mapped.
+- `ff/fb/fp`: no verified native file/buffer/project formatting family beyond `format_selections`.
+- `san/saN/saa`: add matching selections needs verified native equivalents; do not confuse with copy selection to adjacent line.
+- `sif/sib` and structural start/end: no direct native single-command equivalent verified; existing Enzyme selection adapters remain for currently implemented object selections.
+- `gl<number>`: native `goto_line` and `G` remain; custom numeric-entry adapter is not active.
+- `Space s` previously opened the native symbol picker directly; now it is a search family prefix, and symbols are under `Space s f s`.
+- `r` is now a prefix rather than the native immediate replace key; use `rc` for native replace.
+- `m` is now Modify; the original Match family moved to `M`. This intentionally changes the keystroke, not the operation.
+
+**Verification pending:** This branch has been committed through the GitHub connector but not compiled or interactively tested in Primer. Build and exercise the changed keys before merging.
