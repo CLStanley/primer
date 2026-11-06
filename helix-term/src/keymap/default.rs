@@ -14,12 +14,17 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "f" => find_next_char,
         "T" => till_prev_char,
         "F" => find_prev_char,
-        "r" => replace,
+        "r" => { "Replace"
+            "c" => replace,
+            "y" => replace_with_yanked,
+        },
         "R" => replace_with_yanked,
         "A-." => repeat_last_motion,
         "~" => switch_case,
         "`" => switch_to_lowercase,
         "A-`" => switch_to_uppercase,
+        "+" => switch_to_uppercase,
+        "-" => switch_to_lowercase,
         "home" => goto_line_start,
         "end" => goto_line_end,
         "w" => move_next_word_start,
@@ -82,8 +87,10 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "O" => open_above,
         "d" => delete_selection,
         "A-d" => delete_selection_noyank,
-        "c" => change_selection,
-        "A-c" => change_selection_noyank,
+        "c" => toggle_comments,
+        "m" => change_selection,
+        "A-m" => change_selection_noyank,
+        "D" => copy_selection_on_next_line,
         "C" => copy_selection_on_next_line,
         "A-C" => copy_selection_on_prev_line,
         "s" => { "Select"
@@ -100,6 +107,17 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "i" => { "Inside"
                 "c" => enzyme_select_inside_comment,
                 "p" => enzyme_select_inside_pair,
+            },
+            "a" => { "Add selection"
+                "n" => copy_selection_on_next_line,
+                "N" => copy_selection_on_prev_line,
+            },
+            "r" => { "Remove selection"
+                "a" => keep_primary_selection,
+                "m" => remove_selections,
+            },
+            "k" => { "Keep selection"
+                "m" => keep_selections,
             },
             "x" => { "Split selection"
                 "l" => split_selection_on_newline,
@@ -124,7 +142,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "x" => extend_line_below,
         "X" => extend_to_line_bounds,
         "A-x" => shrink_to_line_bounds,
-        "m" => { "Match"
+        "M" => { "Match"
             "m" => match_brackets,
             "s" => surround_add,
             "r" => surround_replace,
@@ -180,6 +198,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         ">" => indent,
         "<" => unindent,
         "=" => format_selections,
+        "A-f" => format_selections,
         "J" => join_selections,
         "A-J" => join_selections_space,
         "K" => keep_selections,
@@ -231,13 +250,36 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "e" => file_explorer,
             "." => file_explorer_in_current_buffer_directory,
             "b" => buffer_picker,
+            "p" => { "Project"
+                "f" => file_picker,
+                "s" => lsp_or_syntax_workspace_symbol_picker,
+            },
             "j" => jumplist_picker,
-            "s" => lsp_or_syntax_symbol_picker,
+            "s" => { "Search"
+                "f" => { "File"
+                    "s" => lsp_or_syntax_symbol_picker,
+                },
+                "p" => { "Project"
+                    "t" => global_search,
+                    "r" => select_references_to_symbol_under_cursor,
+                    "s" => lsp_or_syntax_workspace_symbol_picker,
+                },
+            },
             "S" => lsp_or_syntax_workspace_symbol_picker,
             "d" => diagnostics_picker,
             "D" => workspace_diagnostics_picker,
-            "g" => changed_file_picker,
+            "g" => { "Git"
+                "c" => changed_file_picker,
+            },
             "a" => code_action,
+            "l" => { "Language"
+                "a" => code_action,
+                "r" => rename_symbol,
+                "h" => hover,
+                "d" => diagnostics_picker,
+                "D" => workspace_diagnostics_picker,
+                "s" => lsp_or_syntax_symbol_picker,
+            },
             "'" => last_picker,
             "G" => { "Debug (experimental)" sticky=true
                 "l" => dap_launch,
@@ -282,6 +324,9 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 },
             },
             "y" => yank_to_clipboard,
+            "t" => { "Tools"
+                "c" => command_mode,
+            },
             "Y" => yank_main_selection_to_clipboard,
             "p" => paste_clipboard_after,
             "P" => paste_clipboard_before,
@@ -294,6 +339,9 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "C" => toggle_block_comments,
             "A-c" => toggle_line_comments,
             "?" => command_palette,
+            "c" => { "Configuration"
+                "t" => theme,
+            },
         },
         "z" => { "View"
             "z" | "c" => align_view_center,
