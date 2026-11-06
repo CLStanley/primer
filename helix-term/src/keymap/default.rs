@@ -87,8 +87,20 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "C" => copy_selection_on_next_line,
         "A-C" => copy_selection_on_prev_line,
         "s" => { "Select"
-            "l" => extend_line,
-            "F" => select_all,
+            "l" => enzyme_select_line,
+            "w" => enzyme_select_word,
+            "W" => enzyme_select_long_word,
+            "f" => enzyme_select_function,
+            "c" => enzyme_select_comment,
+            "C" => enzyme_select_class,
+            "s" => enzyme_select_section,
+            "b" => enzyme_select_block,
+            "p" => enzyme_select_pair,
+            "F" => enzyme_select_file,
+            "i" => { "Inside"
+                "c" => enzyme_select_inside_comment,
+                "p" => enzyme_select_inside_pair,
+            },
             "x" => { "Split selection"
                 "l" => split_selection_on_newline,
                 "m" => split_selection,
@@ -181,6 +193,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "A-(" => rotate_selection_contents_backward,
         "A-)" => rotate_selection_contents_forward,
         "A-:" => ensure_selections_forward,
+        "backspace" => enzyme_cancel_transient_selection,
         "esc" => normal_mode,
         "C-b" | "pageup" => page_up,
         "C-f" | "pagedown" => page_down,
@@ -347,6 +360,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "F" => extend_prev_char,
         "home" => extend_to_line_start,
         "end" => extend_to_line_end,
+        "backspace" => enzyme_cancel_transient_selection,
         "esc" => exit_select_mode,
         "v" => normal_mode,
         "g" => { "Go"
