@@ -10,76 +10,90 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "j" | "down" => move_visual_line_down,
         "k" | "up" => move_visual_line_up,
         "l" | "right" => move_char_right,
-
         "t" => find_till_char,
         "f" => find_next_char,
         "T" => till_prev_char,
         "F" => find_prev_char,
         "r" => replace,
         "R" => replace_with_yanked,
-        "A-." =>  repeat_last_motion,
-
+        "A-." => repeat_last_motion,
         "~" => switch_case,
         "`" => switch_to_lowercase,
         "A-`" => switch_to_uppercase,
-
         "home" => goto_line_start,
         "end" => goto_line_end,
-
         "w" => move_next_word_start,
         "b" => move_prev_word_start,
         "e" => move_next_word_end,
-
         "W" => move_next_long_word_start,
         "B" => move_prev_long_word_start,
         "E" => move_next_long_word_end,
-
         "v" => select_mode,
         "G" => goto_line,
-        "g" => { "Goto"
-            "g" => goto_file_start,
-            "|" => goto_column,
-            "e" => goto_last_line,
-            "f" => goto_file,
-            "h" => goto_line_start,
-            "l" => goto_line_end,
-            "s" => goto_first_nonwhitespace,
+        "g" => { "Go"
+            "s" => { "Start of"
+                "l" => goto_first_nonwhitespace,
+                "w" => move_prev_word_start,
+                "W" => move_prev_long_word_start,
+                "F" => goto_file_start,
+            },
+            "e" => { "End of"
+                "l" => goto_line_end,
+                "w" => move_next_word_end,
+                "W" => move_next_long_word_end,
+                "F" => goto_last_line,
+            },
+            "n" => { "Next"
+                "d" => goto_next_diag,
+                "f" => goto_next_function,
+                "c" => goto_next_comment,
+                "C" => goto_next_class,
+                "s" => goto_next_paragraph,
+                "m" => goto_next_change,
+            },
+            "N" => { "Previous"
+                "d" => goto_prev_diag,
+                "f" => goto_prev_function,
+                "c" => goto_prev_comment,
+                "C" => goto_prev_class,
+                "s" => goto_prev_paragraph,
+                "m" => goto_prev_change,
+            },
+            "0" => goto_line_start,
             "d" => goto_definition,
             "D" => goto_declaration,
-            "y" => goto_type_definition,
-            "r" => goto_reference,
             "i" => goto_implementation,
-            "t" => goto_window_top,
-            "c" => goto_window_center,
-            "b" => goto_window_bottom,
+            "t" => goto_type_definition,
+            "p" => match_brackets,
+            "|" => goto_column,
+            "f" => goto_file,
+            "r" => goto_reference,
             "a" => goto_last_accessed_file,
             "m" => goto_last_modified_file,
-            "n" => goto_next_buffer,
-            "p" => goto_previous_buffer,
-            "k" => move_line_up,
-            "j" => move_line_down,
             "." => goto_last_modification,
             "w" => goto_word,
         },
         ":" => command_mode,
-
         "i" => insert_mode,
         "I" => insert_at_line_start,
         "a" => append_mode,
         "A" => insert_at_line_end,
         "o" => open_below,
         "O" => open_above,
-
         "d" => delete_selection,
         "A-d" => delete_selection_noyank,
         "c" => change_selection,
         "A-c" => change_selection_noyank,
-
         "C" => copy_selection_on_next_line,
         "A-C" => copy_selection_on_prev_line,
-
-
-        "s" => select_regex,
+        "s" => { "Select"
+            "l" => extend_line,
+            "F" => select_all,
+            "x" => { "Split selection"
+                "l" => split_selection_on_newline,
+                "m" => split_selection,
+            },
+        },
         "A-s" => split_selection_on_newline,
         "A-minus" => merge_selections,
         "A-_" => merge_consecutive_selections,
@@ -94,12 +108,10 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "A-e" => move_parent_node_end,
         "A-b" => move_parent_node_start,
         "A-a" => select_all_siblings,
-
         "%" => select_all,
         "x" => extend_line_below,
         "X" => extend_to_line_bounds,
         "A-x" => shrink_to_line_bounds,
-
         "m" => { "Match"
             "m" => match_brackets,
             "s" => surround_add,
@@ -138,28 +150,21 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "x" => goto_next_xml_element,
             "space" => add_newline_below,
         },
-
         "/" => search,
         "?" => rsearch,
         "n" => search_next,
         "N" => search_prev,
         "*" => search_selection_detect_word_boundaries,
         "A-*" => search_selection,
-
         "u" => undo,
         "U" => redo,
         "A-u" => earlier,
         "A-U" => later,
-
         "y" => yank,
-        // yank_all
         "p" => paste_after,
-        // paste_all
         "P" => paste_before,
-
         "Q" => record_macro,
         "q" => replay_macro,
-
         ">" => indent,
         "<" => unindent,
         "=" => format_selections,
@@ -167,29 +172,20 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "A-J" => join_selections_space,
         "K" => keep_selections,
         "A-K" => remove_selections,
-
         "," => keep_primary_selection,
         "A-," => remove_primary_selection,
-
-        // "q" => record_macro,
-        // "Q" => replay_macro,
-
         "&" => align_selections,
         "_" => trim_selections,
-
         "(" => rotate_selections_backward,
         ")" => rotate_selections_forward,
         "A-(" => rotate_selection_contents_backward,
         "A-)" => rotate_selection_contents_forward,
-
         "A-:" => ensure_selections_forward,
-
         "esc" => normal_mode,
         "C-b" | "pageup" => page_up,
         "C-f" | "pagedown" => page_down,
         "C-u" => page_cursor_half_up,
         "C-d" => page_cursor_half_down,
-
         "C-w" => { "Window"
             "C-w" | "w" => rotate_view,
             "C-s" | "s" => hsplit,
@@ -212,16 +208,10 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "C-v" | "v" => vsplit_new,
             },
         },
-
-        // move under <space>c
         "C-c" => toggle_comments,
-
-        // z family for save/restore/combine from/to sels from register
-
-        "C-i" | "tab" => jump_forward, // tab == <C-i>
+        "C-i" | "tab" => jump_forward,
         "C-o" => jump_backward,
         "C-s" => save_selection,
-
         "space" => { "Space"
             "f" => file_picker,
             "F" => file_picker_in_current_directory,
@@ -252,7 +242,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "s" => { "Switch"
                     "t" => dap_switch_thread,
                     "f" => dap_switch_stack_frame,
-                    // sl, sb
                 },
                 "e" => dap_enable_exceptions,
                 "E" => dap_disable_exceptions,
@@ -304,7 +293,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "C-f" | "pagedown" => page_down,
             "C-u" | "backspace" => page_cursor_half_up,
             "C-d" | "space" => page_cursor_half_down,
-
             "/" => search,
             "?" => rsearch,
             "n" => search_next,
@@ -321,13 +309,11 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "C-f" | "pagedown" => page_down,
             "C-u" | "backspace" => page_cursor_half_up,
             "C-d" | "space" => page_cursor_half_down,
-
             "/" => search,
             "?" => rsearch,
             "n" => search_next,
             "N" => search_prev,
         },
-
         "\"" => select_register,
         "|" => shell_pipe,
         "A-|" => shell_pipe_to,
@@ -335,56 +321,77 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "A-!" => shell_append_output,
         "$" => shell_keep_pipe,
         "C-z" => suspend,
-
         "C-a" => increment,
         "C-x" => decrement,
     });
+
     let mut select = normal.clone();
     select.merge_nodes(keymap!({ "Select mode"
         "h" | "left" => extend_char_left,
         "j" | "down" => extend_visual_line_down,
         "k" | "up" => extend_visual_line_up,
         "l" | "right" => extend_char_right,
-
         "w" => extend_next_word_start,
         "b" => extend_prev_word_start,
         "e" => extend_next_word_end,
         "W" => extend_next_long_word_start,
-        "B" => extend_prev_long_word_start,
+        "B" => extend_prev_word_start,
         "E" => extend_next_long_word_end,
-
         "A-e" => extend_parent_node_end,
         "A-b" => extend_parent_node_start,
-
         "n" => extend_search_next,
         "N" => extend_search_prev,
-
         "t" => extend_till_char,
         "f" => extend_next_char,
         "T" => extend_till_prev_char,
         "F" => extend_prev_char,
-
         "home" => extend_to_line_start,
         "end" => extend_to_line_end,
         "esc" => exit_select_mode,
-
         "v" => normal_mode,
-        "g" => { "Goto"
-            "g" => extend_to_file_start,
+        "g" => { "Go"
+            "s" => { "Start of"
+                "l" => extend_to_first_nonwhitespace,
+                "w" => extend_prev_word_start,
+                "W" => extend_prev_word_start,
+                "F" => extend_to_file_start,
+            },
+            "e" => { "End of"
+                "l" => extend_to_line_end,
+                "w" => extend_next_word_end,
+                "W" => extend_next_long_word_end,
+                "F" => extend_to_last_line,
+            },
+            "n" => { "Next"
+                "d" => goto_next_diag,
+                "f" => goto_next_function,
+                "c" => goto_next_comment,
+                "C" => goto_next_class,
+                "s" => goto_next_paragraph,
+                "m" => goto_next_change,
+            },
+            "N" => { "Previous"
+                "d" => goto_prev_diag,
+                "f" => goto_prev_function,
+                "c" => goto_prev_comment,
+                "C" => goto_prev_class,
+                "s" => goto_prev_paragraph,
+                "m" => goto_prev_change,
+            },
+            "p" => match_brackets,
+            "0" => extend_to_line_start,
+            "w" => extend_to_word,
             "|" => extend_to_column,
-            "e" => extend_to_last_line,
             "k" => extend_line_up,
             "j" => extend_line_down,
-            "w" => extend_to_word,
         },
     }));
+
     let insert = keymap!({ "Insert mode"
         "esc" => normal_mode,
-
         "C-s" => commit_undo_checkpoint,
         "C-x" => completion,
         "C-r" => insert_register,
-
         "C-w" | "A-backspace" => delete_word_backward,
         "A-d" | "A-del" => delete_word_forward,
         "C-u" => kill_to_line_start,
@@ -394,7 +401,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "C-j" | "ret" => insert_newline,
         "tab" => smart_tab,
         "S-tab" => insert_tab,
-
         "up" => move_visual_line_up,
         "down" => move_visual_line_down,
         "left" => move_char_left,
@@ -404,9 +410,5 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "home" => goto_line_start,
         "end" => goto_line_end_newline,
     });
-    hashmap!(
-        Mode::Normal => normal,
-        Mode::Select => select,
-        Mode::Insert => insert,
-    )
+    hashmap!(Mode::Normal => normal, Mode::Select => select, Mode::Insert => insert)
 }
