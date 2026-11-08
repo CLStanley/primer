@@ -258,23 +258,17 @@ fn enzyme_add_matching(cx: &mut Context, direction: i8) {
         return;
     }
 
-    // Around-word selections may contain padding. Normalize the source
-    // selection to exactly the same text as every occurrence we add.
-    let fragment = primary.fragment(text).to_string();
-    let needle = fragment.trim();
+    // Match the exact selected text, including whitespace if requested.
+    let needle = primary.fragment(text).to_string();
     if needle.is_empty() {
-        cx.editor.set_error("Select non-whitespace text before adding matches");
+        cx.editor.set_error("Select text before adding matches");
         return;
     }
-    let leading = fragment.chars().take_while(|ch| ch.is_whitespace()).count();
-    let source_start = primary.from() + leading;
-    let source = Range::new(source_start, source_start + needle.chars().count())
-        .with_direction(primary.direction());
-    let source_index = before.primary_index();
-    let normalized = before.replace(source_index, source);
+    let source = primary;
+    let normalized = before;
 
     let haystack = text.to_string();
-    let matches: Vec<Range> = haystack.match_indices(needle).map(|(byte, matched)| {
+    let matches: Vec<Range> = haystack.match_indices(&needle).map(|(byte, matched)| {
         let start = haystack[..byte].chars().count();
         Range::new(start, start + matched.chars().count())
     }).filter(|candidate| {
@@ -342,7 +336,7 @@ fn enzyme_remove_next_selection(cx: &mut Context) { enzyme_remove_neighbor(cx, t
 fn enzyme_remove_prev_selection(cx: &mut Context) { enzyme_remove_neighbor(cx, false); }
 
 fn enzyme_select_line(cx: &mut Context) { remember_transient_selection(cx, |cx| MappableCommand::extend_line.execute(cx)); }
-fn enzyme_select_word(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 'w')); }
+fn enzyme_select_word(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, false, 'w')); }
 fn enzyme_select_long_word(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 'W')); }
 fn enzyme_select_function(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 'f')); }
 fn enzyme_select_comment(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 'c')); }
