@@ -63,6 +63,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "n" => { "Next"
                 "d" => goto_next_diag,
                 "f" => goto_next_function,
+                "b" => goto_next_block,
                 "c" => goto_next_comment,
                 "C" => goto_next_class,
                 "s" => goto_next_paragraph,
@@ -71,6 +72,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "N" => { "Previous"
                 "d" => goto_prev_diag,
                 "f" => goto_prev_function,
+                "b" => goto_prev_block,
                 "c" => goto_prev_comment,
                 "C" => goto_prev_class,
                 "s" => goto_prev_paragraph,
@@ -440,6 +442,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "n" => { "Next"
                 "d" => goto_next_diag,
                 "f" => goto_next_function,
+                "b" => goto_next_block,
                 "c" => goto_next_comment,
                 "C" => goto_next_class,
                 "s" => goto_next_paragraph,
@@ -448,6 +451,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "N" => { "Previous"
                 "d" => goto_prev_diag,
                 "f" => goto_prev_function,
+                "b" => goto_prev_block,
                 "c" => goto_prev_comment,
                 "C" => goto_prev_class,
                 "s" => goto_prev_paragraph,
