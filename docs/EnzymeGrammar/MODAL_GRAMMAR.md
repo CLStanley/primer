@@ -1,6 +1,8 @@
 # Primer Text Editor — Enzyme Motions Grammar
 
-> **Status:** Active design
+> **Status:** Active design; core selection grammar user-tested
+> **Live keymap note (2026-11-08):** The planned-key table below records historical design decisions and is not an authoritative list of currently bound keys. For implemented Enzyme behavior, consult `helix-term/src/keymap/default.rs` and `SELECTION_GRAMMAR.md`. In particular, `gsC`/`geC` mean class/type, `gsc`/`gec` mean comment, `gsF`/`geF` mean file boundaries, and `?` remains reverse text search. `gl<digits><Enter>` is the absolute line-jump command. The core selection grammar has been user-tested; `gl` still needs runtime confirmation.
+
 >
 > **Primary implementation target:** Primer, the Rust/Helix fork
 >
