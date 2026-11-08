@@ -36,6 +36,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "v" => select_mode,
         "G" => goto_line,
         "g" => { "Go"
+            "l" => enzyme_goto_line_number,
             "s" => { "Start of"
                 "l" => goto_first_nonwhitespace,
                 "d" => goto_file_start,
@@ -118,7 +119,17 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "b" => enzyme_select_block,
             "p" => enzyme_select_pair,
             "F" => enzyme_select_file,
+            "1" => enzyme_select_count_1,
+            "2" => enzyme_select_count_2,
+            "3" => enzyme_select_count_3,
+            "4" => enzyme_select_count_4,
+            "5" => enzyme_select_count_5,
+            "6" => enzyme_select_count_6,
+            "7" => enzyme_select_count_7,
+            "8" => enzyme_select_count_8,
+            "9" => enzyme_select_count_9,
             "i" => { "Inside"
+                "b" => enzyme_select_inside_block,
                 "c" => enzyme_select_inside_comment,
                 "p" => enzyme_select_inside_pair,
             },
@@ -422,6 +433,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "esc" => exit_select_mode,
         "v" => normal_mode,
         "g" => { "Go"
+            "l" => enzyme_goto_line_number,
             "s" => { "Start of"
                 "l" => extend_to_first_nonwhitespace,
                 "d" => extend_to_file_start,
