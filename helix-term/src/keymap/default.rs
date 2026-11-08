@@ -122,6 +122,11 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "c" => enzyme_select_inside_comment,
                 "p" => enzyme_select_inside_pair,
             },
+            "a" => { "Add matching selection"
+                "n" => enzyme_add_next_match,
+                "N" => enzyme_add_prev_match,
+                "a" => enzyme_add_all_matches,
+            },
             "r" => { "Remove selection"
                 "a" => keep_primary_selection,
                 "m" => remove_selections,
