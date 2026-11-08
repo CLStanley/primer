@@ -5,7 +5,7 @@
 
 use std::{cell::RefCell, num::NonZeroUsize};
 
-use helix_core::{match_brackets, movement, textobject, Range, Selection};
+use helix_core::{match_brackets, textobject, Range, Selection};
 use helix_view::{document::Mode, keyboard::KeyCode, DocumentId, ViewId};
 use crate::commands::{Context, MappableCommand};
 
@@ -379,13 +379,15 @@ fn select_counted_words(cx: &mut Context, count: usize, long: bool) {
             if word.is_empty() { return range; }
             let start = word.from();
             for _ in 1..count {
-                let next = if long {
-                    movement::move_next_long_word_start(text, Range::point(word.from()), 1)
-                } else {
-                    movement::move_next_word_start(text, Range::point(word.from()), 1)
-                };
-                let next_pos = next.cursor(text);
-                if next_pos <= word.from() || next_pos >= text.len_chars() { break; }
+                // Start after the selected word, skipping whitespace. A
+                // point-based word motion may resolve to the same word.
+                let mut next_pos = word.to();
+                while next_pos < text.len_chars()
+                    && text.get_char(next_pos).is_some_and(char::is_whitespace)
+                {
+                    next_pos += 1;
+                }
+                if next_pos >= text.len_chars() { break; }
                 let candidate = textobject::textobject_word(
                     text, Range::point(next_pos), textobject::TextObject::Inside, 1, long,
                 );
