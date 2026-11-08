@@ -337,7 +337,7 @@ fn enzyme_remove_prev_selection(cx: &mut Context) { enzyme_remove_neighbor(cx, f
 
 fn enzyme_select_line(cx: &mut Context) { remember_transient_selection(cx, |cx| MappableCommand::extend_line.execute(cx)); }
 fn enzyme_select_word(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, false, 'w')); }
-fn enzyme_select_long_word(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 'W')); }
+fn enzyme_select_long_word(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, false, 'W')); }
 fn enzyme_select_function(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 'f')); }
 fn enzyme_select_comment(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 'c')); }
 fn enzyme_select_inside_comment(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, false, 'c')); }
