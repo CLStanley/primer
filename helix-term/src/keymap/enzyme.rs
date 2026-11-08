@@ -246,6 +246,54 @@ fn select_pair(cx: &mut Context, object: textobject::TextObject) {
     doc.set_selection(view.id, selection);
 }
 
+/// Add literal occurrences of the primary selection, without changing the
+/// search register or interpreting punctuation as regular expressions.
+fn enzyme_add_matching(cx: &mut Context, direction: i8) {
+    let (view, doc) = current!(cx.editor);
+    let text = doc.text().slice(..);
+    let before = doc.selection(view.id).clone();
+    let primary = before.primary();
+    if primary.from() == primary.to() {
+        cx.editor.set_error("Select some text before adding matches");
+        return;
+    }
+    let needle = primary.fragment(text).to_string();
+    if needle.is_empty() {
+        return;
+    }
+    let haystack = text.to_string();
+    let matches: Vec<Range> = haystack.match_indices(&needle).map(|(byte, matched)| {
+        let start = haystack[..byte].chars().count();
+        Range::new(start, start + matched.chars().count())
+    }).filter(|candidate| {
+        !before.ranges().iter().any(|existing| candidate.from() < existing.to() && existing.from() < candidate.to())
+    }).collect();
+    let selected = if direction == 0 {
+        matches
+    } else {
+        let position = if direction > 0 { primary.to() } else { primary.from() };
+        let candidate = if direction > 0 {
+            matches.iter().find(|r| r.from() >= position).or_else(|| matches.first())
+        } else {
+            matches.iter().rev().find(|r| r.to() <= position).or_else(|| matches.last())
+        };
+        candidate.copied().into_iter().collect()
+    };
+    if selected.is_empty() {
+        cx.editor.set_status("No additional matching occurrences");
+        return;
+    }
+    let mut selection = before;
+    for range in selected {
+        selection = selection.push(range);
+    }
+    doc.set_selection(view.id, selection);
+}
+
+fn enzyme_add_next_match(cx: &mut Context) { enzyme_add_matching(cx, 1); }
+fn enzyme_add_prev_match(cx: &mut Context) { enzyme_add_matching(cx, -1); }
+fn enzyme_add_all_matches(cx: &mut Context) { enzyme_add_matching(cx, 0); }
+
 fn enzyme_select_line(cx: &mut Context) { remember_transient_selection(cx, |cx| MappableCommand::extend_line.execute(cx)); }
 fn enzyme_select_word(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 'w')); }
 fn enzyme_select_long_word(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 'W')); }
@@ -278,6 +326,9 @@ impl MappableCommand {
     pub const enzyme_goto_section_end: Self = Self::Static { name: "enzyme_goto_section_end", fun: enzyme_goto_section_end, doc: "Go to end of current section" };
     pub const enzyme_goto_block_start: Self = Self::Static { name: "enzyme_goto_block_start", fun: enzyme_goto_block_start, doc: "Go to start of current structural block" };
     pub const enzyme_goto_block_end: Self = Self::Static { name: "enzyme_goto_block_end", fun: enzyme_goto_block_end, doc: "Go to end of current structural block" };
+    pub const enzyme_add_next_match: Self = Self::Static { name: "enzyme_add_next_match", fun: enzyme_add_next_match, doc: "Add next matching occurrence" };
+    pub const enzyme_add_prev_match: Self = Self::Static { name: "enzyme_add_prev_match", fun: enzyme_add_prev_match, doc: "Add previous matching occurrence" };
+    pub const enzyme_add_all_matches: Self = Self::Static { name: "enzyme_add_all_matches", fun: enzyme_add_all_matches, doc: "Add all matching occurrences" };
     pub const enzyme_select_line: Self = Self::Static { name: "enzyme_select_line", fun: enzyme_select_line, doc: "Select current line" };
     pub const enzyme_select_word: Self = Self::Static { name: "enzyme_select_word", fun: enzyme_select_word, doc: "Select current word" };
     pub const enzyme_select_long_word: Self = Self::Static { name: "enzyme_select_long_word", fun: enzyme_select_long_word, doc: "Select current long word" };
