@@ -154,6 +154,22 @@ fn select_structural_block(cx: &mut Context) {
     doc.set_selection(view.id, selection);
 }
 
+fn select_inside_structural_block(cx: &mut Context) {
+    let loader = cx.editor.syn_loader.load();
+    let (view, doc) = current!(cx.editor);
+    let Some(syntax) = doc.syntax() else {
+        cx.editor.set_status("Syntax-tree is not available in current buffer");
+        return;
+    };
+    let text = doc.text().slice(..);
+    let selection = doc.selection(view.id).clone().transform(|range| {
+        textobject::textobject_treesitter(
+            text, range, textobject::TextObject::Inside, "block", syntax, &loader, 1,
+        )
+    });
+    doc.set_selection(view.id, selection);
+}
+
 fn goto_block_boundary(cx: &mut Context, start: bool) {
     let mode = cx.editor.mode;
     let before = {
@@ -335,6 +351,59 @@ fn enzyme_remove_neighbor(cx: &mut Context, forward: bool) {
 fn enzyme_remove_next_selection(cx: &mut Context) { enzyme_remove_neighbor(cx, true); }
 fn enzyme_remove_prev_selection(cx: &mut Context) { enzyme_remove_neighbor(cx, false); }
 
+// Count-prefixed selection uses Helix's existing count-aware text objects.
+fn await_selection_count(cx: &mut Context, digits: String) {
+    cx.editor.set_status(format!("SELECT COUNT: {digits} (w/W/l)"));
+    cx.on_next_key(move |cx, event| match event.code {
+        KeyCode::Char(ch) if ch.is_ascii_digit() => {
+            let mut next = digits;
+            next.push(ch);
+            await_selection_count(cx, next);
+        }
+        KeyCode::Backspace => {
+            let mut next = digits;
+            next.pop();
+            await_selection_count(cx, next);
+        }
+        KeyCode::Char('w' | 'W' | 'l') => {
+            let Ok(count) = digits.parse::<usize>() else {
+                cx.editor.set_error("Invalid selection count");
+                return;
+            };
+            if count == 0 {
+                cx.editor.set_error("Selection count must be positive");
+                return;
+            }
+            let old_count = cx.count;
+            cx.count = NonZeroUsize::new(count);
+            match event.code {
+                KeyCode::Char('w') => enzyme_select_word(cx),
+                KeyCode::Char('W') => enzyme_select_long_word(cx),
+                KeyCode::Char('l') => enzyme_select_line(cx),
+                _ => unreachable!(),
+            }
+            cx.count = old_count;
+        }
+        KeyCode::Esc => {}
+        _ => cx.editor.set_error("Selection count expects digits followed by w, W, or l"),
+    });
+}
+
+macro_rules! selection_count_starters {
+    ($(($name:ident, $digit:literal)),* $(,)?) => {
+        $(fn $name(cx: &mut Context) {
+            await_selection_count(cx, $digit.to_string());
+        })*
+    };
+}
+selection_count_starters!(
+    (enzyme_select_count_1, "1"), (enzyme_select_count_2, "2"),
+    (enzyme_select_count_3, "3"), (enzyme_select_count_4, "4"),
+    (enzyme_select_count_5, "5"), (enzyme_select_count_6, "6"),
+    (enzyme_select_count_7, "7"), (enzyme_select_count_8, "8"),
+    (enzyme_select_count_9, "9"),
+);
+
 fn enzyme_select_line(cx: &mut Context) { remember_transient_selection(cx, |cx| MappableCommand::extend_line.execute(cx)); }
 fn enzyme_select_word(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, false, 'w')); }
 fn enzyme_select_long_word(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, false, 'W')); }
@@ -344,6 +413,7 @@ fn enzyme_select_inside_comment(cx: &mut Context) { remember_transient_selection
 fn enzyme_select_class(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 't')); }
 fn enzyme_select_section(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 'p')); }
 fn enzyme_select_block(cx: &mut Context) { remember_transient_selection(cx, select_structural_block); }
+fn enzyme_select_inside_block(cx: &mut Context) { remember_transient_selection(cx, select_inside_structural_block); }
 fn enzyme_select_pair(cx: &mut Context) { remember_transient_selection(cx, |cx| select_pair(cx, textobject::TextObject::Around)); }
 fn enzyme_select_inside_pair(cx: &mut Context) { remember_transient_selection(cx, |cx| select_pair(cx, textobject::TextObject::Inside)); }
 fn enzyme_select_file(cx: &mut Context) { remember_transient_selection(cx, |cx| MappableCommand::select_all.execute(cx)); }
@@ -372,6 +442,16 @@ impl MappableCommand {
     pub const enzyme_add_all_matches: Self = Self::Static { name: "enzyme_add_all_matches", fun: enzyme_add_all_matches, doc: "Add all matching occurrences" };
     pub const enzyme_remove_next_selection: Self = Self::Static { name: "enzyme_remove_next_selection", fun: enzyme_remove_next_selection, doc: "Remove next secondary selection" };
     pub const enzyme_remove_prev_selection: Self = Self::Static { name: "enzyme_remove_prev_selection", fun: enzyme_remove_prev_selection, doc: "Remove previous secondary selection" };
+    pub const enzyme_select_inside_block: Self = Self::Static { name: "enzyme_select_inside_block", fun: enzyme_select_inside_block, doc: "Select inside current structural block" };
+    pub const enzyme_select_count_1: Self = Self::Static { name: "enzyme_select_count_1", fun: enzyme_select_count_1, doc: "Select a counted number of words or lines" };
+    pub const enzyme_select_count_2: Self = Self::Static { name: "enzyme_select_count_2", fun: enzyme_select_count_2, doc: "Select a counted number of words or lines" };
+    pub const enzyme_select_count_3: Self = Self::Static { name: "enzyme_select_count_3", fun: enzyme_select_count_3, doc: "Select a counted number of words or lines" };
+    pub const enzyme_select_count_4: Self = Self::Static { name: "enzyme_select_count_4", fun: enzyme_select_count_4, doc: "Select a counted number of words or lines" };
+    pub const enzyme_select_count_5: Self = Self::Static { name: "enzyme_select_count_5", fun: enzyme_select_count_5, doc: "Select a counted number of words or lines" };
+    pub const enzyme_select_count_6: Self = Self::Static { name: "enzyme_select_count_6", fun: enzyme_select_count_6, doc: "Select a counted number of words or lines" };
+    pub const enzyme_select_count_7: Self = Self::Static { name: "enzyme_select_count_7", fun: enzyme_select_count_7, doc: "Select a counted number of words or lines" };
+    pub const enzyme_select_count_8: Self = Self::Static { name: "enzyme_select_count_8", fun: enzyme_select_count_8, doc: "Select a counted number of words or lines" };
+    pub const enzyme_select_count_9: Self = Self::Static { name: "enzyme_select_count_9", fun: enzyme_select_count_9, doc: "Select a counted number of words or lines" };
     pub const enzyme_select_line: Self = Self::Static { name: "enzyme_select_line", fun: enzyme_select_line, doc: "Select current line" };
     pub const enzyme_select_word: Self = Self::Static { name: "enzyme_select_word", fun: enzyme_select_word, doc: "Select current word" };
     pub const enzyme_select_long_word: Self = Self::Static { name: "enzyme_select_long_word", fun: enzyme_select_long_word, doc: "Select current long word" };
