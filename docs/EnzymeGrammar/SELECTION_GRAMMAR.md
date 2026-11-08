@@ -106,7 +106,7 @@ Established examples:
 |---|---|
 | `sic` | select inside current comment using Tree-sitter's comment-inside range |
 | `sip` | select inside surrounding pair, excluding delimiters |
-| `sib` | select inside current Tree-sitter block when a reliable inside range exists |
+| `sib` | proposed inside-block selection; **not bound yet** |
 
 The same rule can extend naturally to other objects only when Helix/Tree-sitter supplies a meaningful distinction between the whole object and its contents. Primer should not invent arbitrary inside semantics merely to make the grammar exhaustive.
 
@@ -122,7 +122,7 @@ Pair selection must use matching-pair semantics rather than treating a pair as a
 
 ## Counts
 
-Counts compose inside the Enzyme sentence. For selection, the count includes the current object and produces one contiguous selection:
+Counts are a **design proposal, not yet implemented for Enzyme `s` prefixes**. The following examples must not be treated as working commands until digit handling is added:
 
 ```text
 sw      current word
@@ -184,7 +184,7 @@ saN    select → add → previous matching occurrence
 saa    select → add → all matching occurrences
 ```
 
-The match source is the current selection text/range, not necessarily a lexical word.
+The match source is the **exact** selected text, including intentional whitespace; it is not necessarily a lexical word. `sw` and `sW` select inside the word without incidental padding. Adding matches preserves the original primary selection. These are literal substring matches, not symbol-aware renames or whole-identifier matches.
 
 ### Remove selections
 
@@ -205,10 +205,10 @@ The selection-set grammar is bound in `helix-term/src/keymap/default.rs`:
 | `san`, `saN`, `saa` | Enzyme literal occurrence selection | User-tested |
 | `srn`, `srN` | Enzyme secondary-selection removal | User-tested |
 | `sra` | Native `keep_primary_selection` | User-tested |
-| `skm` | Native `keep_selections` | Awaiting focused test |
-| `srm` | Native `remove_selections` | Awaiting focused test |
-| `sxl` | Native `split_selection_on_newline` | Awaiting focused test |
-| `sxm` | Native `split_selection` | Awaiting focused test |
+| `skm` | Native `keep_selections` | User-tested |
+| `srm` | Native `remove_selections` | User-tested |
+| `sxl` | Native `split_selection_on_newline` | User-tested |
+| `sxm` | Native `split_selection` | User-tested |
 
 Filtering and splitting deliberately reuse Helix's regex prompts and selection handling. Do not introduce parallel Enzyme implementations unless a reproducible behavior gap is found.
 
@@ -315,5 +315,31 @@ Before Enzyme v1 is frozen, Primer still needs:
 - Backspace transient-selection cancellation/restoration verification;
 - Select/Visual-mode navigation parity for compatible Enzyme motions;
 - a Helix parity audit to ensure advanced capabilities remain reachable without automatically remapping them;
-- verification of regex selection/filter/split behavior for the common Enzyme multiple-selection grammar;
+- regex selection/filter/split behavior: **user-tested** (`skm`, `srm`, `sxl`, `sxm`);
 - verification of commands whose Helix behavior cannot sensibly map to a contiguous selection across buffers/files.
+
+## Final keymap audit — 2026-11-08
+
+This is a source-level audit of `helix-term/src/keymap/default.rs` and `helix-term/src/keymap/enzyme.rs`, **not a compiled or exhaustive runtime test**. Enzyme v1 is not yet frozen.
+
+### Confirmed / preserved
+
+- `sw` and `sW` use Helix's **inside** word text objects; the matching-selection family uses exact selected text rather than stripping whitespace.
+- `san`, `saN`, `saa` retain the original primary selection; `srn`, `srN`, `sra`, `skm`, `srm`, `sxl`, `sxm` are mapped and user-tested.
+- `m` is modify/change; `c` toggles comments. The select-prefix map advertises direct objects and selection-set subfamilies.
+- Native advanced selection operations remain mapped: `(`, `)`, `,`, `Alt+,`, `Alt+;`, `Alt+o`, `Alt+i`, `Alt+a`, `Alt+n`, `Alt+p`, `&`, `_`, and rotation-content variants. These do not require duplicate Enzyme implementations.
+- `Space+l+r` and `Space+r` provide semantic LSP rename; literal multiple-selection replacement is **not** a semantic rename.
+
+### Remaining discrepancies / targeted follow-ups
+
+1. **Inside block:** `sib` is documented as a proposed form but has no keymap entry or adapter. Implement only when the Tree-sitter block-inside query can be defined reliably.
+2. **Selection counts:** `s2w`, `s3w`, and `s2l` are proposed, but digit-prefixed `s` object grammar is not bound. Do not advertise these as working.
+3. **Navigation vocabulary:** the parent `MODAL_GRAMMAR.md` still contains early proposals such as `gsc` for class, `gsd` for document, and `?` for LSP hover. Current mappings use `gsC` for class, `gsF` for file (with `gsd` alias), and `?` for reverse search. Parent design notes require a separate reconciliation before being called a live key reference.
+4. **Word boundary navigation:** `gsW` and `geW` are currently delegated to directional native long-word motions, unlike `gsw`/`gew` which use Enzyme's word-boundary helper. Confirm intended semantics before changing these bindings.
+5. **Select-mode extension:** `gs`/`ge` structural adapters support selection extension, but `gn`/`gN` structural movements are currently inherited as normal-mode navigation commands. Verify extension semantics in Select mode before claiming full parity.
+6. **Cross-language text objects:** `sc`/`sic`, `sb`, `sp`/`sip`, and Backspace transient restoration still need targeted cross-language/edge-case testing. Tree-sitter availability is language-dependent.
+7. **Scope:** `saa` matches literal occurrences in the current buffer. It is not project-wide replacement; LSP rename is the appropriate semantic tool where supported.
+
+### Audit disposition
+
+The tested multiple-selection workflow is usable. Preserve the native Helix advanced commands and defer unverified or speculative grammar expansions. Resolve the remaining items above (or explicitly mark them deferred) before declaring the whole Enzyme grammar stable and moving to a dashboard milestone.
