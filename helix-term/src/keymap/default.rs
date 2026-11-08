@@ -128,6 +128,8 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "a" => enzyme_add_all_matches,
             },
             "r" => { "Remove selection"
+                "n" => enzyme_remove_next_selection,
+                "N" => enzyme_remove_prev_selection,
                 "a" => keep_primary_selection,
                 "m" => remove_selections,
             },
