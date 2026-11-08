@@ -1,6 +1,6 @@
 # Primer Text Editor — Enzyme Selection Grammar
 
-> **Status:** Proposed v1 — active implementation/dogfooding
+> **Status:** Core selection workflows user-tested; remaining edge cases tracked below
 >
 > **Parent specification:** `MODAL_GRAMMAR.md`
 
@@ -307,14 +307,14 @@ Select/Visual mode should instead surface compatible motions/navigation because 
 
 The old proposed `spn/spN/spo` primary-selection namespace is intentionally removed. `sp` means select pair; Primer preserves Helix's concise `(`/`)`/`,`/`Alt+,` controls for primary-selection management.
 
-Before Enzyme v1 is frozen, Primer still needs:
+Remaining validation before declaring all of Enzyme v1 stable:
 
 - implementation verification for `sp` / `sip` using true matching-pair semantics;
-- implementation verification for `sb` / `sib` using Tree-sitter-defined block semantics;
+- `sb` / `sib`: user-tested in the current language; test other languages separately where relevant;
 - implementation verification for `sc` / `sic` across languages with comment text-object queries;
 - Backspace transient-selection cancellation/restoration verification;
-- Select/Visual-mode navigation parity for compatible Enzyme motions;
-- a Helix parity audit to ensure advanced capabilities remain reachable without automatically remapping them;
+- Select/Visual-mode navigation: user reports `gnf` and related commands working; verify any untested motions individually;
+- Helix advanced-selection keymap parity: source-audited; verify terminal-specific key combinations only if issues appear;
 - regex selection/filter/split behavior: **user-tested** (`skm`, `srm`, `sxl`, `sxm`);
 - verification of commands whose Helix behavior cannot sensibly map to a contiguous selection across buffers/files.
 
@@ -332,27 +332,41 @@ This is a source-level audit of `helix-term/src/keymap/default.rs` and `helix-te
 
 ### Remaining discrepancies / targeted follow-ups
 
-1. **Inside block:** `sib` is now mapped to the native Tree-sitter `block.inside` capture. Its behavior depends on language query availability and needs runtime testing.
-2. **Selection counts:** `s2w`, `s3w`, and `s2l` now use Helix count-aware text objects and need runtime testing. Only `w`, `W`, and `l` are supported after a count.
+1. **Inside block:** `sib` is user-tested. It uses a `block.inside` capture when present, otherwise excludes outer braces from a brace-delimited `block.around` capture. Other language grammars may need dedicated queries.
+2. **Selection counts:** `s<count>w` is user-tested after the explicit word-advance fix. `s<count>W` uses the same implementation; `s<count>l` delegates to native line extension. The latter two remain to be tested separately.
 3. **Navigation vocabulary:** the parent `MODAL_GRAMMAR.md` still contains early proposals such as `gsc` for class, `gsd` for document, and `?` for LSP hover. Current mappings use `gsC` for class, `gsF` for file (with `gsd` alias), and `?` for reverse search. Parent design notes require a separate reconciliation before being called a live key reference.
 4. **Word boundary navigation:** `gsW` and `geW` are currently delegated to directional native long-word motions, unlike `gsw`/`gew` which use Enzyme's word-boundary helper. Confirm intended semantics before changing these bindings.
-5. **Select-mode extension:** `gs`/`ge` structural adapters support selection extension, but `gn`/`gN` structural movements are currently inherited as normal-mode navigation commands. Verify extension semantics in Select mode before claiming full parity.
+5. **Select-mode extension:** user reports `gnf` and related navigation working. The keymap inherits several `gn`/`gN` movements; confirm whether they extend the selection in each intended case before claiming universal extension parity.
 6. **Cross-language text objects:** `sc`/`sic`, `sb`, `sp`/`sip`, and Backspace transient restoration still need targeted cross-language/edge-case testing. Tree-sitter availability is language-dependent.
 7. **Scope:** `saa` matches literal occurrences in the current buffer. It is not project-wide replacement; LSP rename is the appropriate semantic tool where supported.
 
 ### Audit disposition
 
-The tested multiple-selection workflow is usable. Preserve the native Helix advanced commands and defer unverified or speculative grammar expansions. Resolve the remaining items above (or explicitly mark them deferred) before declaring the whole Enzyme grammar stable and moving to a dashboard milestone.
+The core selection workflow is user-tested and usable. Preserve native Helix advanced commands and defer speculative expansions. Remaining cross-language and select-extension edge cases are tracked rather than treated as blockers for beginning dashboard design.
 
 ## Post-audit implementation checkpoint
 
 - `sib` prefers a `block.inside` Tree-sitter capture; for brace-delimited `block.around` captures it falls back to excluding the outer `{}`. Other languages without an inside capture remain unsupported until a language-specific definition exists.
 - `s<count>w` and `s<count>W` explicitly advance across successive words because Helix's word text object ignores count; `s<count>l` uses native count-aware line extension. All accept one or more digits. Zero and invalid counts are rejected; Esc cancels an unfinished count.
 - `gl<digits><Enter>` prompts for an absolute 1-based line number; Backspace edits the number and Esc cancels. The `gl` binding is present in Normal and Select mode, but select-mode line extension needs runtime verification.
-- These changes have been committed without a local compilation/test run.
+- `sib` and `s<count>w` have since been rebuilt and user-tested successfully; `gl` has not yet been confirmed by the user.
 
 ### Follow-up fix
 
 - Fixed counted word selection to advance through successive word boundaries instead of passing a count to the Helix word text object (which ignores it).
 - Added brace-delimited fallback for inside structural block selection where `block.inside` is absent.
-- These changes require user rebuild and verification; they have not been compiled locally.
+- User subsequently confirmed `sib` and `s<count>w` working; this is no longer pending.
+
+## Current verification matrix
+
+| Feature | Status |
+|---|---|
+| `sw`, `sW`, literal matching, selection removal/filter/split | User-tested |
+| `sib` (current tested language) | User-tested |
+| `s<count>w` | User-tested after fix `4a35f4c` |
+| `s<count>W`, `s<count>l` | Implemented; separately unverified |
+| `gnf` and related Select navigation | User reports working; not exhaustive |
+| `gl<digits><Enter>` | Source-reviewed; runtime confirmation pending |
+| `sp`/`sip`, `sc`/`sic` across languages | Targeted verification pending |
+
+**Absolute line jump:** `gl` is mapped in both Normal and Select keymaps to `enzyme_goto_line_number`. The handler accumulates digits, supports Backspace and Esc, and executes Helix's `goto_line` on Enter with a 1-based count. A zero or invalid number does not move the cursor. This is a source-level verification, not proof of runtime behavior. Existing bare `G` remains available as a fast path.
