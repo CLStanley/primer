@@ -116,7 +116,16 @@ fn goto_textobject_boundary(cx: &mut Context, object_key: char, start: bool) {
     let object = doc.selection(view.id).clone();
     let mut before_ranges = before.ranges().iter();
     let selection = object.transform(|range| {
-        let target = if start { range.from() } else { range.to().saturating_sub(1) };
+        // Helix ranges use an exclusive end. A forward selection must extend
+        // through the final character of the object, not stop just before it.
+        // Normal-mode movement still lands on the final character itself.
+        let target = if start {
+            range.from()
+        } else if mode == Mode::Select {
+            range.to()
+        } else {
+            range.to().saturating_sub(1)
+        };
         if mode == Mode::Select {
             let anchor = before_ranges.next().map_or(range.anchor, |old| old.anchor);
             Range::new(anchor, target)
