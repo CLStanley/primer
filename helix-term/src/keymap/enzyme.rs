@@ -298,6 +298,32 @@ fn enzyme_add_next_match(cx: &mut Context) { enzyme_add_matching(cx, 1); }
 fn enzyme_add_prev_match(cx: &mut Context) { enzyme_add_matching(cx, -1); }
 fn enzyme_add_all_matches(cx: &mut Context) { enzyme_add_matching(cx, 0); }
 
+/// Remove the nearest secondary selection in the requested direction.
+/// The primary selection stays intact so repeated removal is predictable.
+fn enzyme_remove_neighbor(cx: &mut Context, forward: bool) {
+    let (view, doc) = current!(cx.editor);
+    let selection = doc.selection(view.id).clone();
+    if selection.len() <= 1 {
+        cx.editor.set_status("No secondary selections to remove");
+        return;
+    }
+    let primary = selection.primary_index();
+    let count = selection.len();
+    let index = if forward {
+        (1..count).map(|step| (primary + step) % count)
+            .find(|&index| index != primary)
+    } else {
+        (1..count).map(|step| (primary + count - step) % count)
+            .find(|&index| index != primary)
+    };
+    if let Some(index) = index {
+        doc.set_selection(view.id, selection.remove(index));
+    }
+}
+
+fn enzyme_remove_next_selection(cx: &mut Context) { enzyme_remove_neighbor(cx, true); }
+fn enzyme_remove_prev_selection(cx: &mut Context) { enzyme_remove_neighbor(cx, false); }
+
 fn enzyme_select_line(cx: &mut Context) { remember_transient_selection(cx, |cx| MappableCommand::extend_line.execute(cx)); }
 fn enzyme_select_word(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 'w')); }
 fn enzyme_select_long_word(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 'W')); }
@@ -333,6 +359,8 @@ impl MappableCommand {
     pub const enzyme_add_next_match: Self = Self::Static { name: "enzyme_add_next_match", fun: enzyme_add_next_match, doc: "Add next matching occurrence" };
     pub const enzyme_add_prev_match: Self = Self::Static { name: "enzyme_add_prev_match", fun: enzyme_add_prev_match, doc: "Add previous matching occurrence" };
     pub const enzyme_add_all_matches: Self = Self::Static { name: "enzyme_add_all_matches", fun: enzyme_add_all_matches, doc: "Add all matching occurrences" };
+    pub const enzyme_remove_next_selection: Self = Self::Static { name: "enzyme_remove_next_selection", fun: enzyme_remove_next_selection, doc: "Remove next secondary selection" };
+    pub const enzyme_remove_prev_selection: Self = Self::Static { name: "enzyme_remove_prev_selection", fun: enzyme_remove_prev_selection, doc: "Remove previous secondary selection" };
     pub const enzyme_select_line: Self = Self::Static { name: "enzyme_select_line", fun: enzyme_select_line, doc: "Select current line" };
     pub const enzyme_select_word: Self = Self::Static { name: "enzyme_select_word", fun: enzyme_select_word, doc: "Select current word" };
     pub const enzyme_select_long_word: Self = Self::Static { name: "enzyme_select_long_word", fun: enzyme_select_long_word, doc: "Select current long word" };
