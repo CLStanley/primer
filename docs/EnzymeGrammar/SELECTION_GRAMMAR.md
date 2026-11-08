@@ -346,7 +346,13 @@ The tested multiple-selection workflow is usable. Preserve the native Helix adva
 
 ## Post-audit implementation checkpoint
 
-- `sib` delegates to `block.inside` Tree-sitter capture, with language-dependent availability.
-- `s<count>w`, `s<count>W`, and `s<count>l` accept one or more digits, then select using native count-aware behavior. Zero and invalid counts are rejected; Esc cancels an unfinished count.
+- `sib` prefers a `block.inside` Tree-sitter capture; for brace-delimited `block.around` captures it falls back to excluding the outer `{}`. Other languages without an inside capture remain unsupported until a language-specific definition exists.
+- `s<count>w` and `s<count>W` explicitly advance across successive words because Helix's word text object ignores count; `s<count>l` uses native count-aware line extension. All accept one or more digits. Zero and invalid counts are rejected; Esc cancels an unfinished count.
 - `gl<digits><Enter>` prompts for an absolute 1-based line number; Backspace edits the number and Esc cancels. The `gl` binding is present in Normal and Select mode, but select-mode line extension needs runtime verification.
 - These changes have been committed without a local compilation/test run.
+
+### Follow-up fix
+
+- Fixed counted word selection to advance through successive word boundaries instead of passing a count to the Helix word text object (which ignores it).
+- Added brace-delimited fallback for inside structural block selection where `block.inside` is absent.
+- These changes require user rebuild and verification; they have not been compiled locally.
