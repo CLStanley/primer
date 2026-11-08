@@ -196,6 +196,22 @@ sra    select → remove → all additional/secondary selections
 
 `sra` leaves the primary selection intact.
 
+### Implementation checkpoint (2026-11-08)
+
+The selection-set grammar is bound in `helix-term/src/keymap/default.rs`:
+
+| Command | Implementation | Verification |
+|---|---|---|
+| `san`, `saN`, `saa` | Enzyme literal occurrence selection | User-tested |
+| `srn`, `srN` | Enzyme secondary-selection removal | User-tested |
+| `sra` | Native `keep_primary_selection` | User-tested |
+| `skm` | Native `keep_selections` | Awaiting focused test |
+| `srm` | Native `remove_selections` | Awaiting focused test |
+| `sxl` | Native `split_selection_on_newline` | Awaiting focused test |
+| `sxm` | Native `split_selection` | Awaiting focused test |
+
+Filtering and splitting deliberately reuse Helix's regex prompts and selection handling. Do not introduce parallel Enzyme implementations unless a reproducible behavior gap is found.
+
 ### Keep/filter and split
 
 ```text
