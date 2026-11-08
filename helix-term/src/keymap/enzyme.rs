@@ -257,25 +257,36 @@ fn enzyme_add_matching(cx: &mut Context, direction: i8) {
         cx.editor.set_error("Select some text before adding matches");
         return;
     }
-    // Helix's around-word text object can include adjacent whitespace.
-    // Match the word itself, not its incidental padding.
+
+    // Around-word selections may contain padding. Normalize the source
+    // selection to exactly the same text as every occurrence we add.
     let fragment = primary.fragment(text).to_string();
     let needle = fragment.trim();
     if needle.is_empty() {
         cx.editor.set_error("Select non-whitespace text before adding matches");
         return;
     }
+    let leading = fragment.chars().take_while(|ch| ch.is_whitespace()).count();
+    let source_start = primary.from() + leading;
+    let source = Range::new(source_start, source_start + needle.chars().count())
+        .with_direction(primary.direction());
+    let source_index = before.primary_index();
+    let normalized = before.replace(source_index, source);
+
     let haystack = text.to_string();
     let matches: Vec<Range> = haystack.match_indices(needle).map(|(byte, matched)| {
         let start = haystack[..byte].chars().count();
         Range::new(start, start + matched.chars().count())
     }).filter(|candidate| {
-        !before.ranges().iter().any(|existing| candidate.from() < existing.to() && existing.from() < candidate.to())
+        !normalized.ranges().iter().any(|existing| {
+            candidate.from() < existing.to() && existing.from() < candidate.to()
+        })
     }).collect();
-    let selected = if direction == 0 {
+
+    let selected: Vec<Range> = if direction == 0 {
         matches
     } else {
-        let position = if direction > 0 { primary.to() } else { primary.from() };
+        let position = if direction > 0 { source.to() } else { source.from() };
         let candidate = if direction > 0 {
             matches.iter().find(|r| r.from() >= position).or_else(|| matches.first())
         } else {
@@ -283,17 +294,23 @@ fn enzyme_add_matching(cx: &mut Context, direction: i8) {
         };
         candidate.copied().into_iter().collect()
     };
+
     if selected.is_empty() {
         cx.editor.set_status("No additional matching occurrences");
         return;
     }
-    let mut selection = before;
+
+    let mut selection = normalized;
     for range in selected {
         selection = selection.push(range);
     }
+    // Selection::push makes the newly added range primary. Restore the
+    // original source as primary after sorting/normalization.
+    if let Some(index) = selection.ranges().iter().position(|r| *r == source) {
+        selection.set_primary_index(index);
+    }
     doc.set_selection(view.id, selection);
 }
-
 fn enzyme_add_next_match(cx: &mut Context) { enzyme_add_matching(cx, 1); }
 fn enzyme_add_prev_match(cx: &mut Context) { enzyme_add_matching(cx, -1); }
 fn enzyme_add_all_matches(cx: &mut Context) { enzyme_add_matching(cx, 0); }
