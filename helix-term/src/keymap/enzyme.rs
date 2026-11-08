@@ -136,6 +136,51 @@ fn goto_textobject_boundary(cx: &mut Context, object_key: char, start: bool) {
     doc.set_selection(view.id, selection);
 }
 
+/// Select the enclosing Tree-sitter block captured by the language's
+/// `block.around` query, rather than Helix's closest delimiter pair.
+fn select_structural_block(cx: &mut Context) {
+    let loader = cx.editor.syn_loader.load();
+    let (view, doc) = current!(cx.editor);
+    let Some(syntax) = doc.syntax() else {
+        cx.editor.set_status("Syntax-tree is not available in current buffer");
+        return;
+    };
+    let text = doc.text().slice(..);
+    let selection = doc.selection(view.id).clone().transform(|range| {
+        textobject::textobject_treesitter(
+            text, range, textobject::TextObject::Around, "block", syntax, &loader, 1,
+        )
+    });
+    doc.set_selection(view.id, selection);
+}
+
+fn goto_block_boundary(cx: &mut Context, start: bool) {
+    let mode = cx.editor.mode;
+    let before = {
+        let (view, doc) = current!(cx.editor);
+        doc.selection(view.id).clone()
+    };
+    select_structural_block(cx);
+    let (view, doc) = current!(cx.editor);
+    let mut before_ranges = before.ranges().iter();
+    let selection = doc.selection(view.id).clone().transform(|range| {
+        let original = before_ranges.next();
+        // No matching block: preserve the original cursor/selection.
+        if original.is_some_and(|old| *old == range) {
+            return range;
+        }
+        let target = if start { range.from() }
+            else if mode == Mode::Select { range.to() }
+            else { range.to().saturating_sub(1) };
+        if mode == Mode::Select {
+            Range::new(original.map_or(range.anchor, |old| old.anchor), target)
+        } else {
+            Range::point(target)
+        }
+    });
+    doc.set_selection(view.id, selection);
+}
+
 fn enzyme_goto_function_start(cx: &mut Context) { goto_textobject_boundary(cx, 'f', true); }
 fn enzyme_goto_function_end(cx: &mut Context) { goto_textobject_boundary(cx, 'f', false); }
 fn enzyme_goto_comment_start(cx: &mut Context) { goto_textobject_boundary(cx, 'c', true); }
@@ -144,8 +189,8 @@ fn enzyme_goto_class_start(cx: &mut Context) { goto_textobject_boundary(cx, 't',
 fn enzyme_goto_class_end(cx: &mut Context) { goto_textobject_boundary(cx, 't', false); }
 fn enzyme_goto_section_start(cx: &mut Context) { goto_textobject_boundary(cx, 'p', true); }
 fn enzyme_goto_section_end(cx: &mut Context) { goto_textobject_boundary(cx, 'p', false); }
-fn enzyme_goto_block_start(cx: &mut Context) { goto_textobject_boundary(cx, 'm', true); }
-fn enzyme_goto_block_end(cx: &mut Context) { goto_textobject_boundary(cx, 'm', false); }
+fn enzyme_goto_block_start(cx: &mut Context) { goto_block_boundary(cx, true); }
+fn enzyme_goto_block_end(cx: &mut Context) { goto_block_boundary(cx, false); }
 
 /// `gl<number>` is an argument-taking command, not a count.
 fn await_line_number(cx: &mut Context, digits: String) {
@@ -209,7 +254,7 @@ fn enzyme_select_comment(cx: &mut Context) { remember_transient_selection(cx, |c
 fn enzyme_select_inside_comment(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, false, 'c')); }
 fn enzyme_select_class(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 't')); }
 fn enzyme_select_section(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 'p')); }
-fn enzyme_select_block(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 'm')); }
+fn enzyme_select_block(cx: &mut Context) { remember_transient_selection(cx, select_structural_block); }
 fn enzyme_select_pair(cx: &mut Context) { remember_transient_selection(cx, |cx| select_pair(cx, textobject::TextObject::Around)); }
 fn enzyme_select_inside_pair(cx: &mut Context) { remember_transient_selection(cx, |cx| select_pair(cx, textobject::TextObject::Inside)); }
 fn enzyme_select_file(cx: &mut Context) { remember_transient_selection(cx, |cx| MappableCommand::select_all.execute(cx)); }
