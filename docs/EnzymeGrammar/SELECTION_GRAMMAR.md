@@ -1,0 +1,372 @@
+# Primer Text Editor — Enzyme Selection Grammar
+
+> **Status:** Core selection workflows user-tested; remaining edge cases tracked below
+>
+> **Parent specification:** `MODAL_GRAMMAR.md`
+
+## Purpose
+
+Primer has two complementary ways to select text:
+
+```text
+s...    deliberately select a known object
+v       enter interactive Select/Visual mode
+```
+
+`s` is the explicit object-selection grammar. `v` preserves Helix's interactive selection-extension concept: once Select/Visual mode is active, compatible motions extend the current selection instead of merely moving it.
+
+Primer preserves Helix's first-class selection model. Enzyme changes the vocabulary used to express intent, not the underlying range/multiple-selection machinery.
+
+## Core selection rule
+
+> **`s + object` selects the whole object. `s + i + object` selects the contents inside that object.**
+
+The whole-object form includes the object's boundaries when the object has meaningful boundaries. The `i` modifier removes those boundaries and selects the contents.
+
+There is no `so...` family: selecting the object itself already means selecting the whole/around object. Primer only advertises `si<object>` combinations for which the underlying editor can define a useful and reliable inside range.
+
+## Core object vocabulary
+
+| Key | Object | Notes |
+|---|---|---|
+| `l` | line | Whole current line. |
+| `w` | word | Word under/at cursor. |
+| `W` | long word | Whitespace-delimited long word. |
+| `f` | function/method | Language-neutral callable concept. |
+| `F` | file | Complete contents of the current file/buffer. |
+| `c` | comment | Tree-sitter comment object. |
+| `C` | class/type | Structural type/class declaration. |
+| `b` | structural block | **Tree-sitter/language-defined** block. |
+| `s` | section | Paragraph/logical text section containing the cursor. |
+| `p` | pair | Matching delimiters such as `()`, `[]`, `{}`, quotes, etc. |
+
+Capitalization may distinguish related objects that naturally compete for the same mnemonic: `w/W` is word/long-word, `c/C` is comment/class, and `f/F` is function/file.
+
+Enzyme deliberately uses **file**, not **document**, as its user-facing term for the complete editable contents. Helix may internally represent an open file as a Document; that is an implementation detail. File-wide commands also apply sensibly to unsaved buffers.
+
+Structural objects should use Tree-sitter where practical. Section is Primer's user-facing term for the paragraph-like text unit traditionally called a paragraph by modal editors.
+
+### Block and pair are intentionally different
+
+A **block** is a semantic/syntactic object defined by the language's Tree-sitter support. Primer should not redefine a block as "whatever is inside braces." Different languages may recognize different structures as blocks.
+
+A **pair** is a matching-delimiter relationship that remains useful even when the user does not yet understand a language's structural grammar. A brace-delimited construct may happen to be both a Tree-sitter block and a pair, but those are separate concepts.
+
+## Direct object selection
+
+| Key | Meaning |
+|---|---|
+| `sl` | select line |
+| `sw` | select word |
+| `sW` | select long word |
+| `sf` | select current function/method |
+| `sF` | select whole file |
+| `sc` | select current comment |
+| `sC` | select current class/type |
+| `sb` | select current Tree-sitter structural block |
+| `ss` | select current section |
+| `sp` | select surrounding pair, including delimiters |
+
+These acquire the containing/current object directly. They are for the thought "select this thing," rather than "start selecting while I move."
+
+`sF` is Enzyme's select-all spelling. `F` means file throughout the object grammar, so the command reads directly as **select file** and is deliberately harder to trigger accidentally than a single immediate select-all key.
+
+## Comment selection and comment actions
+
+Comments are first-class Enzyme objects:
+
+```text
+sc     select current comment
+sic    select inside current comment
+```
+
+Primer delegates both forms to Helix's Tree-sitter comment text objects. `sc` uses the language's `comment.around` range where available; `sic` uses `comment.inside`. This lets each language define comment boundaries rather than teaching Enzyme its own collection of `//`, `/* */`, `#`, and other delimiters.
+
+Comment **selection** and comment **toggling** are separate concepts. `c` in an object slot means comment, while `Ctrl-C` remains the direct toggle-comment action. Leader comment actions remain available as well.
+
+That permits compositional workflows such as:
+
+```text
+sl → Ctrl-C     select line → toggle comment
+sf → Ctrl-C     select function → toggle comment
+s2l → Ctrl-C    select two lines → toggle comment
+```
+
+## Inside selection
+
+`i` means **inside** and appears between the Select verb and the object:
+
+```text
+s i [object]
+```
+
+Established examples:
+
+| Key | Meaning |
+|---|---|
+| `sic` | select inside current comment using Tree-sitter's comment-inside range |
+| `sip` | select inside surrounding pair, excluding delimiters |
+| `sib` | select inside the current Tree-sitter block when a `block.inside` query exists |
+
+The same rule can extend naturally to other objects only when Helix/Tree-sitter supplies a meaningful distinction between the whole object and its contents. Primer should not invent arbitrary inside semantics merely to make the grammar exhaustive.
+
+For pairs:
+
+```text
+foo(alpha, beta)
+   ^-----------^   sp  -> (alpha, beta)
+    ^---------^    sip -> alpha, beta
+```
+
+Pair selection must use matching-pair semantics rather than treating a pair as a Tree-sitter block.
+
+## Counts
+
+Counts are implemented for word (`w`), long-word (`W`), and line (`l`) selection. Enter digits immediately after `s`, followed by the object key:
+
+```text
+sw      current word
+s2w     current word + next word
+s3w     current word + next two words
+
+sW      current long word
+s2W     current + next long word
+
+sl      current line
+s2l     current + next line
+```
+
+The count is a repeat/object count, not an argument. This is distinct from navigation such as `gl225`, where `225` is an absolute line-number argument.
+
+## Canceling an accidental/transient selection
+
+Primer distinguishes **leaving a mode**, **canceling a transient operation**, and **undoing an edit**:
+
+```text
+Esc         exit/cancel the current mode or incomplete grammar sentence
+Backspace   "oops, never mind" — cancel the current transient Enzyme operation
+u           undo an actual edit
+;           collapse the current selection at its active position
+```
+
+For an Enzyme object selection, Backspace restores the selection/cursor state that existed immediately before the transient selection operation when that state is available. In interactive Select mode, Backspace abandons the current interactive range, returns to its anchor, and exits to Normal mode.
+
+Backspace is **not** an editing undo mechanism. Once an action has changed the file, `u` remains the way to undo that edit.
+
+## Interactive Select/Visual mode
+
+```text
+v    enter Select/Visual mode
+```
+
+Select/Visual mode supplies the selection intent implicitly. Therefore Enzyme does **not** add a redundant `se... = select → extend...` family.
+
+> **In Select/Visual mode, a compatible movement/navigation sentence extends the selection to the destination described by that sentence.**
+
+The grammar is therefore learned once. Not every Navigation command can sensibly extend a contiguous selection; cross-file semantic jumps may not. Primer preserves useful Helix behavior where possible without pretending impossible cross-buffer ranges exist.
+
+## Multiple-selection grammar
+
+Multiple selections remain first-class Helix selections. Enzyme supplies predictable grammar for common selection-building operations where doing so materially improves normal editing.
+
+```text
+s a ...    select → add ...
+s r ...    select → remove ...
+s k ...    select → keep/filter ...
+s x ...    select → split ...
+```
+
+### Add matching selections
+
+```text
+san    select → add → next matching occurrence
+saN    select → add → previous matching occurrence
+saa    select → add → all matching occurrences
+```
+
+The match source is the **exact** selected text, including intentional whitespace; it is not necessarily a lexical word. `sw` and `sW` select inside the word without incidental padding. Adding matches preserves the original primary selection. These are literal substring matches, not symbol-aware renames or whole-identifier matches.
+
+### Remove selections
+
+```text
+srn    select → remove → next selection
+srN    select → remove → previous selection
+sra    select → remove → all additional/secondary selections
+```
+
+`sra` leaves the primary selection intact.
+
+### Implementation checkpoint (2026-11-08)
+
+The selection-set grammar is bound in `helix-term/src/keymap/default.rs`:
+
+| Command | Implementation | Verification |
+|---|---|---|
+| `san`, `saN`, `saa` | Enzyme literal occurrence selection | User-tested |
+| `srn`, `srN` | Enzyme secondary-selection removal | User-tested |
+| `sra` | Native `keep_primary_selection` | User-tested |
+| `skm` | Native `keep_selections` | User-tested |
+| `srm` | Native `remove_selections` | User-tested |
+| `sxl` | Native `split_selection_on_newline` | User-tested |
+| `sxm` | Native `split_selection` | User-tested |
+
+Filtering and splitting deliberately reuse Helix's regex prompts and selection handling. Do not introduce parallel Enzyme implementations unless a reproducible behavior gap is found.
+
+### Keep/filter and split
+
+```text
+skm    select → keep → matching...
+srm    select → remove → matching...
+
+sx...  select → split ...
+sxl    split selection into lines
+sxm    split selection by matches...
+```
+
+## Advanced selection-set controls
+
+Enzyme lowers the learning curve; it does not attempt to eliminate learning. Specialized controls may still require learning and reference.
+
+Primer intentionally preserves these concise Helix controls rather than inventing a longer Enzyme namespace:
+
+```text
+(       rotate selections backward / change primary backward
+)       rotate selections forward / change primary forward
+,       keep only the primary selection
+Alt+,   remove the primary selection
+```
+
+Other advanced Helix selection operations—alignment, selection-direction flipping, rotating selection contents, syntax-tree growth/shrinkage, sibling/parent/child operations, and similar tools—must remain reachable. They may retain sensible Helix bindings unless dogfooding demonstrates a meaningful reason to promote them into Enzyme grammar.
+
+## Actions after selection
+
+Selection hands off naturally to direct editing actions:
+
+```text
+sl Ctrl-C    select line → toggle comment
+sw m         select word → modify
+sf y         select function → yank
+sic d        select inside comment → delete
+sip d        select inside pair → delete
+sF y         select file → yank
+```
+
+Editing actions operate across all active selections where supported.
+
+## Helper examples
+
+After `s`:
+
+```text
+SELECT…
+
+l    line
+w    word
+W    long word
+f    function/method
+F    file
+c    comment
+C    class/type
+b    block (Tree-sitter/language-defined)
+s    section
+p    pair
+i    inside…
+a    add selection…
+r    remove selection…
+k    keep/filter selections…
+x    split selection…
+```
+
+Select/Visual mode should instead surface compatible motions/navigation because `v` already supplies the Select/Extend intent.
+
+## Design constraints
+
+1. `s` means deliberate object-selection grammar.
+2. `v` preserves interactive Select/Visual mode.
+3. `s + object` selects the whole object; `s + i + object` selects inside it when a meaningful inside range exists.
+4. There is no redundant `so...` outside/around family.
+5. `block` is Tree-sitter/language-defined; `pair` is a separate matching-delimiter concept.
+6. `c` means comment and `C` means class/type in object slots.
+7. `f` means function and `F` means file in object slots.
+8. Enzyme uses **file** rather than **document** as user-facing terminology for the complete editable contents.
+9. In Select/Visual mode, compatible navigation extends the selection; do not require a redundant `se` prefix.
+10. Preserve Helix's first-class and multiple-selection model.
+11. Reuse Navigation vocabulary rather than creating a parallel extension vocabulary.
+12. `sF` is select file/select all.
+13. Backspace means cancel the current transient Enzyme operation; Esc remains mode exit/cancel, and `u` remains editing undo.
+14. `n/N` retain next/previous meaning inside selection-set operations.
+15. Prefer the strongest mnemonic for common/core operations; rarer advanced controls may retain concise established bindings.
+16. Primer must account for existing Helix motion/selection capabilities through an explicit parity audit before Enzyme v1 is declared complete.
+17. Do not invent bindings merely to make the grammar exhaustive; preserve sensible conventions when they already satisfy Primer's philosophy.
+
+## Selection v1 implementation checklist
+
+`se...` is intentionally removed. `v` plus compatible motion is the extension model.
+
+`so...` is intentionally removed. Selecting an object directly is the whole/around form; `si...` is the inside modifier.
+
+The old proposed `spn/spN/spo` primary-selection namespace is intentionally removed. `sp` means select pair; Primer preserves Helix's concise `(`/`)`/`,`/`Alt+,` controls for primary-selection management.
+
+Remaining validation before declaring all of Enzyme v1 stable:
+
+- implementation verification for `sp` / `sip` using true matching-pair semantics;
+- `sb` / `sib`: user-tested in the current language; test other languages separately where relevant;
+- implementation verification for `sc` / `sic` across languages with comment text-object queries;
+- Backspace transient-selection cancellation/restoration verification;
+- Select/Visual-mode navigation: user reports `gnf` and related commands working; verify any untested motions individually;
+- Helix advanced-selection keymap parity: source-audited; verify terminal-specific key combinations only if issues appear;
+- regex selection/filter/split behavior: **user-tested** (`skm`, `srm`, `sxl`, `sxm`);
+- verification of commands whose Helix behavior cannot sensibly map to a contiguous selection across buffers/files.
+
+## Final keymap audit — 2026-11-08
+
+This is a source-level audit of `helix-term/src/keymap/default.rs` and `helix-term/src/keymap/enzyme.rs`, **not a compiled or exhaustive runtime test**. Enzyme v1 is not yet frozen.
+
+### Confirmed / preserved
+
+- `sw` and `sW` use Helix's **inside** word text objects; the matching-selection family uses exact selected text rather than stripping whitespace.
+- `san`, `saN`, `saa` retain the original primary selection; `srn`, `srN`, `sra`, `skm`, `srm`, `sxl`, `sxm` are mapped and user-tested.
+- `m` is modify/change; `c` toggles comments. The select-prefix map advertises direct objects and selection-set subfamilies.
+- Native advanced selection operations remain mapped: `(`, `)`, `,`, `Alt+,`, `Alt+;`, `Alt+o`, `Alt+i`, `Alt+a`, `Alt+n`, `Alt+p`, `&`, `_`, and rotation-content variants. These do not require duplicate Enzyme implementations.
+- `Space+l+r` and `Space+r` provide semantic LSP rename; literal multiple-selection replacement is **not** a semantic rename.
+
+### Remaining discrepancies / targeted follow-ups
+
+1. **Inside block:** `sib` is user-tested. It uses a `block.inside` capture when present, otherwise excludes outer braces from a brace-delimited `block.around` capture. Other language grammars may need dedicated queries.
+2. **Selection counts:** `s<count>w` is user-tested after the explicit word-advance fix. `s<count>W` uses the same implementation; `s<count>l` delegates to native line extension. The latter two remain to be tested separately.
+3. **Navigation vocabulary:** the parent `MODAL_GRAMMAR.md` still contains early proposals such as `gsc` for class, `gsd` for document, and `?` for LSP hover. Current mappings use `gsC` for class, `gsF` for file (with `gsd` alias), and `?` for reverse search. Parent design notes require a separate reconciliation before being called a live key reference.
+4. **Word boundary navigation:** `gsW` and `geW` are currently delegated to directional native long-word motions, unlike `gsw`/`gew` which use Enzyme's word-boundary helper. Confirm intended semantics before changing these bindings.
+5. **Select-mode extension:** user reports `gnf` and related navigation working. The keymap inherits several `gn`/`gN` movements; confirm whether they extend the selection in each intended case before claiming universal extension parity.
+6. **Cross-language text objects:** `sc`/`sic`, `sb`, `sp`/`sip`, and Backspace transient restoration still need targeted cross-language/edge-case testing. Tree-sitter availability is language-dependent.
+7. **Scope:** `saa` matches literal occurrences in the current buffer. It is not project-wide replacement; LSP rename is the appropriate semantic tool where supported.
+
+### Audit disposition
+
+The core selection workflow is user-tested and usable. Preserve native Helix advanced commands and defer speculative expansions. Remaining cross-language and select-extension edge cases are tracked rather than treated as blockers for beginning dashboard design.
+
+## Post-audit implementation checkpoint
+
+- `sib` prefers a `block.inside` Tree-sitter capture; for brace-delimited `block.around` captures it falls back to excluding the outer `{}`. Other languages without an inside capture remain unsupported until a language-specific definition exists.
+- `s<count>w` and `s<count>W` explicitly advance across successive words because Helix's word text object ignores count; `s<count>l` uses native count-aware line extension. All accept one or more digits. Zero and invalid counts are rejected; Esc cancels an unfinished count.
+- `gl<digits><Enter>` prompts for an absolute 1-based line number; Backspace edits the number and Esc cancels. The `gl` binding is present in Normal and Select mode, but select-mode line extension needs runtime verification.
+- `sib` and `s<count>w` have since been rebuilt and user-tested successfully; `gl` has not yet been confirmed by the user.
+
+### Follow-up fix
+
+- Fixed counted word selection to advance through successive word boundaries instead of passing a count to the Helix word text object (which ignores it).
+- Added brace-delimited fallback for inside structural block selection where `block.inside` is absent.
+- User subsequently confirmed `sib` and `s<count>w` working; this is no longer pending.
+
+## Current verification matrix
+
+| Feature | Status |
+|---|---|
+| `sw`, `sW`, literal matching, selection removal/filter/split | User-tested |
+| `sib` (current tested language) | User-tested |
+| `s<count>w` | User-tested after fix `4a35f4c` |
+| `s<count>W`, `s<count>l` | Implemented; separately unverified |
+| `gnf` and related Select navigation | User reports working; not exhaustive |
+| `gl<digits><Enter>` | Source-reviewed; runtime confirmation pending |
+| `sp`/`sip`, `sc`/`sic` across languages | Targeted verification pending |
+
+**Absolute line jump:** `gl` is mapped in both Normal and Select keymaps to `enzyme_goto_line_number`. The handler accumulates digits, supports Backspace and Esc, and executes Helix's `goto_line` on Enter with a 1-based count. A zero or invalid number does not move the cursor. This is a source-level verification, not proof of runtime behavior. Existing bare `G` remains available as a fast path.

@@ -570,6 +570,8 @@ impl MappableCommand {
         goto_prev_function, "Goto previous function",
         goto_next_class, "Goto next type definition",
         goto_prev_class, "Goto previous type definition",
+        goto_next_block, "Goto next structural block",
+        goto_prev_block, "Goto previous structural block",
         goto_next_parameter, "Goto next parameter",
         goto_prev_parameter, "Goto previous parameter",
         goto_next_comment, "Goto next comment",
@@ -6209,6 +6211,14 @@ fn goto_next_class(cx: &mut Context) {
 
 fn goto_prev_class(cx: &mut Context) {
     goto_ts_object_impl(cx, "class", Direction::Backward)
+}
+
+fn goto_next_block(cx: &mut Context) {
+    goto_ts_object_impl(cx, "block", Direction::Forward)
+}
+
+fn goto_prev_block(cx: &mut Context) {
+    goto_ts_object_impl(cx, "block", Direction::Backward)
 }
 
 fn goto_next_parameter(cx: &mut Context) {

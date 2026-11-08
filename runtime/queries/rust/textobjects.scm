@@ -1,3 +1,9 @@
+; Enzyme block navigation: use Rust's actual braced block nodes, not
+; the closest delimiter pair (which can be a call's parentheses).
+[
+  (block)
+] @block.around @block.movement
+
 (
   (attribute_item)* @function.around
   .
