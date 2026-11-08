@@ -5,7 +5,7 @@
 
 use std::{cell::RefCell, num::NonZeroUsize};
 
-use helix_core::{match_brackets, textobject, Range, Selection};
+use helix_core::{match_brackets, movement, textobject, Range, Selection};
 use helix_view::{document::Mode, keyboard::KeyCode, DocumentId, ViewId};
 use crate::commands::{Context, MappableCommand};
 
@@ -163,9 +163,25 @@ fn select_inside_structural_block(cx: &mut Context) {
     };
     let text = doc.text().slice(..);
     let selection = doc.selection(view.id).clone().transform(|range| {
-        textobject::textobject_treesitter(
+        // Prefer the language's semantic inside capture. If it is missing,
+        // use the enclosing block's braces as the boundary instead.
+        let inside = textobject::textobject_treesitter(
             text, range, textobject::TextObject::Inside, "block", syntax, &loader, 1,
-        )
+        );
+        if inside != range { return inside; }
+        let around = textobject::textobject_treesitter(
+            text, range, textobject::TextObject::Around, "block", syntax, &loader, 1,
+        );
+        if around == range || around.to() <= around.from() + 1 {
+            return range;
+        }
+        let start = around.from();
+        let end = around.to();
+        if text.get_char(start) == Some('{') && text.get_char(end - 1) == Some('}') {
+            Range::new(start + 1, end - 1)
+        } else {
+            range
+        }
     });
     doc.set_selection(view.id, selection);
 }
@@ -351,7 +367,37 @@ fn enzyme_remove_neighbor(cx: &mut Context, forward: bool) {
 fn enzyme_remove_next_selection(cx: &mut Context) { enzyme_remove_neighbor(cx, true); }
 fn enzyme_remove_prev_selection(cx: &mut Context) { enzyme_remove_neighbor(cx, false); }
 
-// Count-prefixed selection uses Helix's existing count-aware text objects.
+// Helix's word text object ignores count; advance across actual words explicitly.
+fn select_counted_words(cx: &mut Context, count: usize, long: bool) {
+    remember_transient_selection(cx, |cx| {
+        let (view, doc) = current!(cx.editor);
+        let text = doc.text().slice(..);
+        let selection = doc.selection(view.id).clone().transform(|range| {
+            let mut word = textobject::textobject_word(
+                text, range, textobject::TextObject::Inside, 1, long,
+            );
+            if word.is_empty() { return range; }
+            let start = word.from();
+            for _ in 1..count {
+                let next = if long {
+                    movement::move_next_long_word_start(text, Range::point(word.from()), 1)
+                } else {
+                    movement::move_next_word_start(text, Range::point(word.from()), 1)
+                };
+                let next_pos = next.cursor(text);
+                if next_pos <= word.from() || next_pos >= text.len_chars() { break; }
+                let candidate = textobject::textobject_word(
+                    text, Range::point(next_pos), textobject::TextObject::Inside, 1, long,
+                );
+                if candidate.is_empty() || candidate.to() <= word.to() { break; }
+                word = candidate;
+            }
+            Range::new(start, word.to())
+        });
+        doc.set_selection(view.id, selection);
+    });
+}
+
 fn await_selection_count(cx: &mut Context, digits: String) {
     cx.editor.set_status(format!("SELECT COUNT: {digits} (w/W/l)"));
     cx.on_next_key(move |cx, event| match event.code {
@@ -377,8 +423,8 @@ fn await_selection_count(cx: &mut Context, digits: String) {
             let old_count = cx.count;
             cx.count = NonZeroUsize::new(count);
             match event.code {
-                KeyCode::Char('w') => enzyme_select_word(cx),
-                KeyCode::Char('W') => enzyme_select_long_word(cx),
+                KeyCode::Char('w') => select_counted_words(cx, count, false),
+                KeyCode::Char('W') => select_counted_words(cx, count, true),
                 KeyCode::Char('l') => enzyme_select_line(cx),
                 _ => unreachable!(),
             }
