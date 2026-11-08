@@ -2,7 +2,7 @@
 ; the closest delimiter pair (which can be a call's parentheses).
 [
   (block)
-] @block.movement
+] @block.around @block.movement
 
 (
   (attribute_item)* @function.around
