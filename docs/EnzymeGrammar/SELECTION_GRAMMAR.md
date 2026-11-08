@@ -106,7 +106,7 @@ Established examples:
 |---|---|
 | `sic` | select inside current comment using Tree-sitter's comment-inside range |
 | `sip` | select inside surrounding pair, excluding delimiters |
-| `sib` | proposed inside-block selection; **not bound yet** |
+| `sib` | select inside the current Tree-sitter block when a `block.inside` query exists |
 
 The same rule can extend naturally to other objects only when Helix/Tree-sitter supplies a meaningful distinction between the whole object and its contents. Primer should not invent arbitrary inside semantics merely to make the grammar exhaustive.
 
@@ -122,7 +122,7 @@ Pair selection must use matching-pair semantics rather than treating a pair as a
 
 ## Counts
 
-Counts are a **design proposal, not yet implemented for Enzyme `s` prefixes**. The following examples must not be treated as working commands until digit handling is added:
+Counts are implemented for word (`w`), long-word (`W`), and line (`l`) selection. Enter digits immediately after `s`, followed by the object key:
 
 ```text
 sw      current word
@@ -332,8 +332,8 @@ This is a source-level audit of `helix-term/src/keymap/default.rs` and `helix-te
 
 ### Remaining discrepancies / targeted follow-ups
 
-1. **Inside block:** `sib` is documented as a proposed form but has no keymap entry or adapter. Implement only when the Tree-sitter block-inside query can be defined reliably.
-2. **Selection counts:** `s2w`, `s3w`, and `s2l` are proposed, but digit-prefixed `s` object grammar is not bound. Do not advertise these as working.
+1. **Inside block:** `sib` is now mapped to the native Tree-sitter `block.inside` capture. Its behavior depends on language query availability and needs runtime testing.
+2. **Selection counts:** `s2w`, `s3w`, and `s2l` now use Helix count-aware text objects and need runtime testing. Only `w`, `W`, and `l` are supported after a count.
 3. **Navigation vocabulary:** the parent `MODAL_GRAMMAR.md` still contains early proposals such as `gsc` for class, `gsd` for document, and `?` for LSP hover. Current mappings use `gsC` for class, `gsF` for file (with `gsd` alias), and `?` for reverse search. Parent design notes require a separate reconciliation before being called a live key reference.
 4. **Word boundary navigation:** `gsW` and `geW` are currently delegated to directional native long-word motions, unlike `gsw`/`gew` which use Enzyme's word-boundary helper. Confirm intended semantics before changing these bindings.
 5. **Select-mode extension:** `gs`/`ge` structural adapters support selection extension, but `gn`/`gN` structural movements are currently inherited as normal-mode navigation commands. Verify extension semantics in Select mode before claiming full parity.
@@ -343,3 +343,10 @@ This is a source-level audit of `helix-term/src/keymap/default.rs` and `helix-te
 ### Audit disposition
 
 The tested multiple-selection workflow is usable. Preserve the native Helix advanced commands and defer unverified or speculative grammar expansions. Resolve the remaining items above (or explicitly mark them deferred) before declaring the whole Enzyme grammar stable and moving to a dashboard milestone.
+
+## Post-audit implementation checkpoint
+
+- `sib` delegates to `block.inside` Tree-sitter capture, with language-dependent availability.
+- `s<count>w`, `s<count>W`, and `s<count>l` accept one or more digits, then select using native count-aware behavior. Zero and invalid counts are rejected; Esc cancels an unfinished count.
+- `gl<digits><Enter>` prompts for an absolute 1-based line number; Backspace edits the number and Esc cancels. The `gl` binding is present in Normal and Select mode, but select-mode line extension needs runtime verification.
+- These changes have been committed without a local compilation/test run.
