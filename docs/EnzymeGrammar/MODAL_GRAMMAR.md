@@ -661,3 +661,44 @@ Mapped now:
 - `m` is now Modify; the original Match family moved to `M`. This intentionally changes the keystroke, not the operation.
 
 **Verification pending:** This branch has been committed through the GitHub connector but not compiled or interactively tested in Primer. Build and exercise the changed keys before merging.
+
+
+## Implementation checkpoint — Enzyme base import
+
+The default keymap is the source of truth for contextual guidance: the Which-key-style infobox is generated from the keymap trie and its node descriptions. There is no separate Which-key mapping table to keep synchronized. Any changed prefix grammar must therefore be reflected in `default.rs` and verified in the running editor.
+
+### Implemented base grammar on `feature/enzyme-motions`
+
+- Fundamental movement remains Helix-native: `h/j/k/l`.
+- Navigation uses `g` with Start (`s`), End (`e`), Next (`n`), and Previous (`N`) prefixes.
+- Start/End object navigation is now mapped for line, file/document, word, long word, function, comment, class/type, section, and structural block. Structural objects use the existing Enzyme/Helix text-object adapters; file and line boundaries use native Helix commands.
+- Existing quick keys and native navigation remain available where they do not conflict.
+- Selection uses `s` with line, word, long word, function, comment, class/type, section, block, pair, and file objects; inside-comment and inside-pair are available where supported.
+- Selection-set keep/remove/split operations and Backspace transient-selection cancellation remain present.
+- Editing, search, language tooling, window management, Git picker, file/buffer pickers, clipboard, macros, undo/redo, and view commands retain their mapped Helix functionality.
+- Leader prefixes include File, Buffer, Search, Git, Language, Debug, Window, and Tools families. `Space j` currently remains Helix's jumplist picker, not the planned visible-target Jump overlay.
+
+### Intentionally not claimed complete
+
+The following require a later design/implementation pass and must not be represented as implemented merely because a nearby Helix command exists:
+
+- Visible-target `Space j` jump overlay.
+- Primer's searchable help/command explorer under `Space ?`.
+- Project-wide and open-buffer search scopes beyond the existing native search commands.
+- Add-next/add-previous/all matching selection operations (`san/saN/saa`); no verified native equivalent has been wired.
+- Dedicated project/configuration leader families where native commands do not provide a faithful operation.
+- Any behavioral refinement that intentionally diverges from Helix's selection/edit semantics.
+
+### First testing checkpoint
+
+Build and launch the release binary after pulling the branch. Then test:
+
+1. `gsd` / `ged`: start/end of file; `gsF` / `geF` quick-key parity.
+2. `gsl` / `gel`: first non-whitespace / line end.
+3. `gsf` / `gef`, `gsc` / `gec`, `gsC` / `geC`, `gss` / `ges`, `gsb` / `geb`: structural boundaries in supported Rust and plain-text buffers as applicable.
+4. `gsw` / `gew` and `gsW` / `geW`: word and long-word boundaries.
+5. Prefix infoboxes for `g`, `gs`, `ge`, `gn`, `gN`, `s`, and `Space`; confirm labels match available children.
+6. Selection acquisition, Backspace cancellation in Normal and Select modes, and ordinary `u` undo after a real edit.
+7. Smoke-test existing Leader families (file, buffer, search, Git, language, tools, window) and native editing (yank/paste, macros, formatting, comments, undo/redo).
+
+Compilation and the existing keymap duplicate-key test are required before interactive testing. Do not merge to `main` until both pass.
