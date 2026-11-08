@@ -257,12 +257,16 @@ fn enzyme_add_matching(cx: &mut Context, direction: i8) {
         cx.editor.set_error("Select some text before adding matches");
         return;
     }
-    let needle = primary.fragment(text).to_string();
+    // Helix's around-word text object can include adjacent whitespace.
+    // Match the word itself, not its incidental padding.
+    let fragment = primary.fragment(text).to_string();
+    let needle = fragment.trim();
     if needle.is_empty() {
+        cx.editor.set_error("Select non-whitespace text before adding matches");
         return;
     }
     let haystack = text.to_string();
-    let matches: Vec<Range> = haystack.match_indices(&needle).map(|(byte, matched)| {
+    let matches: Vec<Range> = haystack.match_indices(needle).map(|(byte, matched)| {
         let start = haystack[..byte].chars().count();
         Range::new(start, start + matched.chars().count())
     }).filter(|candidate| {
