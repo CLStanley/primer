@@ -554,7 +554,10 @@ where
         .unwrap_or_default()
         .to_string();
 
-    write(context, head.into());
+    if !head.is_empty() {
+        let style = context.editor.theme.get("ui.text.focus");
+        write(context, Span::styled(format!("   {head} "), style));
+    }
 }
 
 fn render_register<'a, F>(context: &mut RenderContext<'a>, write: F)
