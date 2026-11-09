@@ -70,6 +70,17 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
         });
     }
 
+    // Preserve branch visibility for existing user statusline layouts that
+    // override the default and omit the version-control element.
+    if !config.statusline.left.contains(&StatusLineElementID::VersionControl)
+        && !config.statusline.center.contains(&StatusLineElementID::VersionControl)
+        && !config.statusline.right.contains(&StatusLineElementID::VersionControl)
+    {
+        render_version_control(context, |context, span| {
+            append(&mut context.parts.left, span, base_style)
+        });
+    }
+
     surface.set_spans(
         viewport.x,
         viewport.y,
