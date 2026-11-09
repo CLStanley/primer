@@ -449,6 +449,7 @@ impl MappableCommand {
         primer_buffer_new, "New empty buffer",
         primer_buffer_close, "Close current buffer",
         primer_notes_find, "Find Markdown notes in zk notebook",
+        primer_notes_daily, "Open today\u0027s daily note",
         primer_notes_inbox, "Browse zk inbox notes",
         primer_notes_projects, "Browse zk project notes",
         primer_notes_knowledge, "Browse zk knowledge notes",
@@ -3206,6 +3207,34 @@ fn primer_notes_picker(cx: &mut Context, category: Option<&str>) {
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
+fn primer_notes_daily(cx: &mut Context) {
+    let root = primer_notes_root();
+    if !root.is_dir() {
+        cx.editor.set_error(format!("Notebook unavailable: {}", root.display()));
+        return;
+    }
+    let now = chrono::Local::now();
+    let date = now.format("%Y-%m-%d").to_string();
+    let title = now.format("%B %d, %Y").to_string();
+    let folder = root.join("01 Daily");
+    if let Err(err) = std::fs::create_dir_all(&folder) {
+        cx.editor.set_error(err.to_string());
+        return;
+    }
+    let path = folder.join(format!("{date}.md"));
+    if !path.exists() {
+        let content = format!("---\ntitle: \"{title}\"\ntype: daily\ncreated: {date}\nupdated: {date}\ntags:\n  - \n---\n\n# {title}\n\n## Today\n\n<!-- Add topics beneath Today with ### headings, then use lists to organize your thoughts. -->\n\n## What I Learned\n\n<!-- Explain something you learned today in your own words. -->\n\n## Questions\n\n- \n\n## Notes\n\n\n## Follow Up\n\n- [ ] \n");
+        use std::io::Write as _;
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(mut file) => if let Err(err) = file.write_all(content.as_bytes()) { cx.editor.set_error(err.to_string()); return; },
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {},
+            Err(err) => { cx.editor.set_error(err.to_string()); return; }
+        }
+    }
+    if let Err(err) = cx.editor.open(&path, Action::Replace) {
+        cx.editor.set_error(format!("Cannot open daily note: {err}"));
+    }
+}
 fn primer_notes_find(cx: &mut Context) { primer_notes_picker(cx, None); }
 fn primer_notes_inbox(cx: &mut Context) { primer_notes_picker(cx, Some("00 Inbox")); }
 fn primer_notes_projects(cx: &mut Context) { primer_notes_picker(cx, Some("02 Projects")); }
