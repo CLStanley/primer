@@ -410,6 +410,8 @@ pub struct Config {
     pub smart_tab: Option<SmartTabConfig>,
     /// Draw border around popups.
     pub popup_border: PopupBorderConfig,
+    /// Border line style for bordered UI panels.
+    pub border_style: UiBorderStyle,
     /// Which indent heuristic to use when a new line is inserted
     #[serde(default)]
     pub indent_heuristic: IndentationHeuristic,
@@ -1147,6 +1149,16 @@ impl From<LineEndingConfig> for LineEnding {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum UiBorderStyle {
+    Square,
+    #[default]
+    Rounded,
+    Double,
+    None,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PopupBorderConfig {
@@ -1230,6 +1242,7 @@ impl Default for Config {
             trim_trailing_whitespace: false,
             smart_tab: Some(SmartTabConfig::default()),
             popup_border: PopupBorderConfig::None,
+            border_style: UiBorderStyle::default(),
             indent_heuristic: IndentationHeuristic::default(),
             jump_label_alphabet: ('a'..='z').collect(),
             inline_diagnostics: InlineDiagnosticsConfig::default(),
