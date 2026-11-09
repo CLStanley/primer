@@ -29,6 +29,7 @@ impl DashboardAction {
             Self::RecentFiles => "Open buffers",
             Self::OpenProject => "Browse workspace",
             Self::Help => "Keybind help",
+            Self::Quit => "Quit",
         }
     }
 
@@ -38,6 +39,7 @@ impl DashboardAction {
             Self::RecentFiles => 'r',
             Self::OpenProject => 'p',
             Self::Help => '?',
+            Self::Quit => 'q',
         }
     }
 }
@@ -69,7 +71,7 @@ pub fn render_dashboard(
     let show_logo = area.width >= logo_width && area.height >= 20;
     let wide = area.width >= WIDE_LAYOUT_WIDTH && area.height >= 19;
     let heading_height: u16 = if show_logo { LOGO.len() as u16 } else { 1 };
-    let menu_height = if wide { 6 } else { dashboard.actions.len() as u16 + 3 };
+    let menu_height = if wide { 8 } else { dashboard.actions.len() as u16 + 3 };
     let content_height = heading_height + 3 + menu_height;
     let top = area.y + area.height.saturating_sub(content_height) / 2;
 
@@ -109,7 +111,7 @@ pub fn render_dashboard(
         draw_line("FILES", left, menu_top, 5, accent);
         draw_line("WORKSPACE", right, menu_top, 9, accent);
 
-        for (index, action) in dashboard.actions.iter().enumerate() {
+        for (index, action) in dashboard.actions.iter().enumerate().take(4) {
             let column = index / 2;
             let row = index % 2;
             let x = if column == 0 { left } else { right };
@@ -118,8 +120,17 @@ pub fn render_dashboard(
             let style = if index == dashboard.selected { selected } else { normal };
             draw_line(&label, x, menu_top + 2 + row as u16, label.len() as u16, style);
         }
+        // Footer actions sit beneath both columns, like the Neovim dashboard.
+        let quit = DashboardAction::Quit;
+        let quit_label = format!("{}  {}", quit.shortcut(), quit.label());
+        let quit_style = if dashboard.selected_action() == Some(quit) {
+            selected
+        } else {
+            normal
+        };
+        draw_line(&quit_label, right, menu_top + 5, quit_label.len() as u16, quit_style);
         let hint = "j/k navigate  Enter select  Esc edit";
-        draw_line(hint, left, menu_top + 5, hint.len() as u16, normal);
+        draw_line(hint, left, menu_top + 7, hint.len() as u16, normal);
     } else {
         for (index, action) in dashboard.actions.iter().enumerate() {
             let marker = if index == dashboard.selected { ">" } else { " " };
