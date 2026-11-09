@@ -4916,7 +4916,15 @@ fn git_revert_hunk(cx: &mut Context) {
 
 /// Show repository status without leaving Primer.
 fn git_repository_status(cx: &mut Context) {
-    let cwd = helix_stdx::env::current_working_dir();
+    // Resolve Git relative to the active document, not Primer's launch directory.
+    let cwd = {
+        let (_, doc) = current!(cx.editor);
+        match doc.path() {
+            Some(path) => path.parent().map(ToOwned::to_owned),
+            None => None,
+        }
+        .unwrap_or_else(helix_stdx::env::current_working_dir)
+    };
     cx.editor.set_status("Loading Git status…");
     cx.jobs.callback(async move {
         let output = tokio::process::Command::new("git")
