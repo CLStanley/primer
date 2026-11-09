@@ -4665,6 +4665,25 @@ fn goto_first_change_impl(cx: &mut Context, reverse: bool) {
 }
 
 /// Show the original Git content of the change under the cursor without editing the buffer.
+/// Split an original line into unchanged prefix, removed/replaced text, and unchanged suffix.
+/// Operates on Unicode scalar values to avoid splitting UTF-8 code points.
+fn git_change_segments(original: &str, current: &str) -> (String, String, String) {
+    let old: Vec<char> = original.chars().collect();
+    let new: Vec<char> = current.chars().collect();
+    let prefix = old.iter().zip(new.iter()).take_while(|(a, b)| a == b).count();
+    let suffix = old[prefix..]
+        .iter()
+        .rev()
+        .zip(new[prefix..].iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    (
+        old[..prefix].iter().collect(),
+        old[prefix..old.len() - suffix].iter().collect(),
+        old[old.len() - suffix..].iter().collect(),
+    )
+}
+
 fn git_preview_change(cx: &mut Context) {
     let preview = {
         let (view, doc) = current!(cx.editor);
@@ -4677,29 +4696,39 @@ fn git_preview_change(cx: &mut Context) {
         diff.hunk_at(line, false).map(|idx| {
             let hunk = diff.nth_hunk(idx);
             let base = diff.diff_base();
+            let current = doc.text();
             let mut lines = Vec::new();
-            for i in hunk.before.start..hunk.before.end {
-                let content = base.line(i as usize).to_string();
-                lines.push(format!("{:>4}  {}", i + 1, content.trim_end()));
+            for (offset, i) in (hunk.before.start..hunk.before.end).enumerate() {
+                let original = base.line(i as usize).to_string();
+                let original = original.trim_end_matches(['\r', '\n']);
+                let counterpart = hunk.after.start as usize + offset;
+                let current_line = if counterpart < hunk.after.end as usize {
+                    current.line(counterpart).to_string()
+                } else {
+                    String::new()
+                };
+                let (before, changed, after) =
+                    git_change_segments(original, current_line.trim_end_matches(['\r', '\n']));
+                lines.push((format!("{:>4}  ", i + 1), before, changed, after));
             }
             let heading = if hunk.is_pure_insertion() {
                 "Added lines — no previous content"
             } else if hunk.is_pure_removal() {
                 "Deleted lines — previous content"
             } else {
-                "Modified lines — previous content"
+                "Modified lines — removed/replaced text highlighted"
             };
             if lines.is_empty() {
-                lines.push("(No previous content)".to_owned());
+                lines.push(("".into(), "(No previous content)".into(), "".into(), "".into()));
             }
-            format!("**Git change preview · HEAD**\n\n*{}*\n\n```text\n{}\n```", heading, lines.join("\n"))
+            (heading.to_owned(), lines)
         })
     };
-    let Some(preview) = preview else {
+    let Some((heading, lines)) = preview else {
         cx.editor.set_status("Cursor is not on a changed line");
         return;
     };
-    let contents = ui::Markdown::new(preview, cx.editor.syn_loader.clone());
+    let contents = ui::GitChangePreview::new(heading, lines);
     let popup = Popup::new("git-change-preview", contents);
     cx.replace_or_push_layer("git-change-preview", popup);
 }
