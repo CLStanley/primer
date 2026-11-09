@@ -414,7 +414,7 @@ impl Prompt {
         let popup = if floating {
             Rect::new(
                 area.x + area.width.saturating_sub(popup_width) / 2,
-                area.y + area.height / 4,
+                area.y + area.height / 6,
                 popup_width,
                 3,
             )
