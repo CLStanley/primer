@@ -32,7 +32,7 @@ pub fn render_dashboard(
     let content_height = dashboard.actions.len() as u16 + 5;
     let y = area.y + area.height.saturating_sub(content_height) / 2;
 
-    let draw_line = |line: &str, row: u16, style| {
+    let mut draw_line = |line: &str, row: u16, style| {
         if row >= area.bottom() || width == 0 {
             return;
         }
