@@ -4913,6 +4913,47 @@ fn git_revert_hunk(cx: &mut Context) {
     cx.push_layer(Box::new(prompt));
 }
 
+/// Show repository status without leaving Primer.
+fn git_repository_status(cx: &mut Context) {
+    let cwd = helix_stdx::env::current_working_dir();
+    cx.editor.set_status("Loading Git status…");
+    cx.jobs.callback(async move {
+        let output = tokio::process::Command::new("git")
+            .arg("-C").arg(&cwd)
+            .args(["status", "--short", "--branch", "--untracked-files=normal"])
+            .output().await?;
+        if !output.status.success() {
+            anyhow::bail!("Git status failed: {}", String::from_utf8_lossy(&output.stderr));
+        }
+        let content = String::from_utf8_lossy(&output.stdout);
+        let mut lines: Vec<(String, String, String, String)> = content
+            .lines()
+            .take(100)
+            .map(|line| {
+                let (prefix, rest) = if line.starts_with("##") {
+                    ("Branch".to_owned(), format!("  {}", line.trim_start_matches("##").trim()))
+                } else if line.len() >= 3 {
+                    (line[..2].to_owned(), format!("  {}", &line[3..]))
+                } else {
+                    (String::new(), line.to_owned())
+                };
+                (prefix, rest, String::new(), String::new())
+            })
+            .collect();
+        if lines.is_empty() {
+            lines.push((String::new(), "Working tree clean".to_owned(), String::new(), String::new()));
+        }
+        Ok(Callback::EditorCompositor(Box::new(move |_, compositor| {
+            let popup = Popup::new(
+                "git-repository-status",
+                ui::GitChangePreview::new("Git status · staged / unstaged / untracked".to_owned(), lines)
+                    .with_title("Repository status · Space g c opens changed files"),
+            ).with_border();
+            compositor.replace_or_push("git-repository-status", popup);
+        })))
+    });
+}
+
 fn git_stage_hunk(cx: &mut Context) {
     git_change_index_hunk(cx, false);
 }
