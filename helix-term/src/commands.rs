@@ -4832,6 +4832,16 @@ fn git_revert_hunk(cx: &mut Context) {
         }
         (path.to_path_buf(), doc.selection(view.id).primary().cursor_line(doc.text().slice(..)) + 1, doc.version())
     };
+    // Capture the on-disk file before showing the destructive confirmation.
+    // If an external process edits it while the prompt is open, abort instead
+    // of selecting a potentially different hunk at the same line.
+    let original_bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            cx.editor.set_error(format!("Cannot read file before revert: {err}"));
+            return;
+        }
+    };
     let mut prompt = Prompt::new(
         "Discard unstaged Git hunk? Type REVERT to confirm: ".into(),
         None,
@@ -4856,7 +4866,11 @@ fn git_revert_hunk(cx: &mut Context) {
             cx.editor.set_status("Reverting unstaged Git hunk…");
             cx.jobs.callback(async move {
                 let work_path = path.clone();
-                let result = tokio::task::spawn_blocking(move || git_revert_worktree_hunk(work_path, line)).await;
+                let expected_bytes = original_bytes.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    ensure!(std::fs::read(&work_path)? == expected_bytes, "File changed on disk since revert was requested; retry");
+                    git_revert_worktree_hunk(work_path, line)
+                }).await;
                 let outcome = match result {
                     Ok(value) => value.map_err(|err| err.to_string()),
                     Err(err) => Err(err.to_string()),
