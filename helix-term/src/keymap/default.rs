@@ -328,6 +328,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "g" => { "Git"
                 "c" => changed_file_picker,
                 "p" => git_preview_change,
+                "b" => git_blame_line,
             },
             "a" => code_action,
             "l" => { "Language"
