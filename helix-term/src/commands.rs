@@ -413,6 +413,7 @@ impl MappableCommand {
         syntax_symbol_picker, "Open symbol picker from syntax information",
         lsp_or_syntax_symbol_picker, "Open symbol picker from LSP or syntax information",
         changed_file_picker, "Open changed file picker",
+        git_preview_change, "Preview previous Git change at cursor",
         select_references_to_symbol_under_cursor, "Select symbol references",
         workspace_symbol_picker, "Open workspace symbol picker",
         syntax_workspace_symbol_picker, "Open workspace symbol picker from syntax information",
@@ -4680,7 +4681,7 @@ fn git_preview_change(cx: &mut Context) {
     let base = diff.diff_base();
     let original: Vec<String> = (hunk.before.start..hunk.before.end)
         .take(12)
-        .map(|i| base.line(i as usize).to_string().trim_end_matches(['\\r', '\\n']).to_owned())
+        .map(|i| base.line(i as usize).to_string().trim_end_matches(['\r', '\n']).to_owned())
         .collect();
     let mut rows: Vec<(String, String)> = Vec::new();
     if original.is_empty() {
