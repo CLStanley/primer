@@ -431,58 +431,54 @@ impl Prompt {
             .unwrap_or(BASE_WIDTH)
             .max(BASE_WIDTH);
 
+        // Floating suggestions form a single, bordered list directly below the input.
+        // The compact fallback retains the original multi-column layout.
         let completion_width = popup.width;
-        let cols = std::cmp::max(1, completion_width / max_len);
-        let col_width = (completion_width.saturating_sub(cols)) / cols;
-
+        let cols = if floating { 1 } else { std::cmp::max(1, completion_width / max_len) };
+        let col_width = if floating {
+            completion_width.saturating_sub(2)
+        } else {
+            completion_width.saturating_sub(cols) / cols
+        };
+        let available_rows = if floating {
+            area.y.saturating_add(area.height).saturating_sub(popup.y + popup.height + 5)
+        } else {
+            area.height.saturating_sub(1)
+        };
         let height = (self.completion.len() as u16)
             .div_ceil(cols)
-            .min(10) // at most 10 rows (or less)
-            .min(if floating { area.height.saturating_sub(popup.y - area.y + popup.height + 2) } else { area.height.saturating_sub(1) });
-
+            .min(10)
+            .min(available_rows);
         let completion_area = if floating {
-            Rect::new(popup.x, popup.y + popup.height, popup.width, height)
+            Rect::new(popup.x, popup.y + popup.height, popup.width, height + if height > 0 { 2 } else { 0 })
         } else {
             Rect::new(area.x, area.y + area.height.saturating_sub(height + 1), area.width, height)
         };
 
-        if completion_area.height > 0 && !self.completion.is_empty() {
-            let area = completion_area;
-            let background = cx.editor.theme.get("ui.menu");
+        if height > 0 && !self.completion.is_empty() {
+            let menu_style = cx.editor.theme.get("ui.menu");
+            surface.clear_with(completion_area, menu_style);
+            if floating {
+                Block::bordered()
+                    .border_style(cx.editor.theme.get("ui.window"))
+                    .render(completion_area, surface);
+            }
 
             let items = height as usize * cols as usize;
-
-            let offset = self
-                .selection
-                .map(|selection| selection / items * items)
-                .unwrap_or_default();
-
-            surface.clear_with(area, background);
-
+            let offset = self.selection.map(|selection| selection / items * items).unwrap_or_default();
             let mut row = 0;
             let mut col = 0;
-
-            for (i, (_range, completion)) in
-                self.completion.iter().enumerate().skip(offset).take(items)
-            {
-                let is_selected = Some(i) == self.selection;
-
-                let completion_item_style = if is_selected {
+            for (i, (_range, completion)) in self.completion.iter().enumerate().skip(offset).take(items) {
+                let item_style = if Some(i) == self.selection {
                     selected_color
                 } else {
                     completion_color.patch(completion.style)
                 };
-
-                surface.set_stringn(
-                    area.x + col * (1 + col_width),
-                    area.y + row,
-                    &completion.content,
-                    col_width.saturating_sub(1) as usize,
-                    completion_item_style,
-                );
-
+                let x = completion_area.x + if floating { 1 } else { 0 } + col * (1 + col_width);
+                let y = completion_area.y + if floating { 1 } else { 0 } + row;
+                surface.set_stringn(x, y, &completion.content, col_width.saturating_sub(1) as usize, item_style);
                 row += 1;
-                if row > area.height - 1 {
+                if row >= height {
                     row = 0;
                     col += 1;
                 }
@@ -495,18 +491,22 @@ impl Prompt {
             let max_width = BASE_WIDTH * 3;
             let horizontal_padding = 2; // border + margin
             let vertical_padding = 1; // border only
-            let text_width = max_width - horizontal_padding * 2;
+            let text_width = if floating { popup.width.saturating_sub(horizontal_padding * 2) } else { max_width - horizontal_padding * 2 };
 
             let viewport = area;
 
             let (_width, height) = ui::text::required_size(&text.contents, text_width);
 
+            let doc_y = if floating {
+                completion_area.y + completion_area.height
+            } else {
+                completion_area.y.saturating_sub(height + vertical_padding * 2)
+            };
+            let doc_width = if floating { popup.width } else { max_width };
             let area = viewport.intersection(Rect::new(
                 completion_area.x,
-                completion_area
-                    .y
-                    .saturating_sub(height + vertical_padding * 2),
-                max_width,
+                doc_y,
+                doc_width,
                 height + vertical_padding * 2,
             ));
 
@@ -528,14 +528,14 @@ impl Prompt {
             let panel = cx.editor.theme.get("ui.menu");
             surface.clear_with(popup, panel);
             Block::bordered().border_style(border).render(popup, surface);
-            let title = match self.prompt.as_ref() {
+            let prompt_kind = self.prompt.trim();
+            let title = match prompt_kind {
                 ":" => " Cmdline ",
-                "/" => " Search forward ",
-                "?" => " Search backward ",
+                "/" | "?" => " Search ",
                 _ => " Prompt ",
             };
             surface.set_stringn(popup.x + 2, popup.y, title, popup.width.saturating_sub(4) as usize, border);
-            let icon = match self.prompt.as_ref() {
+            let icon = match prompt_kind {
                 ":" => " ",
                 "/" => " ",
                 "?" => " ",
