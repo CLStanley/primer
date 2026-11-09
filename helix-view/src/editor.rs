@@ -1156,7 +1156,6 @@ pub enum UiBorderStyle {
     #[default]
     Rounded,
     Double,
-    None,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
