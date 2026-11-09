@@ -11,11 +11,12 @@ pub struct GitChangePreview {
     lines: Vec<(String, String, String, String)>,
     heading: String,
     title: String,
+    status_file_highlight: bool,
 }
 
 impl GitChangePreview {
     pub fn new(heading: String, lines: Vec<(String, String, String, String)>) -> Self {
-        Self { heading, lines, title: "Git change preview · HEAD".to_owned() }
+        Self { heading, lines, title: "Git change preview · HEAD".to_owned(), status_file_highlight: false }
     }
 
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
@@ -23,9 +24,15 @@ impl GitChangePreview {
         self
     }
 
+    pub fn with_status_file_highlight(mut self) -> Self {
+        self.status_file_highlight = true;
+        self
+    }
+
     fn text(&self, cx: Option<&Context>) -> Text<'static> {
         let normal = cx.map(|cx| cx.editor.theme.get("ui.text")).unwrap_or_default();
         let removed = cx.map(|cx| cx.editor.theme.get("diff.minus")).unwrap_or_default();
+        let file_style = cx.map(|cx| cx.editor.theme.get("ui.text.focus")).unwrap_or_default();
         let title = cx.map(|cx| cx.editor.theme.get("ui.text.focus")).unwrap_or_default();
         let mut lines = vec![
             Spans::from(Span::styled(self.title.clone(), title)),
@@ -34,9 +41,10 @@ impl GitChangePreview {
             Spans::from(""),
         ];
         for (prefix, before, changed, after) in &self.lines {
+            let is_file = self.status_file_highlight && prefix != "Branch" && !prefix.is_empty();
             lines.push(Spans::from(vec![
                 Span::styled(prefix.clone(), normal),
-                Span::styled(before.clone(), normal),
+                Span::styled(before.clone(), if is_file { file_style } else { normal }),
                 Span::styled(changed.clone(), removed),
                 Span::styled(after.clone(), normal),
             ]));
