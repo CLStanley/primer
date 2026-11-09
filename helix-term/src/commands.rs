@@ -454,6 +454,7 @@ impl MappableCommand {
         primer_buffer_next, "Next buffer",
         primer_buffer_new, "New empty buffer",
         primer_buffer_close, "Close current buffer",
+        primer_buffer_reload, "Reload current buffer from disk",
         primer_notes_find, "Search all notes in your notebook by filename",
         primer_agenda, "Browse open todos, events, and reminders by date",
         primer_agenda_new_todo, "Create a todo with an optional due date",
@@ -4471,6 +4472,44 @@ fn primer_buffer_next(cx: &mut Context) {
 
 fn primer_buffer_new(cx: &mut Context) {
     cx.editor.new_file(Action::Replace);
+}
+
+/// Reload the current buffer from disk. Ask before discarding unsaved edits.
+fn primer_buffer_reload(cx: &mut Context) {
+    let modified = {
+        let (_, doc) = current!(cx.editor);
+        if doc.path().is_none() {
+            cx.editor.set_status("This buffer has no file to reload");
+            return;
+        }
+        doc.is_modified()
+    };
+    if !modified {
+        MappableCommand::Typable {
+            name: "reload".to_owned(),
+            args: String::new(),
+            doc: "Reload current buffer from disk".to_owned(),
+        }.execute(cx);
+        return;
+    }
+    let mut prompt = Prompt::new(
+        "Reload buffer? Type RELOAD to discard unsaved changes: ".into(),
+        None,
+        ui::completers::none,
+        move |cx, input, event| {
+            if event != PromptEvent::Validate { return; }
+            if input.trim() != "RELOAD" {
+                cx.editor.set_status("Buffer reload cancelled");
+                return;
+            }
+            let command = typed::TYPABLE_COMMAND_MAP.get("reload").expect("reload command exists");
+            if let Err(err) = typed::execute_command(cx, command, "", PromptEvent::Validate) {
+                cx.editor.set_error(format!("Buffer reload failed: {err}"));
+            }
+        },
+    );
+    prompt.doc_fn = Box::new(|_| Some("This buffer has unsaved edits. Reloading will discard them.\nType RELOAD and press Enter to confirm, or Esc to cancel.".into()));
+    cx.push_layer(Box::new(prompt));
 }
 
 fn primer_buffer_close(cx: &mut Context) {
