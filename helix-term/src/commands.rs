@@ -4099,15 +4099,24 @@ fn primer_buffer_new(cx: &mut Context) {
 
 fn primer_buffer_close(cx: &mut Context) {
     let id = view!(cx.editor).doc;
-    if let Err(err) = cx.editor.close_document(id, false) {
-        let message = match err {
-            helix_view::editor::CloseError::DoesNotExist => "Buffer does not exist".to_string(),
-            helix_view::editor::CloseError::BufferModified(name) => {
-                format!("Buffer has unsaved changes: {name}")
-            }
-            helix_view::editor::CloseError::SaveError(error) => error.to_string(),
-        };
-        cx.editor.set_error(message);
+    let last_buffer = cx.editor.documents().count() == 1;
+    match cx.editor.close_document(id, false) {
+        Ok(()) if last_buffer => {
+            // Helix creates an empty scratch document to keep its view alive.
+            // Show Primer's dashboard over that scratch view instead.
+            cx.push_layer(Box::new(crate::ui::dashboard::Dashboard::new()));
+        }
+        Ok(()) => {}
+        Err(err) => {
+            let message = match err {
+                helix_view::editor::CloseError::DoesNotExist => "Buffer does not exist".to_string(),
+                helix_view::editor::CloseError::BufferModified(name) => {
+                    format!("Buffer has unsaved changes: {name}")
+                }
+                helix_view::editor::CloseError::SaveError(error) => error.to_string(),
+            };
+            cx.editor.set_error(message);
+        }
     }
 }
 
