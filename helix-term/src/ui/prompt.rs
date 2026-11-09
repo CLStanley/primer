@@ -402,12 +402,11 @@ const BASE_WIDTH: u16 = 30;
 
 impl Prompt {
     pub fn render_prompt(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
-        let theme = &cx.editor.theme;
-        let prompt_color = theme.get("ui.text");
-        let completion_color = theme.get("ui.menu");
-        let selected_color = theme.get("ui.menu.selected");
-        let suggestion_color = theme.get("ui.text.inactive");
-        let background = theme.get("ui.background");
+        let prompt_color = cx.editor.theme.get("ui.text");
+        let completion_color = cx.editor.cx.editor.theme.get("ui.menu");
+        let selected_color = cx.editor.theme.get("ui.menu.selected");
+        let suggestion_color = cx.editor.theme.get("ui.text.inactive");
+        let background = cx.editor.theme.get("ui.background");
 
         // Keep a usable single-line fallback on very small terminals.
         let floating = area.width >= 36 && area.height >= 10;
@@ -449,7 +448,7 @@ impl Prompt {
 
         if completion_area.height > 0 && !self.completion.is_empty() {
             let area = completion_area;
-            let background = theme.get("ui.menu");
+            let background = cx.editor.theme.get("ui.menu");
 
             let items = height as usize * cols as usize;
 
@@ -511,7 +510,7 @@ impl Prompt {
                 height + vertical_padding * 2,
             ));
 
-            let background = theme.get("ui.help");
+            let background = cx.editor.theme.get("ui.help");
             surface.clear_with(area, background);
 
             let block = Block::bordered()
@@ -525,8 +524,8 @@ impl Prompt {
         }
 
         if floating {
-            let border = theme.get("ui.window");
-            let panel = theme.get("ui.menu");
+            let border = cx.editor.theme.get("ui.window");
+            let panel = cx.editor.theme.get("ui.menu");
             surface.clear_with(popup, panel);
             Block::bordered().border_style(border).render(popup, surface);
             let title = match self.prompt.as_ref() {
