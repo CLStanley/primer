@@ -699,11 +699,13 @@ impl EditorView {
                 .unwrap_or_default();
 
             let active = current_doc == doc.id();
+            // Buffer tabs use color and weight for selection, not underlining.
             let style = if active {
                 bufferline_active.add_modifier(Modifier::BOLD)
             } else {
                 bufferline_inactive
-            };
+            }
+            .remove_modifier(Modifier::UNDERLINED);
             let text = format!(" {}{} ", fname, if doc.is_modified() { " ●" } else { "" });
 
             // Rounded Powerline caps inherit the active tab's background color.
