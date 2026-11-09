@@ -67,9 +67,21 @@ pub fn render_dashboard(
         .and_then(|style| style.fg)
         .or_else(|| theme.try_get("ui.linenr.selected").and_then(|style| style.fg))
         .unwrap_or(text_color);
-    let normal = Style::default().fg(text_color).bg(Color::Reset);
+    // Separate foreground roles mirror the Neovim dashboard: purple
+    // headings, blue shortcuts, and bright descriptions.
+    let description_color = theme
+        .try_get("ui.text.focus")
+        .and_then(|style| style.fg)
+        .unwrap_or(text_color);
+    let shortcut_color = theme
+        .try_get("diagnostic.info")
+        .and_then(|style| style.underline_color.or(style.fg))
+        .unwrap_or(Color::LightBlue);
+    let normal = Style::default().fg(description_color).bg(Color::Reset);
     let accent = Style::default().fg(accent_color).bg(Color::Reset);
-    let selected = accent.add_modifier(Modifier::BOLD);
+    let shortcut = Style::default().fg(shortcut_color).bg(Color::Reset);
+    let selected = normal.add_modifier(Modifier::BOLD);
+    let selected_shortcut = shortcut.add_modifier(Modifier::BOLD);
     surface.clear_with(area, Style::reset());
 
     let logo_width = LOGO.iter().map(|line| line.len()).max().unwrap_or(0) as u16;
@@ -113,46 +125,43 @@ pub fn render_dashboard(
         let total_width = COLUMN_WIDTH * 2 + COLUMN_GAP;
         let left = area.x + area.width.saturating_sub(total_width) / 2;
         let right = left + COLUMN_WIDTH + COLUMN_GAP;
-        draw_line("FILES", left, menu_top, 5, accent);
-        draw_line("WORKSPACE", right, menu_top, 9, accent);
+        // Center each heading above its column, not against its left edge.
+        draw_line("FILES", left + (COLUMN_WIDTH - 5) / 2, menu_top, 5, accent);
+        draw_line("WORKSPACE", right + (COLUMN_WIDTH - 9) / 2, menu_top, 9, accent);
 
         for (index, action) in dashboard.actions.iter().enumerate().take(4) {
             let column = index / 2;
             let row = index % 2;
             let x = if column == 0 { left } else { right };
-            let marker = if index == dashboard.selected { ">" } else { " " };
-            let label = format!("{marker}  {}  {}", action.shortcut(), action.label());
-            let style = if index == dashboard.selected { selected } else { normal };
-            draw_line(&label, x, menu_top + 2 + row as u16, label.len() as u16, style);
+            let y = menu_top + 2 + row as u16;
+            let active = index == dashboard.selected;
+            let marker = if active { ">" } else { " " };
+            draw_line(marker, x, y, 1, if active { accent } else { normal });
+            let key = action.shortcut().to_string();
+            draw_line(&key, x + 3, y, 1, if active { selected_shortcut } else { shortcut });
+            draw_line(action.label(), x + 6, y, COLUMN_WIDTH - 6, if active { selected } else { normal });
         }
-        // Explicit new-file and quit actions sit beneath the columns.
-        let new_file = DashboardAction::NewFile;
-        let new_label = format!("{}  {}", new_file.shortcut(), new_file.label());
-        let new_style = if dashboard.selected_action() == Some(new_file) {
-            selected
-        } else {
-            normal
-        };
-        draw_line(&new_label, left, menu_top + 5, new_label.len() as u16, new_style);
 
-        let quit = DashboardAction::Quit;
-        let quit_label = format!("{}  {}", quit.shortcut(), quit.label());
-        let quit_style = if dashboard.selected_action() == Some(quit) {
-            selected
-        } else {
-            normal
-        };
-        draw_line(&quit_label, right, menu_top + 5, quit_label.len() as u16, quit_style);
+        for (action, x) in [
+            (DashboardAction::NewFile, left),
+            (DashboardAction::Quit, right),
+        ] {
+            let active = dashboard.selected_action() == Some(action);
+            let key = action.shortcut().to_string();
+            draw_line(&key, x + 3, menu_top + 5, 1, if active { selected_shortcut } else { shortcut });
+            draw_line(action.label(), x + 6, menu_top + 5, COLUMN_WIDTH - 6, if active { selected } else { normal });
+        }
         let hint = "j/k navigate  Enter select";
-        draw_line(hint, left, menu_top + 7, hint.len() as u16, normal);
+        draw_line(hint, left + (total_width - hint.len() as u16) / 2, menu_top + 7, hint.len() as u16, normal);
     } else {
         for (index, action) in dashboard.actions.iter().enumerate() {
-            let marker = if index == dashboard.selected { ">" } else { " " };
-            let label = format!("{marker}  {}  {}", action.shortcut(), action.label());
-            let width = (label.len() as u16).min(area.width);
-            let x = area.x + area.width.saturating_sub(width) / 2;
-            let style = if index == dashboard.selected { selected } else { normal };
-            draw_line(&label, x, menu_top + index as u16, width, style);
+            let y = menu_top + index as u16;
+            let x = area.x + area.width.saturating_sub(COLUMN_WIDTH) / 2;
+            let active = index == dashboard.selected;
+            draw_line(if active { ">" } else { " " }, x, y, 1, accent);
+            let key = action.shortcut().to_string();
+            draw_line(&key, x + 3, y, 1, if active { selected_shortcut } else { shortcut });
+            draw_line(action.label(), x + 6, y, COLUMN_WIDTH - 6, if active { selected } else { normal });
         }
     }
 }
