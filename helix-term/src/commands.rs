@@ -4793,7 +4793,7 @@ fn git_revert_hunk(cx: &mut Context) {
         }
         (path.to_path_buf(), doc.selection(view.id).primary().cursor_line(doc.text().slice(..)) + 1)
     };
-    let prompt = Prompt::new(
+    let mut prompt = Prompt::new(
         "Discard unstaged Git hunk? Type REVERT to confirm: ".into(),
         None,
         ui::completers::none,
@@ -4831,6 +4831,8 @@ fn git_revert_hunk(cx: &mut Context) {
             });
         },
     );
+    prompt.doc_fn = Box::new(|_| Some("Discard the unstaged change under your cursor. This cannot be undone through Git.\nType REVERT (uppercase) and press Enter to confirm, or Esc to cancel.\nStaged changes will be preserved.".into()));
+    prompt.recalculate_completion(cx.editor);
     cx.push_layer(Box::new(prompt));
 }
 
