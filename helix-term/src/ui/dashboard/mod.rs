@@ -77,8 +77,14 @@ impl Component for Dashboard {
             key!(Esc) => EventResult::Consumed(Some(Box::new(|compositor, _| {
                 compositor.remove_type::<Dashboard>();
             }))),
-            key!(Enter) => {
-                let action = self.selected_action();
+            key!(Enter) | key!('f') | key!('r') | key!('p') | key!('?') => {
+                let action = match key {
+                    key!('f') => Some(DashboardAction::FindFile),
+                    key!('r') => Some(DashboardAction::RecentFiles),
+                    key!('p') => Some(DashboardAction::OpenProject),
+                    key!('?') => Some(DashboardAction::Help),
+                    _ => self.selected_action(),
+                };
                 EventResult::Consumed(Some(Box::new(move |compositor, cx| {
                     compositor.remove_type::<Dashboard>();
                     let command = match action {
