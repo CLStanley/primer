@@ -514,7 +514,7 @@ impl Prompt {
             let background = cx.editor.theme.get("ui.help");
             surface.clear_with(area, background);
 
-            let block = Block::bordered()
+            let block = Block::bordered().border_type(match cx.editor.config().border_style { UiBorderStyle::Square => BorderType::Plain, UiBorderStyle::Rounded => BorderType::Rounded, UiBorderStyle::Double => BorderType::Double })
                 // .title(self.title.as_str())
                 .border_style(background);
 
@@ -528,7 +528,7 @@ impl Prompt {
             let border = cx.editor.theme.get("ui.window");
             let panel = cx.editor.theme.get("ui.menu");
             surface.clear_with(popup, panel);
-            Block::bordered().border_style(border).render(popup, surface);
+            Block::bordered().border_type(match cx.editor.config().border_style { UiBorderStyle::Square => BorderType::Plain, UiBorderStyle::Rounded => BorderType::Rounded, UiBorderStyle::Double => BorderType::Double }).border_style(border).render(popup, surface);
             // Search prompts may include descriptive text rather than just '/' or '?'.
             let prompt_kind = self.prompt.trim();
             let search_prompt = matches!(prompt_kind, "/" | "?")
