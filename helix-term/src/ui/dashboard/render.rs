@@ -1,4 +1,4 @@
-use helix_view::graphics::Rect;
+use helix_view::graphics::{Color, Modifier, Rect, Style};
 use tui::buffer::Buffer as Surface;
 use tui::text::Text;
 use tui::widgets::{Paragraph, Widget};
@@ -52,10 +52,18 @@ pub fn render_dashboard(
         return;
     }
 
-    let normal = ctx.editor.theme.get("ui.text");
-    let selected = ctx.editor.theme.get("ui.selection");
-    let accent = ctx.editor.theme.try_get("ui.statusline.active").unwrap_or(normal);
-    surface.clear_with(area, normal);
+    // Use terminal-default backgrounds throughout, including the padding
+    // painted by Paragraph. This preserves terminal transparency.
+    let theme = &ctx.editor.theme;
+    let text_color = theme.get("ui.text").fg.unwrap_or(Color::Reset);
+    let accent_color = theme
+        .try_get("ui.statusline.active")
+        .and_then(|style| style.fg)
+        .unwrap_or(text_color);
+    let normal = Style::default().fg(text_color).bg(Color::Reset);
+    let accent = Style::default().fg(accent_color).bg(Color::Reset);
+    let selected = accent.add_modifier(Modifier::BOLD);
+    surface.clear_with(area, Style::reset());
 
     let logo_width = LOGO.iter().map(|line| line.len()).max().unwrap_or(0) as u16;
     let show_logo = area.width >= logo_width && area.height >= 20;
@@ -91,10 +99,6 @@ pub fn render_dashboard(
         draw_line("PRIMER", x, top, 6, accent);
     }
 
-    let subtitle = "P R I M E R";
-    let subtitle_x = area.x + area.width.saturating_sub(subtitle.len() as u16) / 2;
-    draw_line(subtitle, subtitle_x, top + heading_height, subtitle.len() as u16, accent);
-
     let menu_top = top + heading_height + 3;
     if wide {
         // Match the two-column dashboard rhythm of the Neovim setup.
@@ -102,8 +106,8 @@ pub fn render_dashboard(
         let total_width = COLUMN_WIDTH * 2 + COLUMN_GAP;
         let left = area.x + area.width.saturating_sub(total_width) / 2;
         let right = left + COLUMN_WIDTH + COLUMN_GAP;
-        draw_line("FILES", left, menu_top, COLUMN_WIDTH, accent);
-        draw_line("WORKSPACE", right, menu_top, COLUMN_WIDTH, accent);
+        draw_line("FILES", left, menu_top, 5, accent);
+        draw_line("WORKSPACE", right, menu_top, 9, accent);
 
         for (index, action) in dashboard.actions.iter().enumerate() {
             let column = index / 2;
@@ -112,9 +116,10 @@ pub fn render_dashboard(
             let marker = if index == dashboard.selected { ">" } else { " " };
             let label = format!("{marker}  {}  {}", action.shortcut(), action.label());
             let style = if index == dashboard.selected { selected } else { normal };
-            draw_line(&label, x, menu_top + 2 + row as u16, COLUMN_WIDTH, style);
+            draw_line(&label, x, menu_top + 2 + row as u16, label.len() as u16, style);
         }
-        draw_line("j/k navigate  Enter select  Esc edit", left, menu_top + 5, total_width, normal);
+        let hint = "j/k navigate  Enter select  Esc edit";
+        draw_line(hint, left, menu_top + 5, hint.len() as u16, normal);
     } else {
         for (index, action) in dashboard.actions.iter().enumerate() {
             let marker = if index == dashboard.selected { ">" } else { " " };
