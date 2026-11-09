@@ -207,11 +207,24 @@ pub fn render_dashboard(
         }
         let footer_y = menu_top + 16;
         // Shared actions form one evenly spaced horizontal footer.
+        // Center each footer item in an equal-width third of the menu.
+        // This keeps the spacing balanced regardless of label length.
+        let footer_width = total_width + 20;
+        let footer_left = area.x + area.width.saturating_sub(footer_width) / 2;
+        let third = footer_width / 3;
         let footer = [
-            (left, "t", "Terminal [todo]", None),
-            (left + 23, "?", "Keybind help", Some(DashboardAction::Help)),
-            (right + 18, "q", "Quit", Some(DashboardAction::Quit)),
-        ];
+            ("t", "Terminal [todo]", None),
+            ("?", "Keybind help", Some(DashboardAction::Help)),
+            ("q", "Quit", Some(DashboardAction::Quit)),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (key, label, action))| {
+            let item_width = 2 + label.len() as u16;
+            let x = footer_left + index as u16 * third
+                + third.saturating_sub(item_width) / 2;
+            (x, key, label, action)
+        });
         for (x, key, label, action) in footer {
             let active = action.is_some() && action == dashboard.selected_action();
             draw_line(key, x, footer_y, 1, if active { selected_shortcut } else { shortcut });
