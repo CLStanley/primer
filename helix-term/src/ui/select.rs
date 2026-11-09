@@ -51,8 +51,8 @@ impl<T: Item> Component for Select<T> {
         let (message_width, message_height) = self.message.required_size(viewport).unwrap();
         let (menu_width, menu_height) = self.options.required_size(viewport).unwrap();
         Some((
-            menu_width.max(message_width + 2),
-            message_height + menu_height + 2,
+            menu_width.max(message_width + 2) + 2,
+            message_height + menu_height + 4,
         ))
     }
 
@@ -82,11 +82,12 @@ impl<T: Item> Component for Select<T> {
             .required_size((max_width, area.height))
             .unwrap();
         // + 2 for borders and another + 2 for horizontal padding
-        let width = message_width + 4;
-        let height = message_height + 2 + menu_height;
+        let width = (message_width + 4).max(36).min(area.width.saturating_sub(4));
+        let height = (message_height + menu_height + 4).min(area.height.saturating_sub(2));
+        // Match the command prompt: center horizontally and anchor near the top.
         let area = Rect {
-            x: (area.width / 2) - width / 2,
-            y: (area.height / 2) - height / 2,
+            x: area.x + area.width.saturating_sub(width) / 2,
+            y: area.y + area.height / 6,
             width,
             height,
         };
@@ -103,6 +104,17 @@ impl<T: Item> Component for Select<T> {
 
         // Options menu
         let menu_area = area.clip_top(message_height + 2);
-        self.options.render(menu_area, surface, cx);
+        let menu_background = cx.editor.theme.try_get("ui.menu").unwrap_or(background);
+        surface.clear_with(menu_area, menu_background);
+        let menu_block = Block::bordered()
+            .border_type(match cx.editor.config().border_style {
+                UiBorderStyle::Square => BorderType::Plain,
+                UiBorderStyle::Rounded => BorderType::Rounded,
+                UiBorderStyle::Double => BorderType::Double,
+            })
+            .border_style(cx.editor.theme.get("ui.window"));
+        let menu_inner = menu_block.inner(menu_area);
+        menu_block.render(menu_area, surface);
+        self.options.render(menu_inner, surface, cx);
     }
 }
