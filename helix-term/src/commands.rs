@@ -4663,6 +4663,39 @@ fn goto_first_change_impl(cx: &mut Context, reverse: bool) {
     }
 }
 
+/// Show the original Git content of the change under the cursor without editing the buffer.
+fn git_preview_change(cx: &mut Context) {
+    let (view, doc) = current!(cx.editor);
+    let Some(handle) = doc.diff_handle() else {
+        cx.editor.set_status("No Git diff available for this buffer");
+        return;
+    };
+    let line = doc.selection(view.id).primary().cursor_line(doc.text().slice(..)) as u32;
+    let diff = handle.load();
+    let Some(idx) = diff.hunk_at(line, false) else {
+        cx.editor.set_status("Cursor is not on a changed line");
+        return;
+    };
+    let hunk = diff.nth_hunk(idx);
+    let base = diff.diff_base();
+    let original: Vec<String> = (hunk.before.start..hunk.before.end)
+        .take(12)
+        .map(|i| base.line(i as usize).to_string().trim_end_matches(['\\r', '\\n']).to_owned())
+        .collect();
+    let mut rows: Vec<(String, String)> = Vec::new();
+    if original.is_empty() {
+        rows.push(("Before".into(), "(newly added lines)".into()));
+    } else {
+        for (i, text) in original.iter().enumerate() {
+            rows.push((format!("{}", hunk.before.start + i as u32 + 1), text.clone()));
+        }
+        if hunk.before.end - hunk.before.start > 12 {
+            rows.push(("…".into(), "Additional original lines omitted".into()));
+        }
+    }
+    cx.editor.autoinfo = Some(Info::new("Git: previous content (HEAD)", &rows));
+}
+
 fn goto_next_change(cx: &mut Context) {
     goto_next_change_impl(cx, Direction::Forward)
 }
