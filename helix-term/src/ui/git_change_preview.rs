@@ -10,11 +10,17 @@ use tui::{
 pub struct GitChangePreview {
     lines: Vec<(String, String, String, String)>,
     heading: String,
+    title: String,
 }
 
 impl GitChangePreview {
     pub fn new(heading: String, lines: Vec<(String, String, String, String)>) -> Self {
-        Self { heading, lines }
+        Self { heading, lines, title: "Git change preview · HEAD".to_owned() }
+    }
+
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = title.into();
+        self
     }
 
     fn text(&self, cx: Option<&Context>) -> Text<'static> {
@@ -22,7 +28,7 @@ impl GitChangePreview {
         let removed = cx.map(|cx| cx.editor.theme.get("diff.minus")).unwrap_or_default();
         let title = cx.map(|cx| cx.editor.theme.get("ui.text.focus")).unwrap_or_default();
         let mut lines = vec![
-            Spans::from(Span::styled("Git change preview · HEAD".to_owned(), title)),
+            Spans::from(Span::styled(self.title.clone(), title)),
             Spans::from(""),
             Spans::from(self.heading.clone()),
             Spans::from(""),
