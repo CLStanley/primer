@@ -87,7 +87,7 @@ pub fn render_dashboard(
     let logo_color = theme
         .try_get_exact("ui.dashboard.logo")
         .and_then(|style| style.fg)
-        .unwrap_or(shortcut_color);
+        .unwrap_or(accent_color);
     let logo_style = Style::default().fg(logo_color).bg(Color::Reset);
     let selected = normal.add_modifier(Modifier::BOLD);
     let selected_shortcut = shortcut.add_modifier(Modifier::BOLD);
