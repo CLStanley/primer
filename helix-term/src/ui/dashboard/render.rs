@@ -72,7 +72,11 @@ pub fn render_dashboard(
     let accent_color = theme
         .try_get("ui.dashboard.heading")
         .and_then(|style| style.fg)
-        .or_else(|| theme.try_get("ui.linenr.selected").and_then(|style| style.fg))
+        .or_else(|| {
+            theme
+                .try_get("ui.linenr.selected")
+                .and_then(|style| style.fg)
+        })
         .unwrap_or(text_color);
     // Separate foreground roles mirror the Neovim dashboard: purple
     // headings, blue shortcuts, and bright descriptions.
@@ -102,7 +106,10 @@ pub fn render_dashboard(
     let selected = normal.add_modifier(Modifier::BOLD);
     let selected_shortcut = shortcut.add_modifier(Modifier::BOLD);
     let green = Style::default().fg(green_color).bg(Color::Reset);
-    let pending = Style::default().fg(text_color).bg(Color::Reset).add_modifier(Modifier::DIM);
+    let pending = Style::default()
+        .fg(text_color)
+        .bg(Color::Reset)
+        .add_modifier(Modifier::DIM);
     surface.clear_with(area, Style::reset());
 
     let logo_width = LOGO.iter().map(|line| line.len()).max().unwrap_or(0) as u16;
@@ -143,7 +150,13 @@ pub fn render_dashboard(
     let motto = "Leaves from the vine...";
     if area.width >= motto.len() as u16 {
         let motto_x = area.x + (area.width - motto.len() as u16) / 2;
-        draw_line(motto, motto_x, top + heading_height + 2, motto.len() as u16, green);
+        draw_line(
+            motto,
+            motto_x,
+            top + heading_height + 2,
+            motto.len() as u16,
+            green,
+        );
     }
 
     let menu_top = top + heading_height + 5;
@@ -151,30 +164,42 @@ pub fn render_dashboard(
     // displayed as [todo] and never receives a key handler.
     // The two-column layout uses two rows of sections.
     let sections: [(&str, Vec<(&str, &str, Option<DashboardAction>)>); 4] = [
-        ("FILES", vec![
-            ("f", "Browse files", Some(DashboardAction::FindFile)),
-            ("r", "Open buffers", Some(DashboardAction::RecentFiles)),
-            ("n", "New file", Some(DashboardAction::NewFile)),
-            ("g", "Live grep", Some(DashboardAction::LiveGrep)),
-        ]),
-        ("PROJECTS", vec![
-            ("p", "Browse workspace", Some(DashboardAction::OpenProject)),
-            ("s", "Switch project", None),
-            ("w", "Sessions", None),
-            ("l", "Recent projects", None),
-        ]),
-        ("NOTES", vec![
-            ("a", "New note", Some(DashboardAction::NewNote)),
-            ("d", "Daily note", Some(DashboardAction::DailyNote)),
-            ("o", "Find notes", Some(DashboardAction::FindNotes)),
-            ("e", "Agenda", Some(DashboardAction::Agenda)),
-        ]),
-        ("REMOTE SSH", vec![
-            ("c", "Connect to host", None),
-            ("h", "Saved hosts", None),
-            ("u", "Remote files", None),
-            ("x", "Remote terminal", None),
-        ]),
+        (
+            "FILES",
+            vec![
+                ("f", "Browse files", Some(DashboardAction::FindFile)),
+                ("r", "Open buffers", Some(DashboardAction::RecentFiles)),
+                ("n", "New file", Some(DashboardAction::NewFile)),
+                ("g", "Live grep", Some(DashboardAction::LiveGrep)),
+            ],
+        ),
+        (
+            "PROJECTS",
+            vec![
+                ("p", "Browse workspace", Some(DashboardAction::OpenProject)),
+                ("s", "Switch project", None),
+                ("w", "Sessions", None),
+                ("l", "Recent projects", None),
+            ],
+        ),
+        (
+            "NOTES",
+            vec![
+                ("a", "New note", Some(DashboardAction::NewNote)),
+                ("d", "Daily note", Some(DashboardAction::DailyNote)),
+                ("o", "Find notes", Some(DashboardAction::FindNotes)),
+                ("e", "Agenda", Some(DashboardAction::Agenda)),
+            ],
+        ),
+        (
+            "REMOTE SSH",
+            vec![
+                ("c", "Connect to host", None),
+                ("h", "Saved hosts", None),
+                ("u", "Remote files", None),
+                ("x", "Remote terminal", None),
+            ],
+        ),
     ];
 
     if wide {
@@ -215,7 +240,13 @@ pub fn render_dashboard(
                     x + 6,
                     y,
                     COLUMN_WIDTH - 6,
-                    if active { selected } else if action.is_some() { normal } else { pending },
+                    if active {
+                        selected
+                    } else if action.is_some() {
+                        normal
+                    } else {
+                        pending
+                    },
                 );
             }
         }
@@ -235,18 +266,37 @@ pub fn render_dashboard(
         .enumerate()
         .map(|(index, (key, label, action))| {
             let item_width = 2 + label.len() as u16;
-            let x = footer_left + index as u16 * third
-                + third.saturating_sub(item_width) / 2;
+            let x = footer_left + index as u16 * third + third.saturating_sub(item_width) / 2;
             (x, key, label, action)
         });
         for (x, key, label, action) in footer {
             let active = action.is_some() && action == dashboard.selected_action();
-            draw_line(key, x, footer_y, 1, if active { selected_shortcut } else { shortcut });
-            draw_line(label, x + 2, footer_y, label.len() as u16,
-                if active { selected } else if action.is_some() { normal } else { pending });
+            draw_line(
+                key,
+                x,
+                footer_y,
+                1,
+                if active { selected_shortcut } else { shortcut },
+            );
+            draw_line(
+                label,
+                x + 2,
+                footer_y,
+                label.len() as u16,
+                if active {
+                    selected
+                } else if action.is_some() {
+                    normal
+                } else {
+                    pending
+                },
+            );
         }
         let hint = [("h/j/k/l", " navigate  "), ("Enter", " select")];
-        let hint_width: u16 = hint.iter().map(|(key, label)| (key.len() + label.len()) as u16).sum();
+        let hint_width: u16 = hint
+            .iter()
+            .map(|(key, label)| (key.len() + label.len()) as u16)
+            .sum();
         let mut hint_x = left + total_width.saturating_sub(hint_width) / 2;
         for (key, label) in hint {
             draw_line(key, hint_x, menu_top + 19, key.len() as u16, shortcut);
@@ -276,7 +326,13 @@ pub fn render_dashboard(
                     x + 4,
                     y,
                     COLUMN_WIDTH - 4,
-                    if active { selected } else if action.is_some() { normal } else { pending },
+                    if active {
+                        selected
+                    } else if action.is_some() {
+                        normal
+                    } else {
+                        pending
+                    },
                 );
                 y += 1;
             }
@@ -289,8 +345,19 @@ pub fn render_dashboard(
         ] {
             let active = action.is_some() && action == dashboard.selected_action();
             draw_line(key, x + 2, y, 1, shortcut);
-            draw_line(label, x + 4, y, COLUMN_WIDTH - 4,
-                if active { selected } else if action.is_some() { normal } else { pending });
+            draw_line(
+                label,
+                x + 4,
+                y,
+                COLUMN_WIDTH - 4,
+                if active {
+                    selected
+                } else if action.is_some() {
+                    normal
+                } else {
+                    pending
+                },
+            );
             y += 1;
         }
     }
