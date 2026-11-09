@@ -5,9 +5,9 @@
 
 use std::{cell::RefCell, num::NonZeroUsize};
 
+use crate::commands::{Context, MappableCommand};
 use helix_core::{match_brackets, textobject, Range, Selection};
 use helix_view::{document::Mode, keyboard::KeyCode, DocumentId, ViewId};
-use crate::commands::{Context, MappableCommand};
 
 #[derive(Clone)]
 struct TransientSelection {
@@ -25,7 +25,12 @@ thread_local! {
 fn remember_transient_selection(cx: &mut Context, action: impl FnOnce(&mut Context)) {
     let (document_id, view_id, document_version, before) = {
         let (view, doc) = current!(cx.editor);
-        (doc.id(), view.id, doc.version(), doc.selection(view.id).clone())
+        (
+            doc.id(),
+            view.id,
+            doc.version(),
+            doc.selection(view.id).clone(),
+        )
     };
     action(cx);
     let after = {
@@ -37,7 +42,13 @@ fn remember_transient_selection(cx: &mut Context, action: impl FnOnce(&mut Conte
         doc.selection(view.id).clone()
     };
     TRANSIENT_SELECTION.with(|saved| {
-        *saved.borrow_mut() = Some(TransientSelection { document_id, view_id, document_version, before, after });
+        *saved.borrow_mut() = Some(TransientSelection {
+            document_id,
+            view_id,
+            document_version,
+            before,
+            after,
+        });
     });
 }
 
@@ -45,20 +56,27 @@ fn remember_transient_selection(cx: &mut Context, action: impl FnOnce(&mut Conte
 fn enzyme_cancel_transient_selection(cx: &mut Context) {
     if cx.editor.mode == Mode::Select {
         let (view, doc) = current!(cx.editor);
-        let selection = doc.selection(view.id).clone().transform(|range| Range::point(range.anchor));
+        let selection = doc
+            .selection(view.id)
+            .clone()
+            .transform(|range| Range::point(range.anchor));
         doc.set_selection(view.id, selection);
         cx.editor.mode = Mode::Normal;
         TRANSIENT_SELECTION.with(|slot| *slot.borrow_mut() = None);
         return;
     }
     let saved = TRANSIENT_SELECTION.with(|slot| slot.borrow_mut().take());
-    let Some(saved) = saved else { return; };
+    let Some(saved) = saved else {
+        return;
+    };
     let (view, doc) = current!(cx.editor);
     if doc.id() != saved.document_id
         || view.id != saved.view_id
         || doc.version() != saved.document_version
         || doc.selection(view.id) != &saved.after
-    { return; }
+    {
+        return;
+    }
     doc.set_selection(view.id, saved.before);
 }
 
@@ -77,27 +95,55 @@ fn goto_word_boundary(cx: &mut Context, long_word: bool, start: bool) {
     let text = doc.text().slice(..);
     let selection = doc.selection(view.id).clone().transform(|range| {
         let cursor = range.cursor(text);
-        let word = textobject::textobject_word(text, Range::point(cursor), textobject::TextObject::Inside, 1, long_word);
-        let target = if start { word.from() } else { word.to().saturating_sub(1) };
-        if mode == Mode::Select { Range::new(range.anchor, target) } else { Range::point(target) }
+        let word = textobject::textobject_word(
+            text,
+            Range::point(cursor),
+            textobject::TextObject::Inside,
+            1,
+            long_word,
+        );
+        let target = if start {
+            word.from()
+        } else {
+            word.to().saturating_sub(1)
+        };
+        if mode == Mode::Select {
+            Range::new(range.anchor, target)
+        } else {
+            Range::point(target)
+        }
     });
     doc.set_selection(view.id, selection);
 }
 
-fn enzyme_goto_word_start(cx: &mut Context) { goto_word_boundary(cx, false, true); }
-fn enzyme_goto_word_end(cx: &mut Context) { goto_word_boundary(cx, false, false); }
-fn enzyme_goto_long_word_start(cx: &mut Context) { goto_word_boundary(cx, true, true); }
-fn enzyme_goto_long_word_end(cx: &mut Context) { goto_word_boundary(cx, true, false); }
+fn enzyme_goto_word_start(cx: &mut Context) {
+    goto_word_boundary(cx, false, true);
+}
+fn enzyme_goto_word_end(cx: &mut Context) {
+    goto_word_boundary(cx, false, false);
+}
+fn enzyme_goto_long_word_start(cx: &mut Context) {
+    goto_word_boundary(cx, true, true);
+}
+fn enzyme_goto_long_word_end(cx: &mut Context) {
+    goto_word_boundary(cx, true, false);
+}
 
 fn select_helix_textobject(cx: &mut Context, around: bool, object_key: char) {
-    let command = if around { MappableCommand::select_textobject_around } else { MappableCommand::select_textobject_inner };
+    let command = if around {
+        MappableCommand::select_textobject_around
+    } else {
+        MappableCommand::select_textobject_inner
+    };
     command.execute(cx);
     let Some((callback, _kind)) = cx.on_next_key_callback.take() else {
-        cx.editor.set_error("Enzyme expected Helix to request a text-object key");
+        cx.editor
+            .set_error("Enzyme expected Helix to request a text-object key");
         return;
     };
     let Ok(event) = object_key.to_string().parse() else {
-        cx.editor.set_error("Enzyme could not construct a text-object key");
+        cx.editor
+            .set_error("Enzyme could not construct a text-object key");
         return;
     };
     callback(cx, event);
@@ -142,13 +188,20 @@ fn select_structural_block(cx: &mut Context) {
     let loader = cx.editor.syn_loader.load();
     let (view, doc) = current!(cx.editor);
     let Some(syntax) = doc.syntax() else {
-        cx.editor.set_status("Syntax-tree is not available in current buffer");
+        cx.editor
+            .set_status("Syntax-tree is not available in current buffer");
         return;
     };
     let text = doc.text().slice(..);
     let selection = doc.selection(view.id).clone().transform(|range| {
         textobject::textobject_treesitter(
-            text, range, textobject::TextObject::Around, "block", syntax, &loader, 1,
+            text,
+            range,
+            textobject::TextObject::Around,
+            "block",
+            syntax,
+            &loader,
+            1,
         )
     });
     doc.set_selection(view.id, selection);
@@ -158,7 +211,8 @@ fn select_inside_structural_block(cx: &mut Context) {
     let loader = cx.editor.syn_loader.load();
     let (view, doc) = current!(cx.editor);
     let Some(syntax) = doc.syntax() else {
-        cx.editor.set_status("Syntax-tree is not available in current buffer");
+        cx.editor
+            .set_status("Syntax-tree is not available in current buffer");
         return;
     };
     let text = doc.text().slice(..);
@@ -166,11 +220,25 @@ fn select_inside_structural_block(cx: &mut Context) {
         // Prefer the language's semantic inside capture. If it is missing,
         // use the enclosing block's braces as the boundary instead.
         let inside = textobject::textobject_treesitter(
-            text, range, textobject::TextObject::Inside, "block", syntax, &loader, 1,
+            text,
+            range,
+            textobject::TextObject::Inside,
+            "block",
+            syntax,
+            &loader,
+            1,
         );
-        if inside != range { return inside; }
+        if inside != range {
+            return inside;
+        }
         let around = textobject::textobject_treesitter(
-            text, range, textobject::TextObject::Around, "block", syntax, &loader, 1,
+            text,
+            range,
+            textobject::TextObject::Around,
+            "block",
+            syntax,
+            &loader,
+            1,
         );
         if around == range || around.to() <= around.from() + 1 {
             return range;
@@ -201,9 +269,13 @@ fn goto_block_boundary(cx: &mut Context, start: bool) {
         if original.is_some_and(|old| *old == range) {
             return range;
         }
-        let target = if start { range.from() }
-            else if mode == Mode::Select { range.to() }
-            else { range.to().saturating_sub(1) };
+        let target = if start {
+            range.from()
+        } else if mode == Mode::Select {
+            range.to()
+        } else {
+            range.to().saturating_sub(1)
+        };
         if mode == Mode::Select {
             Range::new(original.map_or(range.anchor, |old| old.anchor), target)
         } else {
@@ -213,16 +285,36 @@ fn goto_block_boundary(cx: &mut Context, start: bool) {
     doc.set_selection(view.id, selection);
 }
 
-fn enzyme_goto_function_start(cx: &mut Context) { goto_textobject_boundary(cx, 'f', true); }
-fn enzyme_goto_function_end(cx: &mut Context) { goto_textobject_boundary(cx, 'f', false); }
-fn enzyme_goto_comment_start(cx: &mut Context) { goto_textobject_boundary(cx, 'c', true); }
-fn enzyme_goto_comment_end(cx: &mut Context) { goto_textobject_boundary(cx, 'c', false); }
-fn enzyme_goto_class_start(cx: &mut Context) { goto_textobject_boundary(cx, 't', true); }
-fn enzyme_goto_class_end(cx: &mut Context) { goto_textobject_boundary(cx, 't', false); }
-fn enzyme_goto_section_start(cx: &mut Context) { goto_textobject_boundary(cx, 'p', true); }
-fn enzyme_goto_section_end(cx: &mut Context) { goto_textobject_boundary(cx, 'p', false); }
-fn enzyme_goto_block_start(cx: &mut Context) { goto_block_boundary(cx, true); }
-fn enzyme_goto_block_end(cx: &mut Context) { goto_block_boundary(cx, false); }
+fn enzyme_goto_function_start(cx: &mut Context) {
+    goto_textobject_boundary(cx, 'f', true);
+}
+fn enzyme_goto_function_end(cx: &mut Context) {
+    goto_textobject_boundary(cx, 'f', false);
+}
+fn enzyme_goto_comment_start(cx: &mut Context) {
+    goto_textobject_boundary(cx, 'c', true);
+}
+fn enzyme_goto_comment_end(cx: &mut Context) {
+    goto_textobject_boundary(cx, 'c', false);
+}
+fn enzyme_goto_class_start(cx: &mut Context) {
+    goto_textobject_boundary(cx, 't', true);
+}
+fn enzyme_goto_class_end(cx: &mut Context) {
+    goto_textobject_boundary(cx, 't', false);
+}
+fn enzyme_goto_section_start(cx: &mut Context) {
+    goto_textobject_boundary(cx, 'p', true);
+}
+fn enzyme_goto_section_end(cx: &mut Context) {
+    goto_textobject_boundary(cx, 'p', false);
+}
+fn enzyme_goto_block_start(cx: &mut Context) {
+    goto_block_boundary(cx, true);
+}
+fn enzyme_goto_block_end(cx: &mut Context) {
+    goto_block_boundary(cx, false);
+}
 
 /// `gl<number>` is an argument-taking command, not a count.
 fn await_line_number(cx: &mut Context, digits: String) {
@@ -250,11 +342,15 @@ fn await_line_number(cx: &mut Context, digits: String) {
             }
         }
         KeyCode::Esc => {}
-        _ => cx.editor.set_error("Line number accepts digits, Enter, Backspace, or Esc"),
+        _ => cx
+            .editor
+            .set_error("Line number accepts digits, Enter, Backspace, or Esc"),
     });
 }
 
-fn enzyme_goto_line_number(cx: &mut Context) { await_line_number(cx, String::new()); }
+fn enzyme_goto_line_number(cx: &mut Context) {
+    await_line_number(cx, String::new());
+}
 
 fn select_pair(cx: &mut Context, object: textobject::TextObject) {
     let (view, doc) = current!(cx.editor);
@@ -286,7 +382,8 @@ fn enzyme_add_matching(cx: &mut Context, direction: i8) {
     let before = doc.selection(view.id).clone();
     let primary = before.primary();
     if primary.from() == primary.to() {
-        cx.editor.set_error("Select some text before adding matches");
+        cx.editor
+            .set_error("Select some text before adding matches");
         return;
     }
 
@@ -300,23 +397,38 @@ fn enzyme_add_matching(cx: &mut Context, direction: i8) {
     let normalized = before;
 
     let haystack = text.to_string();
-    let matches: Vec<Range> = haystack.match_indices(&needle).map(|(byte, matched)| {
-        let start = haystack[..byte].chars().count();
-        Range::new(start, start + matched.chars().count())
-    }).filter(|candidate| {
-        !normalized.ranges().iter().any(|existing| {
-            candidate.from() < existing.to() && existing.from() < candidate.to()
+    let matches: Vec<Range> = haystack
+        .match_indices(&needle)
+        .map(|(byte, matched)| {
+            let start = haystack[..byte].chars().count();
+            Range::new(start, start + matched.chars().count())
         })
-    }).collect();
+        .filter(|candidate| {
+            !normalized.ranges().iter().any(|existing| {
+                candidate.from() < existing.to() && existing.from() < candidate.to()
+            })
+        })
+        .collect();
 
     let selected: Vec<Range> = if direction == 0 {
         matches
     } else {
-        let position = if direction > 0 { source.to() } else { source.from() };
-        let candidate = if direction > 0 {
-            matches.iter().find(|r| r.from() >= position).or_else(|| matches.first())
+        let position = if direction > 0 {
+            source.to()
         } else {
-            matches.iter().rev().find(|r| r.to() <= position).or_else(|| matches.last())
+            source.from()
+        };
+        let candidate = if direction > 0 {
+            matches
+                .iter()
+                .find(|r| r.from() >= position)
+                .or_else(|| matches.first())
+        } else {
+            matches
+                .iter()
+                .rev()
+                .find(|r| r.to() <= position)
+                .or_else(|| matches.last())
         };
         candidate.copied().into_iter().collect()
     };
@@ -337,9 +449,15 @@ fn enzyme_add_matching(cx: &mut Context, direction: i8) {
     }
     doc.set_selection(view.id, selection);
 }
-fn enzyme_add_next_match(cx: &mut Context) { enzyme_add_matching(cx, 1); }
-fn enzyme_add_prev_match(cx: &mut Context) { enzyme_add_matching(cx, -1); }
-fn enzyme_add_all_matches(cx: &mut Context) { enzyme_add_matching(cx, 0); }
+fn enzyme_add_next_match(cx: &mut Context) {
+    enzyme_add_matching(cx, 1);
+}
+fn enzyme_add_prev_match(cx: &mut Context) {
+    enzyme_add_matching(cx, -1);
+}
+fn enzyme_add_all_matches(cx: &mut Context) {
+    enzyme_add_matching(cx, 0);
+}
 
 /// Remove the nearest secondary selection in the requested direction.
 /// The primary selection stays intact so repeated removal is predictable.
@@ -353,10 +471,12 @@ fn enzyme_remove_neighbor(cx: &mut Context, forward: bool) {
     let primary = selection.primary_index();
     let count = selection.len();
     let index = if forward {
-        (1..count).map(|step| (primary + step) % count)
+        (1..count)
+            .map(|step| (primary + step) % count)
             .find(|&index| index != primary)
     } else {
-        (1..count).map(|step| (primary + count - step) % count)
+        (1..count)
+            .map(|step| (primary + count - step) % count)
             .find(|&index| index != primary)
     };
     if let Some(index) = index {
@@ -364,8 +484,12 @@ fn enzyme_remove_neighbor(cx: &mut Context, forward: bool) {
     }
 }
 
-fn enzyme_remove_next_selection(cx: &mut Context) { enzyme_remove_neighbor(cx, true); }
-fn enzyme_remove_prev_selection(cx: &mut Context) { enzyme_remove_neighbor(cx, false); }
+fn enzyme_remove_next_selection(cx: &mut Context) {
+    enzyme_remove_neighbor(cx, true);
+}
+fn enzyme_remove_prev_selection(cx: &mut Context) {
+    enzyme_remove_neighbor(cx, false);
+}
 
 // Helix's word text object ignores count; advance across actual words explicitly.
 fn select_counted_words(cx: &mut Context, count: usize, long: bool) {
@@ -373,10 +497,11 @@ fn select_counted_words(cx: &mut Context, count: usize, long: bool) {
         let (view, doc) = current!(cx.editor);
         let text = doc.text().slice(..);
         let selection = doc.selection(view.id).clone().transform(|range| {
-            let mut word = textobject::textobject_word(
-                text, range, textobject::TextObject::Inside, 1, long,
-            );
-            if word.is_empty() { return range; }
+            let mut word =
+                textobject::textobject_word(text, range, textobject::TextObject::Inside, 1, long);
+            if word.is_empty() {
+                return range;
+            }
             let start = word.from();
             for _ in 1..count {
                 // Start after the selected word, skipping whitespace. A
@@ -387,11 +512,19 @@ fn select_counted_words(cx: &mut Context, count: usize, long: bool) {
                 {
                     next_pos += 1;
                 }
-                if next_pos >= text.len_chars() { break; }
+                if next_pos >= text.len_chars() {
+                    break;
+                }
                 let candidate = textobject::textobject_word(
-                    text, Range::point(next_pos), textobject::TextObject::Inside, 1, long,
+                    text,
+                    Range::point(next_pos),
+                    textobject::TextObject::Inside,
+                    1,
+                    long,
                 );
-                if candidate.is_empty() || candidate.to() <= word.to() { break; }
+                if candidate.is_empty() || candidate.to() <= word.to() {
+                    break;
+                }
                 word = candidate;
             }
             Range::new(start, word.to())
@@ -401,7 +534,8 @@ fn select_counted_words(cx: &mut Context, count: usize, long: bool) {
 }
 
 fn await_selection_count(cx: &mut Context, digits: String) {
-    cx.editor.set_status(format!("SELECT COUNT: {digits} (w/W/l)"));
+    cx.editor
+        .set_status(format!("SELECT COUNT: {digits} (w/W/l)"));
     cx.on_next_key(move |cx, event| match event.code {
         KeyCode::Char(ch) if ch.is_ascii_digit() => {
             let mut next = digits;
@@ -433,7 +567,9 @@ fn await_selection_count(cx: &mut Context, digits: String) {
             cx.count = old_count;
         }
         KeyCode::Esc => {}
-        _ => cx.editor.set_error("Selection count expects digits followed by w, W, or l"),
+        _ => cx
+            .editor
+            .set_error("Selection count expects digits followed by w, W, or l"),
     });
 }
 
@@ -445,71 +581,277 @@ macro_rules! selection_count_starters {
     };
 }
 selection_count_starters!(
-    (enzyme_select_count_1, "1"), (enzyme_select_count_2, "2"),
-    (enzyme_select_count_3, "3"), (enzyme_select_count_4, "4"),
-    (enzyme_select_count_5, "5"), (enzyme_select_count_6, "6"),
-    (enzyme_select_count_7, "7"), (enzyme_select_count_8, "8"),
+    (enzyme_select_count_1, "1"),
+    (enzyme_select_count_2, "2"),
+    (enzyme_select_count_3, "3"),
+    (enzyme_select_count_4, "4"),
+    (enzyme_select_count_5, "5"),
+    (enzyme_select_count_6, "6"),
+    (enzyme_select_count_7, "7"),
+    (enzyme_select_count_8, "8"),
     (enzyme_select_count_9, "9"),
 );
 
-fn enzyme_select_line(cx: &mut Context) { remember_transient_selection(cx, |cx| MappableCommand::extend_line.execute(cx)); }
-fn enzyme_select_word(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, false, 'w')); }
-fn enzyme_select_long_word(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, false, 'W')); }
-fn enzyme_select_function(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 'f')); }
-fn enzyme_select_comment(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 'c')); }
-fn enzyme_select_inside_comment(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, false, 'c')); }
-fn enzyme_select_class(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 't')); }
-fn enzyme_select_section(cx: &mut Context) { remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 'p')); }
-fn enzyme_select_block(cx: &mut Context) { remember_transient_selection(cx, select_structural_block); }
-fn enzyme_select_inside_block(cx: &mut Context) { remember_transient_selection(cx, select_inside_structural_block); }
-fn enzyme_select_pair(cx: &mut Context) { remember_transient_selection(cx, |cx| select_pair(cx, textobject::TextObject::Around)); }
-fn enzyme_select_inside_pair(cx: &mut Context) { remember_transient_selection(cx, |cx| select_pair(cx, textobject::TextObject::Inside)); }
-fn enzyme_select_file(cx: &mut Context) { remember_transient_selection(cx, |cx| MappableCommand::select_all.execute(cx)); }
+fn enzyme_select_line(cx: &mut Context) {
+    remember_transient_selection(cx, |cx| MappableCommand::extend_line.execute(cx));
+}
+fn enzyme_select_word(cx: &mut Context) {
+    remember_transient_selection(cx, |cx| select_helix_textobject(cx, false, 'w'));
+}
+fn enzyme_select_long_word(cx: &mut Context) {
+    remember_transient_selection(cx, |cx| select_helix_textobject(cx, false, 'W'));
+}
+fn enzyme_select_function(cx: &mut Context) {
+    remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 'f'));
+}
+fn enzyme_select_comment(cx: &mut Context) {
+    remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 'c'));
+}
+fn enzyme_select_inside_comment(cx: &mut Context) {
+    remember_transient_selection(cx, |cx| select_helix_textobject(cx, false, 'c'));
+}
+fn enzyme_select_class(cx: &mut Context) {
+    remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 't'));
+}
+fn enzyme_select_section(cx: &mut Context) {
+    remember_transient_selection(cx, |cx| select_helix_textobject(cx, true, 'p'));
+}
+fn enzyme_select_block(cx: &mut Context) {
+    remember_transient_selection(cx, select_structural_block);
+}
+fn enzyme_select_inside_block(cx: &mut Context) {
+    remember_transient_selection(cx, select_inside_structural_block);
+}
+fn enzyme_select_pair(cx: &mut Context) {
+    remember_transient_selection(cx, |cx| select_pair(cx, textobject::TextObject::Around));
+}
+fn enzyme_select_inside_pair(cx: &mut Context) {
+    remember_transient_selection(cx, |cx| select_pair(cx, textobject::TextObject::Inside));
+}
+fn enzyme_select_file(cx: &mut Context) {
+    remember_transient_selection(cx, |cx| MappableCommand::select_all.execute(cx));
+}
 
 #[allow(non_upper_case_globals)]
 impl MappableCommand {
-    pub const enzyme_cancel_transient_selection: Self = Self::Static { name: "enzyme_cancel_transient_selection", fun: enzyme_cancel_transient_selection, doc: "Cancel current transient Enzyme selection" };
-    pub const enzyme_goto_line_content_start: Self = Self::Static { name: "enzyme_goto_line_content_start", fun: enzyme_goto_line_content_start, doc: "Go to first non-whitespace character of line" };
-    pub const enzyme_goto_line_number: Self = Self::Static { name: "enzyme_goto_line_number", fun: enzyme_goto_line_number, doc: "Go to absolute line number" };
-    pub const enzyme_goto_word_start: Self = Self::Static { name: "enzyme_goto_word_start", fun: enzyme_goto_word_start, doc: "Go to start of current word" };
-    pub const enzyme_goto_word_end: Self = Self::Static { name: "enzyme_goto_word_end", fun: enzyme_goto_word_end, doc: "Go to end of current word" };
-    pub const enzyme_goto_long_word_start: Self = Self::Static { name: "enzyme_goto_long_word_start", fun: enzyme_goto_long_word_start, doc: "Go to start of current long word" };
-    pub const enzyme_goto_long_word_end: Self = Self::Static { name: "enzyme_goto_long_word_end", fun: enzyme_goto_long_word_end, doc: "Go to end of current long word" };
-    pub const enzyme_goto_function_start: Self = Self::Static { name: "enzyme_goto_function_start", fun: enzyme_goto_function_start, doc: "Go to start of current function" };
-    pub const enzyme_goto_function_end: Self = Self::Static { name: "enzyme_goto_function_end", fun: enzyme_goto_function_end, doc: "Go to end of current function" };
-    pub const enzyme_goto_comment_start: Self = Self::Static { name: "enzyme_goto_comment_start", fun: enzyme_goto_comment_start, doc: "Go to start of current comment" };
-    pub const enzyme_goto_comment_end: Self = Self::Static { name: "enzyme_goto_comment_end", fun: enzyme_goto_comment_end, doc: "Go to end of current comment" };
-    pub const enzyme_goto_class_start: Self = Self::Static { name: "enzyme_goto_class_start", fun: enzyme_goto_class_start, doc: "Go to start of current class/type" };
-    pub const enzyme_goto_class_end: Self = Self::Static { name: "enzyme_goto_class_end", fun: enzyme_goto_class_end, doc: "Go to end of current class/type" };
-    pub const enzyme_goto_section_start: Self = Self::Static { name: "enzyme_goto_section_start", fun: enzyme_goto_section_start, doc: "Go to start of current section" };
-    pub const enzyme_goto_section_end: Self = Self::Static { name: "enzyme_goto_section_end", fun: enzyme_goto_section_end, doc: "Go to end of current section" };
-    pub const enzyme_goto_block_start: Self = Self::Static { name: "enzyme_goto_block_start", fun: enzyme_goto_block_start, doc: "Go to start of current structural block" };
-    pub const enzyme_goto_block_end: Self = Self::Static { name: "enzyme_goto_block_end", fun: enzyme_goto_block_end, doc: "Go to end of current structural block" };
-    pub const enzyme_add_next_match: Self = Self::Static { name: "enzyme_add_next_match", fun: enzyme_add_next_match, doc: "Add next matching occurrence" };
-    pub const enzyme_add_prev_match: Self = Self::Static { name: "enzyme_add_prev_match", fun: enzyme_add_prev_match, doc: "Add previous matching occurrence" };
-    pub const enzyme_add_all_matches: Self = Self::Static { name: "enzyme_add_all_matches", fun: enzyme_add_all_matches, doc: "Add all matching occurrences" };
-    pub const enzyme_remove_next_selection: Self = Self::Static { name: "enzyme_remove_next_selection", fun: enzyme_remove_next_selection, doc: "Remove next secondary selection" };
-    pub const enzyme_remove_prev_selection: Self = Self::Static { name: "enzyme_remove_prev_selection", fun: enzyme_remove_prev_selection, doc: "Remove previous secondary selection" };
-    pub const enzyme_select_inside_block: Self = Self::Static { name: "enzyme_select_inside_block", fun: enzyme_select_inside_block, doc: "Select inside current structural block" };
-    pub const enzyme_select_count_1: Self = Self::Static { name: "enzyme_select_count_1", fun: enzyme_select_count_1, doc: "Select a counted number of words or lines" };
-    pub const enzyme_select_count_2: Self = Self::Static { name: "enzyme_select_count_2", fun: enzyme_select_count_2, doc: "Select a counted number of words or lines" };
-    pub const enzyme_select_count_3: Self = Self::Static { name: "enzyme_select_count_3", fun: enzyme_select_count_3, doc: "Select a counted number of words or lines" };
-    pub const enzyme_select_count_4: Self = Self::Static { name: "enzyme_select_count_4", fun: enzyme_select_count_4, doc: "Select a counted number of words or lines" };
-    pub const enzyme_select_count_5: Self = Self::Static { name: "enzyme_select_count_5", fun: enzyme_select_count_5, doc: "Select a counted number of words or lines" };
-    pub const enzyme_select_count_6: Self = Self::Static { name: "enzyme_select_count_6", fun: enzyme_select_count_6, doc: "Select a counted number of words or lines" };
-    pub const enzyme_select_count_7: Self = Self::Static { name: "enzyme_select_count_7", fun: enzyme_select_count_7, doc: "Select a counted number of words or lines" };
-    pub const enzyme_select_count_8: Self = Self::Static { name: "enzyme_select_count_8", fun: enzyme_select_count_8, doc: "Select a counted number of words or lines" };
-    pub const enzyme_select_count_9: Self = Self::Static { name: "enzyme_select_count_9", fun: enzyme_select_count_9, doc: "Select a counted number of words or lines" };
-    pub const enzyme_select_line: Self = Self::Static { name: "enzyme_select_line", fun: enzyme_select_line, doc: "Select current line" };
-    pub const enzyme_select_word: Self = Self::Static { name: "enzyme_select_word", fun: enzyme_select_word, doc: "Select current word" };
-    pub const enzyme_select_long_word: Self = Self::Static { name: "enzyme_select_long_word", fun: enzyme_select_long_word, doc: "Select current long word" };
-    pub const enzyme_select_function: Self = Self::Static { name: "enzyme_select_function", fun: enzyme_select_function, doc: "Select current function" };
-    pub const enzyme_select_comment: Self = Self::Static { name: "enzyme_select_comment", fun: enzyme_select_comment, doc: "Select current comment" };
-    pub const enzyme_select_inside_comment: Self = Self::Static { name: "enzyme_select_inside_comment", fun: enzyme_select_inside_comment, doc: "Select inside current comment" };
-    pub const enzyme_select_class: Self = Self::Static { name: "enzyme_select_class", fun: enzyme_select_class, doc: "Select current class/type" };
-    pub const enzyme_select_section: Self = Self::Static { name: "enzyme_select_section", fun: enzyme_select_section, doc: "Select current section" };
-    pub const enzyme_select_block: Self = Self::Static { name: "enzyme_select_block", fun: enzyme_select_block, doc: "Select current structural block" };
-    pub const enzyme_select_pair: Self = Self::Static { name: "enzyme_select_pair", fun: enzyme_select_pair, doc: "Select closest matching pair" };
-    pub const enzyme_select_inside_pair: Self = Self::Static { name: "enzyme_select_inside_pair", fun: enzyme_select_inside_pair, doc: "Select inside closest matching pair" };
-    pub const enzyme_select_file: Self = Self::Static { name: "enzyme_select_file", fun: enzyme_select_file, doc: "Select whole file" };
+    pub const enzyme_cancel_transient_selection: Self = Self::Static {
+        name: "enzyme_cancel_transient_selection",
+        fun: enzyme_cancel_transient_selection,
+        doc: "Cancel current transient Enzyme selection",
+    };
+    pub const enzyme_goto_line_content_start: Self = Self::Static {
+        name: "enzyme_goto_line_content_start",
+        fun: enzyme_goto_line_content_start,
+        doc: "Go to first non-whitespace character of line",
+    };
+    pub const enzyme_goto_line_number: Self = Self::Static {
+        name: "enzyme_goto_line_number",
+        fun: enzyme_goto_line_number,
+        doc: "Go to absolute line number",
+    };
+    pub const enzyme_goto_word_start: Self = Self::Static {
+        name: "enzyme_goto_word_start",
+        fun: enzyme_goto_word_start,
+        doc: "Go to start of current word",
+    };
+    pub const enzyme_goto_word_end: Self = Self::Static {
+        name: "enzyme_goto_word_end",
+        fun: enzyme_goto_word_end,
+        doc: "Go to end of current word",
+    };
+    pub const enzyme_goto_long_word_start: Self = Self::Static {
+        name: "enzyme_goto_long_word_start",
+        fun: enzyme_goto_long_word_start,
+        doc: "Go to start of current long word",
+    };
+    pub const enzyme_goto_long_word_end: Self = Self::Static {
+        name: "enzyme_goto_long_word_end",
+        fun: enzyme_goto_long_word_end,
+        doc: "Go to end of current long word",
+    };
+    pub const enzyme_goto_function_start: Self = Self::Static {
+        name: "enzyme_goto_function_start",
+        fun: enzyme_goto_function_start,
+        doc: "Go to start of current function",
+    };
+    pub const enzyme_goto_function_end: Self = Self::Static {
+        name: "enzyme_goto_function_end",
+        fun: enzyme_goto_function_end,
+        doc: "Go to end of current function",
+    };
+    pub const enzyme_goto_comment_start: Self = Self::Static {
+        name: "enzyme_goto_comment_start",
+        fun: enzyme_goto_comment_start,
+        doc: "Go to start of current comment",
+    };
+    pub const enzyme_goto_comment_end: Self = Self::Static {
+        name: "enzyme_goto_comment_end",
+        fun: enzyme_goto_comment_end,
+        doc: "Go to end of current comment",
+    };
+    pub const enzyme_goto_class_start: Self = Self::Static {
+        name: "enzyme_goto_class_start",
+        fun: enzyme_goto_class_start,
+        doc: "Go to start of current class/type",
+    };
+    pub const enzyme_goto_class_end: Self = Self::Static {
+        name: "enzyme_goto_class_end",
+        fun: enzyme_goto_class_end,
+        doc: "Go to end of current class/type",
+    };
+    pub const enzyme_goto_section_start: Self = Self::Static {
+        name: "enzyme_goto_section_start",
+        fun: enzyme_goto_section_start,
+        doc: "Go to start of current section",
+    };
+    pub const enzyme_goto_section_end: Self = Self::Static {
+        name: "enzyme_goto_section_end",
+        fun: enzyme_goto_section_end,
+        doc: "Go to end of current section",
+    };
+    pub const enzyme_goto_block_start: Self = Self::Static {
+        name: "enzyme_goto_block_start",
+        fun: enzyme_goto_block_start,
+        doc: "Go to start of current structural block",
+    };
+    pub const enzyme_goto_block_end: Self = Self::Static {
+        name: "enzyme_goto_block_end",
+        fun: enzyme_goto_block_end,
+        doc: "Go to end of current structural block",
+    };
+    pub const enzyme_add_next_match: Self = Self::Static {
+        name: "enzyme_add_next_match",
+        fun: enzyme_add_next_match,
+        doc: "Add next matching occurrence",
+    };
+    pub const enzyme_add_prev_match: Self = Self::Static {
+        name: "enzyme_add_prev_match",
+        fun: enzyme_add_prev_match,
+        doc: "Add previous matching occurrence",
+    };
+    pub const enzyme_add_all_matches: Self = Self::Static {
+        name: "enzyme_add_all_matches",
+        fun: enzyme_add_all_matches,
+        doc: "Add all matching occurrences",
+    };
+    pub const enzyme_remove_next_selection: Self = Self::Static {
+        name: "enzyme_remove_next_selection",
+        fun: enzyme_remove_next_selection,
+        doc: "Remove next secondary selection",
+    };
+    pub const enzyme_remove_prev_selection: Self = Self::Static {
+        name: "enzyme_remove_prev_selection",
+        fun: enzyme_remove_prev_selection,
+        doc: "Remove previous secondary selection",
+    };
+    pub const enzyme_select_inside_block: Self = Self::Static {
+        name: "enzyme_select_inside_block",
+        fun: enzyme_select_inside_block,
+        doc: "Select inside current structural block",
+    };
+    pub const enzyme_select_count_1: Self = Self::Static {
+        name: "enzyme_select_count_1",
+        fun: enzyme_select_count_1,
+        doc: "Select a counted number of words or lines",
+    };
+    pub const enzyme_select_count_2: Self = Self::Static {
+        name: "enzyme_select_count_2",
+        fun: enzyme_select_count_2,
+        doc: "Select a counted number of words or lines",
+    };
+    pub const enzyme_select_count_3: Self = Self::Static {
+        name: "enzyme_select_count_3",
+        fun: enzyme_select_count_3,
+        doc: "Select a counted number of words or lines",
+    };
+    pub const enzyme_select_count_4: Self = Self::Static {
+        name: "enzyme_select_count_4",
+        fun: enzyme_select_count_4,
+        doc: "Select a counted number of words or lines",
+    };
+    pub const enzyme_select_count_5: Self = Self::Static {
+        name: "enzyme_select_count_5",
+        fun: enzyme_select_count_5,
+        doc: "Select a counted number of words or lines",
+    };
+    pub const enzyme_select_count_6: Self = Self::Static {
+        name: "enzyme_select_count_6",
+        fun: enzyme_select_count_6,
+        doc: "Select a counted number of words or lines",
+    };
+    pub const enzyme_select_count_7: Self = Self::Static {
+        name: "enzyme_select_count_7",
+        fun: enzyme_select_count_7,
+        doc: "Select a counted number of words or lines",
+    };
+    pub const enzyme_select_count_8: Self = Self::Static {
+        name: "enzyme_select_count_8",
+        fun: enzyme_select_count_8,
+        doc: "Select a counted number of words or lines",
+    };
+    pub const enzyme_select_count_9: Self = Self::Static {
+        name: "enzyme_select_count_9",
+        fun: enzyme_select_count_9,
+        doc: "Select a counted number of words or lines",
+    };
+    pub const enzyme_select_line: Self = Self::Static {
+        name: "enzyme_select_line",
+        fun: enzyme_select_line,
+        doc: "Select current line",
+    };
+    pub const enzyme_select_word: Self = Self::Static {
+        name: "enzyme_select_word",
+        fun: enzyme_select_word,
+        doc: "Select current word",
+    };
+    pub const enzyme_select_long_word: Self = Self::Static {
+        name: "enzyme_select_long_word",
+        fun: enzyme_select_long_word,
+        doc: "Select current long word",
+    };
+    pub const enzyme_select_function: Self = Self::Static {
+        name: "enzyme_select_function",
+        fun: enzyme_select_function,
+        doc: "Select current function",
+    };
+    pub const enzyme_select_comment: Self = Self::Static {
+        name: "enzyme_select_comment",
+        fun: enzyme_select_comment,
+        doc: "Select current comment",
+    };
+    pub const enzyme_select_inside_comment: Self = Self::Static {
+        name: "enzyme_select_inside_comment",
+        fun: enzyme_select_inside_comment,
+        doc: "Select inside current comment",
+    };
+    pub const enzyme_select_class: Self = Self::Static {
+        name: "enzyme_select_class",
+        fun: enzyme_select_class,
+        doc: "Select current class/type",
+    };
+    pub const enzyme_select_section: Self = Self::Static {
+        name: "enzyme_select_section",
+        fun: enzyme_select_section,
+        doc: "Select current section",
+    };
+    pub const enzyme_select_block: Self = Self::Static {
+        name: "enzyme_select_block",
+        fun: enzyme_select_block,
+        doc: "Select current structural block",
+    };
+    pub const enzyme_select_pair: Self = Self::Static {
+        name: "enzyme_select_pair",
+        fun: enzyme_select_pair,
+        doc: "Select closest matching pair",
+    };
+    pub const enzyme_select_inside_pair: Self = Self::Static {
+        name: "enzyme_select_inside_pair",
+        fun: enzyme_select_inside_pair,
+        doc: "Select inside closest matching pair",
+    };
+    pub const enzyme_select_file: Self = Self::Static {
+        name: "enzyme_select_file",
+        fun: enzyme_select_file,
+        doc: "Select whole file",
+    };
 }

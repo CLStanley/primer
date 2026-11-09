@@ -30,6 +30,12 @@ label = "honey"
 tabstop = { modifiers = ["italic"], bg = "bossanova" }
 
 "markup.heading" = "lilac"
+
+# Dashboard color roles; editable independently of syntax highlighting.
+"ui.dashboard.logo" = { fg = "lilac" }
+"ui.dashboard.shortcut" = { fg = "sky" }
+"ui.dashboard.motto" = { fg = "mint" }
+"ui.dashboard.heading" = { fg = "lilac" }
 "markup.bold" = { modifiers = ["bold"] }
 "markup.italic" = { modifiers = ["italic"] }
 "markup.strikethrough" = { modifiers = ["crossed_out"] }
@@ -105,6 +111,7 @@ revolver = "#281733"
 silver = "#cccccc"
 sirocco = "#697C81"
 mint = "#9ff28f"
+sky = "#56c8ff"
 almond = "#eccdba"
 chamois = "#E8DCA0"
 honey = "#efba5d"

@@ -140,6 +140,9 @@ impl Application {
         compositor.push(editor_view);
 
         let jobs = Jobs::new();
+        let show_dashboard = !args.load_tutor
+            && args.files.is_empty()
+            && (stdin().is_terminal() || cfg!(feature = "integration"));
 
         if args.load_tutor {
             let path = helix_loader::runtime_file(Path::new("tutor"));
@@ -230,6 +233,10 @@ impl Application {
             editor
                 .new_file_from_stdin(Action::VerticalSplit)
                 .unwrap_or_else(|_| editor.new_file(Action::VerticalSplit));
+        }
+
+        if show_dashboard {
+            compositor.push(Box::new(ui::dashboard::Dashboard::new()));
         }
 
         #[cfg(windows)]
