@@ -9,7 +9,8 @@ use std::sync::Arc;
 use std::{borrow::Cow, ops::RangeFrom};
 use tui::buffer::Buffer as Surface;
 use tui::text::Span;
-use tui::widgets::{Block, Widget};
+use tui::widgets::{Block, BorderType, Widget};
+use helix_view::editor::UiBorderStyle;
 
 use helix_core::{
     unicode::segmentation::{GraphemeCursor, UnicodeSegmentation},
@@ -459,7 +460,7 @@ impl Prompt {
             let menu_style = cx.editor.theme.get("ui.menu");
             surface.clear_with(completion_area, menu_style);
             if floating {
-                Block::bordered()
+                Block::bordered().border_type(match cx.editor.config().border_style { UiBorderStyle::Square | UiBorderStyle::None => BorderType::Plain, UiBorderStyle::Rounded => BorderType::Rounded, UiBorderStyle::Double => BorderType::Double })
                     .border_style(cx.editor.theme.get("ui.window"))
                     .render(completion_area, surface);
             }
