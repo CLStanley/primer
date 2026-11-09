@@ -277,9 +277,13 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "C-o" => jump_backward,
         "C-s" => save_selection,
         "space" => { "Space"
-            "f" => file_picker,
-            "F" => file_picker_in_current_directory,
-            "e" => file_explorer,
+            "f" => { "Find"
+                "f" => file_picker,
+                "F" => file_picker_in_current_directory,
+                "e" => file_explorer,
+                "g" => global_search,
+                "h" => command_palette,
+            },
             "." => file_explorer_in_current_buffer_directory,
             "b" => { "Buffers"
                 "b" => buffer_picker,
@@ -288,13 +292,32 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "N" => primer_buffer_new,
                 "q" => primer_buffer_close,
             },
+            "n" => { "Notes"
+                "a" => primer_agenda,
+                "t" => { "Todos"
+                    "n" => primer_agenda_new_todo,
+                    "d" => primer_agenda_mark_done,
+                },
+                "e" => { "Events"
+                    "n" => primer_agenda_new_event,
+                },
+                "m" => { "Reminders"
+                    "n" => primer_agenda_new_reminder,
+                },
+                "n" => primer_notes_new,
+                "d" => primer_notes_daily,
+                "f" => primer_notes_find,
+                "i" => primer_notes_inbox,
+                "p" => primer_notes_projects,
+                "k" => primer_notes_knowledge,
+                "r" => primer_notes_reference,
+            },
             "j" => jumplist_picker,
             "s" => { "Search"
                 "f" => { "File"
                     "s" => lsp_or_syntax_symbol_picker,
                 },
                 "p" => { "Project"
-                    "t" => global_search,
                     "r" => select_references_to_symbol_under_cursor,
                     "s" => lsp_or_syntax_workspace_symbol_picker,
                 },
@@ -365,14 +388,12 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "p" => paste_clipboard_after,
             "P" => paste_clipboard_before,
             "R" => replace_selections_with_clipboard,
-            "/" => global_search,
             "k" => hover,
             "r" => rename_symbol,
             "h" => select_references_to_symbol_under_cursor,
             "c" => toggle_comments,
             "C" => toggle_block_comments,
             "A-c" => toggle_line_comments,
-            "?" => command_palette,
         },
         "z" => { "View"
             "z" | "c" => align_view_center,

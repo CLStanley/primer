@@ -1,9 +1,9 @@
 use std::borrow::Cow;
 
-use helix_view::{graphics::Rect, Editor};
+use helix_view::{editor::UiBorderStyle, graphics::Rect, Editor};
 use tui::{
     buffer::Buffer as Surface,
-    widgets::{Block, Widget as _},
+    widgets::{Block, BorderType, Widget as _},
 };
 
 use crate::compositor::{Component, Context, Event, EventResult};
@@ -51,13 +51,19 @@ impl<T: Item> Component for Select<T> {
         let (message_width, message_height) = self.message.required_size(viewport).unwrap();
         let (menu_width, menu_height) = self.options.required_size(viewport).unwrap();
         Some((
-            menu_width.max(message_width + 2),
-            message_height + menu_height + 2,
+            menu_width.max(message_width + 2) + 2,
+            message_height + menu_height + 4,
         ))
     }
 
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
-        const BLOCK: Block<'_> = Block::bordered();
+        let block = Block::bordered()
+            .border_type(match cx.editor.config().border_style {
+                UiBorderStyle::Square => BorderType::Plain,
+                UiBorderStyle::Rounded => BorderType::Rounded,
+                UiBorderStyle::Double => BorderType::Double,
+            })
+            .border_style(cx.editor.theme.get("ui.window"));
 
         // +---------------------+
         // | message             |
@@ -76,27 +82,39 @@ impl<T: Item> Component for Select<T> {
             .required_size((max_width, area.height))
             .unwrap();
         // + 2 for borders and another + 2 for horizontal padding
-        let width = message_width + 4;
-        let height = message_height + 2 + menu_height;
+        let width = (message_width + 4).max(36).min(area.width.saturating_sub(4));
+        let height = (message_height + menu_height + 4).min(area.height.saturating_sub(2));
+        // Match the command prompt: center horizontally and anchor near the top.
         let area = Rect {
-            x: (area.width / 2) - width / 2,
-            y: (area.height / 2) - height / 2,
+            x: area.x + area.width.saturating_sub(width) / 2,
+            y: area.y + area.height / 6,
             width,
             height,
         };
 
         // Message
-        let background = cx.editor.theme.get("ui.background");
+        let background = cx.editor.theme.try_get("ui.popup").unwrap_or_else(|| cx.editor.theme.get("ui.background"));
         let text = cx.editor.theme.get("ui.text");
         let message_box = area.with_height(message_height + 2);
         surface.clear_with(message_box, background.patch(text));
-        BLOCK.render(message_box, surface);
+        block.clone().render(message_box, surface);
         // Add horizontal padding so the message isn't too close to the border.
-        let message_area = BLOCK.inner(message_box).clip_left(1).clip_right(1);
+        let message_area = block.inner(message_box).clip_left(1).clip_right(1);
         self.message.render(message_area, surface, cx);
 
         // Options menu
         let menu_area = area.clip_top(message_height + 2);
-        self.options.render(menu_area, surface, cx);
+        let menu_background = cx.editor.theme.try_get("ui.menu").unwrap_or(background);
+        surface.clear_with(menu_area, menu_background);
+        let menu_block = Block::bordered()
+            .border_type(match cx.editor.config().border_style {
+                UiBorderStyle::Square => BorderType::Plain,
+                UiBorderStyle::Rounded => BorderType::Rounded,
+                UiBorderStyle::Double => BorderType::Double,
+            })
+            .border_style(cx.editor.theme.get("ui.window"));
+        let menu_inner = menu_block.inner(menu_area);
+        menu_block.render(menu_area, surface);
+        self.options.render(menu_inner, surface, cx);
     }
 }

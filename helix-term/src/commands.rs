@@ -448,6 +448,18 @@ impl MappableCommand {
         primer_buffer_next, "Next buffer",
         primer_buffer_new, "New empty buffer",
         primer_buffer_close, "Close current buffer",
+        primer_notes_find, "Search all notes in your notebook by filename",
+        primer_agenda, "Browse open todos, events, and reminders by date",
+        primer_agenda_new_todo, "Create a todo with an optional due date",
+        primer_agenda_new_event, "Create an event with a date and optional time",
+        primer_agenda_new_reminder, "Create a scheduled reminder",
+        primer_agenda_mark_done, "Mark the current todo as completed",
+        primer_notes_daily, "Open or create today's journal and daily notes",
+        primer_notes_new, "Create a note with a category, title, and template",
+        primer_notes_inbox, "Review uncategorized notes to organize later",
+        primer_notes_projects, "Open notes for active projects and ongoing work",
+        primer_notes_knowledge, "Explore concepts, learning, and connected ideas",
+        primer_notes_reference, "Look up saved resources and reference material",
         goto_last_accessed_file, "Goto last accessed file",
         goto_last_modified_file, "Goto last modified file",
         goto_last_modification, "Goto last modification",
@@ -3172,6 +3184,364 @@ fn append_mode(cx: &mut Context) {
     });
     doc.set_selection(view.id, selection);
 }
+
+// Use the same notebook location as the Neovim zk integration. Never create
+// directories just to browse notes; a missing mount should be reported.
+fn primer_notes_root() -> std::path::PathBuf {
+    // Match the QuickShell calendar's per-machine notebook source while
+    // retaining explicit editor environment overrides.
+    let quickshell_source = std::env::var_os("HOME").and_then(|home| {
+        let source = std::path::PathBuf::from(home)
+            .join(".local/state/quickshell/agenda-source");
+        std::fs::read_to_string(source).ok().and_then(|value| {
+            let value = value.trim();
+            if value.is_empty() { None } else { Some(std::path::PathBuf::from(value)) }
+        })
+    });
+    let path = std::env::var_os("NVIM_NOTES_DIR")
+        .or_else(|| std::env::var_os("ZK_NOTEBOOK_DIR"))
+        .map(std::path::PathBuf::from)
+        .or(quickshell_source)
+        .unwrap_or_else(|| std::path::PathBuf::from("~/NAS/Notes"));
+    if let Ok(suffix) = path.strip_prefix("~") {
+        if let Some(home) = std::env::var_os("HOME") {
+            return std::path::PathBuf::from(home).join(suffix);
+        }
+    }
+    path
+}
+
+fn primer_notes_picker(cx: &mut Context, category: Option<&str>) {
+    let mut root = primer_notes_root();
+    if let Some(category) = category {
+        root.push(category);
+    }
+    if !root.is_dir() {
+        cx.editor.set_error(format!("Notes directory unavailable: {}", root.display()));
+        return;
+    }
+    let picker = ui::file_picker(cx.editor, root);
+    cx.push_layer(Box::new(overlaid(picker)));
+}
+
+fn primer_agenda_slug(title: &str) -> String {
+    title.to_ascii_lowercase().chars().filter_map(|ch| {
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' { Some(ch) }
+        else if ch.is_whitespace() { Some('-') } else { None }
+    }).collect::<String>().trim_matches('-').to_string()
+}
+
+fn primer_agenda_create(cx: &mut Context, kind: &'static str) {
+    let (heading, example) = match kind {
+        "todo" => ("New Todo", "Buy groceries | 2026-11-15 (date optional)"),
+        "event" => ("New Event", "Team meeting | 2026-11-15 | 14:30 (time optional)"),
+        _ => ("New Reminder", "Call dentist | 2026-11-15 | 09:00 | weekly"),
+    };
+    let mut prompt = Prompt::new(format!("{heading}: ").into(), None, ui::completers::none,
+        move |cx, input, event| {
+            if event != PromptEvent::Validate { return; }
+            let parts: Vec<&str> = input.split('|').map(str::trim).collect();
+            let title = parts.first().copied().unwrap_or("");
+            let date = parts.get(1).copied().unwrap_or("");
+            let time = parts.get(2).copied().unwrap_or("");
+            let repeat_input = parts.get(3).copied().unwrap_or("none").to_ascii_lowercase();
+            let (repeat, days) = if kind == "reminder" {
+                if let Some(custom) = repeat_input.strip_prefix("days:") {
+                    let valid = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+                    let selected: Vec<&str> = custom.split(',').map(str::trim).collect();
+                    if selected.is_empty() || selected.iter().any(|day| !valid.contains(day)) {
+                        cx.editor.set_error("Custom repeat: days:mon,wed,fri");
+                        return;
+                    }
+                    ("days", selected.join(","))
+                } else if ["none", "daily", "weekdays", "weekly"].contains(&repeat_input.as_str()) {
+                    (repeat_input.as_str(), String::new())
+                } else {
+                    cx.editor.set_error("Repeat: none, daily, weekdays, weekly, or days:mon,wed,fri");
+                    return;
+                }
+            } else { ("none", String::new()) };
+            let valid_date = |value: &str| {
+                value.len() == 10 && value.as_bytes()[4] == b'-' && value.as_bytes()[7] == b'-'
+                    && value.chars().enumerate().all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
+                    && chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").is_ok()
+            };
+            let valid_time = |value: &str| chrono::NaiveTime::parse_from_str(value, "%H:%M").is_ok();
+            if title.is_empty() || (kind != "todo" && !valid_date(date))
+                || (!date.is_empty() && !valid_date(date))
+                || (!time.is_empty() && !valid_time(time))
+                || (kind == "reminder" && time.is_empty()) || parts.len() > (if kind == "reminder" { 4 } else { 3 }) {
+                cx.editor.set_error("Expected: title | YYYY-MM-DD | HH:MM (date/time optional for todos)");
+                return;
+            }
+            let slug = primer_agenda_slug(title);
+            if slug.is_empty() { cx.editor.set_error("Title must contain letters or numbers"); return; }
+            let folder = match kind { "todo" => "Todos", "event" => "Events", _ => "Reminders" };
+            let dir = primer_notes_root().join("Agenda").join(folder);
+            if let Err(err) = std::fs::create_dir_all(&dir) { cx.editor.set_error(err.to_string()); return; }
+            let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+            let escaped = title.replace('"', "\\\"");
+            let filename = if kind == "todo" { format!("{slug}.md") }
+                else if kind == "reminder" {
+                    format!("{}-{slug}-{}.md", date, chrono::Local::now().timestamp_micros())
+                } else { format!("{}-{slug}.md", date) };
+            let path = dir.join(filename);
+            let content = match kind {
+                "todo" => format!(r#"---
+title: "{escaped}"
+type: todo
+status: open
+created: {today}
+updated: {today}
+due: {date}
+reminder:
+priority: normal
+tags:
+  -
+---
+
+# {title}
+
+## Details
+
+## Related
+
+-
+
+## Notes
+"#),
+                "event" => format!(r#"---
+title: "{escaped}"
+type: event
+date: {date}
+start: {time}
+end:
+reminder:
+location: ""
+created: {today}
+updated: {today}
+tags:
+  -
+---
+
+# {title}
+
+## Details
+
+## Related
+
+-
+
+## Notes
+
+## Follow Up
+
+- [ ]
+"#),
+                _ => format!(r#"---
+title: "{escaped}"
+date: {date}
+time: {time}
+repeat: {repeat}
+days: {days}
+---
+"#),
+            };
+            use std::io::Write as _;
+            match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+                Ok(mut file) => if let Err(err) = file.write_all(content.as_bytes()) { cx.editor.set_error(err.to_string()); return; },
+                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {},
+                Err(err) => { cx.editor.set_error(err.to_string()); return; }
+            }
+            if let Err(err) = cx.editor.open(&path, Action::Replace) { cx.editor.set_error(err.to_string()); }
+        });
+    prompt.doc_fn = Box::new(move |_| Some(format!("{heading}\nFormat: title | YYYY-MM-DD | HH:MM{}\nExample: {example}", if kind == "reminder" { " | repeat (optional)" } else { "" }).into()));
+    prompt.recalculate_completion(cx.editor);
+    cx.push_layer(Box::new(prompt));
+}
+
+fn primer_agenda_new_todo(cx: &mut Context) { primer_agenda_create(cx, "todo"); }
+fn primer_agenda_new_event(cx: &mut Context) { primer_agenda_create(cx, "event"); }
+fn primer_agenda_new_reminder(cx: &mut Context) { primer_agenda_create(cx, "reminder"); }
+
+fn primer_agenda_mark_done(cx: &mut Context) {
+    let Some(path) = doc!(cx.editor).path().map(|p| p.to_path_buf()) else {
+        cx.editor.set_error("Open a todo before marking it complete");
+        return;
+    };
+    if doc!(cx.editor).is_modified() {
+        cx.editor.set_error("Save the todo before marking it complete");
+        return;
+    }
+    let todo_dir = primer_notes_root().join("Agenda").join("Todos");
+    if !path.starts_with(&todo_dir) {
+        cx.editor.set_error("Open a todo before marking it complete");
+        return;
+    }
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        cx.editor.set_error("Could not read todo");
+        return;
+    };
+    if !content.lines().any(|line| line.starts_with("status:")) {
+        cx.editor.set_error("Todo is missing a status field");
+        return;
+    }
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let updated = content.lines().map(|line| {
+        if line.starts_with("status:") { "status: done".to_string() }
+        else if line.starts_with("updated:") { format!("updated: {today}") }
+        else { line.to_string() }
+    }).collect::<Vec<_>>().join("\n") + "\n";
+    if let Err(err) = std::fs::write(&path, updated) { cx.editor.set_error(err.to_string()); return; }
+    cx.editor.set_status("Todo marked complete; reopen the file to refresh its contents");
+}
+
+#[derive(Clone)]
+struct PrimerAgendaItem {
+    path: PathBuf,
+    kind: String,
+    when: String,
+    time: String,
+    title: String,
+}
+
+fn primer_agenda(cx: &mut Context) {
+    let root = primer_notes_root().join("Agenda");
+    if !root.is_dir() {
+        cx.editor.set_error(format!("Agenda directory unavailable: {}", root.display()));
+        return;
+    }
+    let mut items = Vec::new();
+    for (folder, kind) in [("Todos", "TODO"), ("Events", "EVENT"), ("Reminders", "REMIND")] {
+        let directory = root.join(folder);
+        let Ok(entries) = std::fs::read_dir(&directory) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("md") { continue; }
+            let Ok(content) = std::fs::read_to_string(&path) else { continue };
+            let mut fields = HashMap::new();
+            if content.lines().next() != Some("---") { continue; }
+            for line in content.lines().skip(1).take(80) {
+                if line == "---" { break; }
+                if let Some((key, value)) = line.split_once(':') {
+                    fields.insert(key.trim(), value.trim().trim_matches('"'));
+                }
+            }
+            if kind == "TODO" && fields.get("status") == Some(&"done") { continue; }
+            let date_key = if kind == "TODO" { "due" } else { "date" };
+            let when = fields.get(date_key).copied().filter(|value| !value.is_empty()).unwrap_or("No date").to_string();
+            let time = fields.get(if kind == "REMIND" { "time" } else { "start" }).copied().unwrap_or("").to_string();
+            let title = fields.get("title").copied().unwrap_or_else(|| path.file_stem().and_then(|s| s.to_str()).unwrap_or("Untitled")).to_string();
+            items.push(PrimerAgendaItem { path, kind: kind.into(), when, time, title });
+        }
+    }
+    items.sort_by(|a, b| {
+        let a_date = if a.when == "No date" { "9999-99-99" } else { a.when.as_str() };
+        let b_date = if b.when == "No date" { "9999-99-99" } else { b.when.as_str() };
+        a_date.cmp(b_date).then(a.time.cmp(&b.time)).then(a.title.cmp(&b.title))
+    });
+    if items.is_empty() {
+        cx.editor.set_status("Agenda is empty. Add a todo, event, or reminder.");
+        return;
+    }
+    let columns = [
+        PickerColumn::new("type", |item: &PrimerAgendaItem, _: &()| item.kind.as_str().into()),
+        PickerColumn::new("date", |item: &PrimerAgendaItem, _: &()| item.when.as_str().into()),
+        PickerColumn::new("time", |item: &PrimerAgendaItem, _: &()| item.time.as_str().into()),
+        PickerColumn::new("title", |item: &PrimerAgendaItem, _: &()| item.title.as_str().into()),
+    ];
+    let picker = Picker::new(columns, 3, items, (), |cx, item: &PrimerAgendaItem, action| {
+        if let Err(err) = cx.editor.open(&item.path, action) { cx.editor.set_error(err.to_string()); }
+    }).with_preview(|_, item| Some((item.path.as_path().into(), None)));
+    cx.push_layer(Box::new(overlaid(picker)));
+}
+
+fn primer_notes_new(cx: &mut Context) {
+    let mut prompt = Prompt::new("New note (category: title): ".into(), None, ui::completers::none,
+        |cx, input, event| {
+            if event != PromptEvent::Validate { return; }
+            let Some((category, title)) = input.split_once(':') else {
+                cx.editor.set_error("Use category: title, e.g. knowledge: Rust");
+                return;
+            };
+            let title = title.trim();
+            let (folder, kind, sections) = match category.trim().to_ascii_lowercase().as_str() {
+                "knowledge" | "k" => ("03 Knowledge", "knowledge", "## Overview\n\n## Concepts\n\n## Examples\n\n## Connections\n\n- \n\n## Questions\n\n- \n\n## Sources\n\n- "),
+                "project" | "p" => ("02 Projects", "project", "## Goal\n\n## Current State\n\n## Next Steps\n\n- [ ] \n\n## Decisions\n\n## Problems / Questions\n\n- \n\n## Related Knowledge\n\n- \n\n## References\n\n- "),
+                "reference" | "r" => ("04 Reference", "reference", "## Overview\n\n## Reference\n\n## Notes\n\n## Related\n\n- \n\n## Sources\n\n- "),
+                "idea" | "i" => ("05 Ideas", "idea", "## Idea\n\n## Why It Interests Me\n\n## Possibilities\n\n- \n\n## Questions\n\n- \n\n## Connections\n\n- "),
+                "inbox" | "b" => ("00 Inbox", "inbox", "## Notes\n\n## Follow Up\n\n- [ ] Process this note"),
+                _ => { cx.editor.set_error("Categories: knowledge, project, reference, idea, inbox"); return; }
+            };
+            let slug = title.to_ascii_lowercase().chars().filter_map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' { Some(ch) }
+                else if ch.is_whitespace() { Some('-') } else { None }
+            }).collect::<String>();
+            let slug = slug.trim_matches('-');
+            if slug.is_empty() { cx.editor.set_error("Note title cannot be empty"); return; }
+            let root = primer_notes_root();
+            if !root.is_dir() { cx.editor.set_error("Notebook unavailable"); return; }
+            let folder = root.join(folder);
+            if let Err(err) = std::fs::create_dir_all(&folder) { cx.editor.set_error(err.to_string()); return; }
+            let path = folder.join(format!("{slug}.md"));
+            if !path.exists() {
+                let date = chrono::Local::now().format("%Y-%m-%d").to_string();
+                let safe_title = title.replace('"', "\\\"");
+                let content = format!("---\ntitle: \"{safe_title}\"\ntype: {kind}\ncreated: {date}\nupdated: {date}\ntags:\n  - \n---\n\n# {title}\n\n{sections}\n");
+                use std::io::Write as _;
+                match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+                    Ok(mut file) => if let Err(err) = file.write_all(content.as_bytes()) { cx.editor.set_error(err.to_string()); return; },
+                    Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {},
+                    Err(err) => { cx.editor.set_error(err.to_string()); return; }
+                }
+            }
+            if let Err(err) = cx.editor.open(&path, Action::Replace) { cx.editor.set_error(err.to_string()); }
+        });
+    prompt.doc_fn = Box::new(|input| {
+        if input.is_empty() {
+            Some("Format: category: title\\nExample: knowledge: Rust ownership\\nCategories: knowledge (k), project (p), reference (r), idea (i), inbox (b)".into())
+        } else if !input.contains(':') {
+            Some("Enter a category followed by a colon and a note title.\\nExample: project: Primer dashboard".into())
+        } else {
+            None
+        }
+    });
+    prompt.recalculate_completion(cx.editor);
+    cx.push_layer(Box::new(prompt));
+}
+fn primer_notes_daily(cx: &mut Context) {
+    let root = primer_notes_root();
+    if !root.is_dir() {
+        cx.editor.set_error(format!("Notebook unavailable: {}", root.display()));
+        return;
+    }
+    let now = chrono::Local::now();
+    let date = now.format("%Y-%m-%d").to_string();
+    let title = now.format("%B %d, %Y").to_string();
+    let folder = root.join("01 Daily");
+    if let Err(err) = std::fs::create_dir_all(&folder) {
+        cx.editor.set_error(err.to_string());
+        return;
+    }
+    let path = folder.join(format!("{date}.md"));
+    if !path.exists() {
+        let content = format!("---\ntitle: \"{title}\"\ntype: daily\ncreated: {date}\nupdated: {date}\ntags:\n  - \n---\n\n# {title}\n\n## Today\n\n<!-- Add topics beneath Today with ### headings, then use lists to organize your thoughts. -->\n\n## What I Learned\n\n<!-- Explain something you learned today in your own words. -->\n\n## Questions\n\n- \n\n## Notes\n\n\n## Follow Up\n\n- [ ] \n");
+        use std::io::Write as _;
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(mut file) => if let Err(err) = file.write_all(content.as_bytes()) { cx.editor.set_error(err.to_string()); return; },
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {},
+            Err(err) => { cx.editor.set_error(err.to_string()); return; }
+        }
+    }
+    if let Err(err) = cx.editor.open(&path, Action::Replace) {
+        cx.editor.set_error(format!("Cannot open daily note: {err}"));
+    }
+}
+fn primer_notes_find(cx: &mut Context) { primer_notes_picker(cx, None); }
+fn primer_notes_inbox(cx: &mut Context) { primer_notes_picker(cx, Some("00 Inbox")); }
+fn primer_notes_projects(cx: &mut Context) { primer_notes_picker(cx, Some("02 Projects")); }
+fn primer_notes_knowledge(cx: &mut Context) { primer_notes_picker(cx, Some("03 Knowledge")); }
+fn primer_notes_reference(cx: &mut Context) { primer_notes_picker(cx, Some("04 Reference")); }
 
 fn file_picker(cx: &mut Context) {
     let root = find_workspace().0;
