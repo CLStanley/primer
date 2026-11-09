@@ -293,6 +293,8 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "q" => primer_buffer_close,
             },
             "n" => { "Notes"
+                "n" => primer_notes_new,
+                "d" => primer_notes_daily,
                 "f" => primer_notes_find,
                 "i" => primer_notes_inbox,
                 "p" => primer_notes_projects,
