@@ -3249,8 +3249,9 @@ fn primer_agenda(cx: &mut Context) {
         }
     }
     items.sort_by(|a, b| {
-        let date = |value: &str| if value == "No date" { "9999-99-99" } else { value };
-        date(&a.when).cmp(date(&b.when)).then(a.time.cmp(&b.time)).then(a.title.cmp(&b.title))
+        let a_date = if a.when == "No date" { "9999-99-99" } else { a.when.as_str() };
+        let b_date = if b.when == "No date" { "9999-99-99" } else { b.when.as_str() };
+        a_date.cmp(b_date).then(a.time.cmp(&b.time)).then(a.title.cmp(&b.title))
     });
     if items.is_empty() {
         cx.editor.set_status("Agenda is empty. Add a todo, event, or reminder.");
