@@ -29,6 +29,7 @@ impl DashboardAction {
             Self::RecentFiles => "Open buffers",
             Self::OpenProject => "Browse workspace",
             Self::Help => "Keybind help",
+            Self::NewFile => "New file",
             Self::Quit => "Quit",
         }
     }
@@ -39,6 +40,7 @@ impl DashboardAction {
             Self::RecentFiles => 'r',
             Self::OpenProject => 'p',
             Self::Help => '?',
+            Self::NewFile => 'n',
             Self::Quit => 'q',
         }
     }
@@ -58,9 +60,12 @@ pub fn render_dashboard(
     // painted by Paragraph. This preserves terminal transparency.
     let theme = &ctx.editor.theme;
     let text_color = theme.get("ui.text").fg.unwrap_or(Color::Reset);
+    // Theme scopes rather than fixed RGB values keep the dashboard aligned
+    // with the user's chosen theme. Primer's default heading color is lilac.
     let accent_color = theme
-        .try_get("ui.statusline.active")
+        .try_get("markup.heading")
         .and_then(|style| style.fg)
+        .or_else(|| theme.try_get("ui.linenr.selected").and_then(|style| style.fg))
         .unwrap_or(text_color);
     let normal = Style::default().fg(text_color).bg(Color::Reset);
     let accent = Style::default().fg(accent_color).bg(Color::Reset);
@@ -120,7 +125,16 @@ pub fn render_dashboard(
             let style = if index == dashboard.selected { selected } else { normal };
             draw_line(&label, x, menu_top + 2 + row as u16, label.len() as u16, style);
         }
-        // Footer actions sit beneath both columns, like the Neovim dashboard.
+        // Explicit new-file and quit actions sit beneath the columns.
+        let new_file = DashboardAction::NewFile;
+        let new_label = format!("{}  {}", new_file.shortcut(), new_file.label());
+        let new_style = if dashboard.selected_action() == Some(new_file) {
+            selected
+        } else {
+            normal
+        };
+        draw_line(&new_label, left, menu_top + 5, new_label.len() as u16, new_style);
+
         let quit = DashboardAction::Quit;
         let quit_label = format!("{}  {}", quit.shortcut(), quit.label());
         let quit_style = if dashboard.selected_action() == Some(quit) {
@@ -129,7 +143,7 @@ pub fn render_dashboard(
             normal
         };
         draw_line(&quit_label, right, menu_top + 5, quit_label.len() as u16, quit_style);
-        let hint = "j/k navigate  Enter select  Esc edit";
+        let hint = "j/k navigate  Enter select";
         draw_line(hint, left, menu_top + 7, hint.len() as u16, normal);
     } else {
         for (index, action) in dashboard.actions.iter().enumerate() {
