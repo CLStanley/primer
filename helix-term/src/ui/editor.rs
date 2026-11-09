@@ -673,7 +673,9 @@ impl EditorView {
         let bufferline_active = editor
             .theme
             .try_get("ui.bufferline.active")
-            .unwrap_or_else(|| editor.theme.get("ui.statusline.active"));
+            .unwrap_or_else(|| editor.theme.get("ui.statusline.active"))
+            .bg(helix_view::graphics::Color::Rgb(183, 156, 222))
+            .fg(helix_view::graphics::Color::Rgb(29, 22, 43));
 
         let bufferline_inactive = editor
             .theme
@@ -726,7 +728,7 @@ impl EditorView {
                 }
             }
             x = surface.set_stringn(
-                x, viewport.y, " │ ", surface.area.right().saturating_sub(x) as usize,
+                x, viewport.y, "  ", surface.area.right().saturating_sub(x) as usize,
                 bufferline_inactive,
             ).0;
             if x >= surface.area.right() {
