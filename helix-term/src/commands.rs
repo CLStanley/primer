@@ -449,7 +449,7 @@ impl MappableCommand {
         primer_buffer_new, "New empty buffer",
         primer_buffer_close, "Close current buffer",
         primer_notes_find, "Find Markdown notes in zk notebook",
-        primer_notes_daily, "Open today\u0027s daily note",
+        primer_notes_daily, "Open today's daily note",
         primer_notes_new, "Create structured Markdown note",
         primer_notes_inbox, "Browse zk inbox notes",
         primer_notes_projects, "Browse zk project notes",
