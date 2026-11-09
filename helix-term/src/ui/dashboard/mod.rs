@@ -12,6 +12,7 @@ pub enum DashboardAction {
     RecentFiles,
     OpenProject,
     Help,
+    NewFile,
     Quit,
 }
 
@@ -29,6 +30,7 @@ impl Dashboard {
                 DashboardAction::RecentFiles,
                 DashboardAction::OpenProject,
                 DashboardAction::Help,
+                DashboardAction::NewFile,
                 DashboardAction::Quit,
             ],
         }
@@ -76,20 +78,24 @@ impl Component for Dashboard {
                 self.previous();
                 EventResult::Consumed(None)
             }
-            key!(Esc) => EventResult::Consumed(Some(Box::new(|compositor, _| {
-                compositor.remove_type::<Dashboard>();
-            }))),
-            key!(Enter) | key!('f') | key!('r') | key!('p') | key!('?') | key!('q') => {
+            // The dashboard is the startup screen. Dismissing it into an
+            // unnamed buffer must be an intentional New file action.
+            key!(Esc) => EventResult::Consumed(None),
+            key!(Enter) | key!('f') | key!('r') | key!('p') | key!('?') | key!('n') | key!('q') => {
                 let action = match key {
                     key!('f') => Some(DashboardAction::FindFile),
                     key!('r') => Some(DashboardAction::RecentFiles),
                     key!('p') => Some(DashboardAction::OpenProject),
                     key!('?') => Some(DashboardAction::Help),
+                    key!('n') => Some(DashboardAction::NewFile),
                     key!('q') => Some(DashboardAction::Quit),
                     _ => self.selected_action(),
                 };
                 EventResult::Consumed(Some(Box::new(move |compositor, cx| {
                     compositor.remove_type::<Dashboard>();
+                    if action == Some(DashboardAction::NewFile) {
+                        return;
+                    }
                     let command = match action {
                         Some(DashboardAction::FindFile) => MappableCommand::file_picker,
                         Some(DashboardAction::RecentFiles) => MappableCommand::buffer_picker,
@@ -97,6 +103,7 @@ impl Component for Dashboard {
                             MappableCommand::file_picker_in_current_directory
                         }
                         Some(DashboardAction::Help) => MappableCommand::command_palette,
+                        Some(DashboardAction::NewFile) => return,
                         Some(DashboardAction::Quit) => MappableCommand::Typable {
                             name: "quit-all".to_owned(),
                             args: String::new(),
@@ -135,7 +142,7 @@ mod tests {
         let dashboard = Dashboard::new();
 
         assert_eq!(dashboard.selected, 0);
-        assert_eq!(dashboard.actions.len(), 5);
+        assert_eq!(dashboard.actions.len(), 6);
         assert_eq!(dashboard.actions[0], DashboardAction::FindFile);
     }
 
@@ -156,6 +163,9 @@ mod tests {
         assert_eq!(dashboard.selected, 4);
 
         dashboard.next();
+        assert_eq!(dashboard.selected, 5);
+
+        dashboard.next();
         assert_eq!(dashboard.selected, 0);
     }
 
@@ -164,10 +174,10 @@ mod tests {
         let mut dashboard = Dashboard::new();
 
         dashboard.previous();
-        assert_eq!(dashboard.selected, 4);
+        assert_eq!(dashboard.selected, 5);
 
         dashboard.previous();
-        assert_eq!(dashboard.selected, 3);
+        assert_eq!(dashboard.selected, 4);
     }
 
     #[test]
