@@ -294,6 +294,16 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             },
             "n" => { "Notes"
                 "a" => primer_agenda,
+                "t" => { "Todos"
+                    "n" => primer_agenda_new_todo,
+                    "d" => primer_agenda_mark_done,
+                },
+                "e" => { "Events"
+                    "n" => primer_agenda_new_event,
+                },
+                "m" => { "Reminders"
+                    "n" => primer_agenda_new_reminder,
+                },
                 "n" => primer_notes_new,
                 "d" => primer_notes_daily,
                 "f" => primer_notes_find,
