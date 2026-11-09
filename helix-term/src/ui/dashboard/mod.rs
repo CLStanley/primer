@@ -28,27 +28,63 @@ impl Dashboard {
             actions: vec![
                 DashboardAction::FindFile,
                 DashboardAction::RecentFiles,
+                DashboardAction::NewFile,
                 DashboardAction::OpenProject,
                 DashboardAction::Help,
-                DashboardAction::NewFile,
                 DashboardAction::Quit,
             ],
         }
     }
 
+    // Navigation follows the visible two-column arrangement, not the
+    // declaration order of the action enum.
     pub fn next(&mut self) {
-        if !self.actions.is_empty() {
-            self.selected = (self.selected + 1) % self.actions.len();
-        }
+        self.select_neighbor(true, false);
     }
 
     pub fn previous(&mut self) {
-        if !self.actions.is_empty() {
-            self.selected = if self.selected == 0 {
-                self.actions.len() - 1
-            } else {
-                self.selected - 1
+        self.select_neighbor(false, false);
+    }
+
+    pub fn left(&mut self) {
+        self.select_neighbor(false, true);
+    }
+
+    pub fn right(&mut self) {
+        self.select_neighbor(true, true);
+    }
+
+    fn select_neighbor(&mut self, forward: bool, horizontal: bool) {
+        let Some(current) = self.selected_action() else { return };
+        let target = if horizontal {
+            match current {
+                DashboardAction::FindFile | DashboardAction::RecentFiles | DashboardAction::NewFile =>
+                    DashboardAction::OpenProject,
+                DashboardAction::OpenProject => DashboardAction::FindFile,
+                DashboardAction::Help => DashboardAction::Quit,
+                DashboardAction::Quit => DashboardAction::Help,
+            }
+        } else {
+            let column: &[DashboardAction] = match current {
+                DashboardAction::FindFile | DashboardAction::RecentFiles | DashboardAction::NewFile |
+                DashboardAction::Help => &[
+                    DashboardAction::FindFile, DashboardAction::RecentFiles,
+                    DashboardAction::NewFile, DashboardAction::Help,
+                ],
+                DashboardAction::OpenProject | DashboardAction::Quit => &[
+                    DashboardAction::OpenProject, DashboardAction::Quit,
+                ],
             };
+            let index = column.iter().position(|action| *action == current).unwrap_or(0);
+            let next = if forward {
+                (index + 1) % column.len()
+            } else {
+                (index + column.len() - 1) % column.len()
+            };
+            column[next]
+        };
+        if let Some(index) = self.actions.iter().position(|action| *action == target) {
+            self.selected = index;
         }
     }
 
@@ -76,6 +112,14 @@ impl Component for Dashboard {
             }
             key!('k') | key!(Up) => {
                 self.previous();
+                EventResult::Consumed(None)
+            }
+            key!('h') | key!(Left) => {
+                self.left();
+                EventResult::Consumed(None)
+            }
+            key!('l') | key!(Right) => {
+                self.right();
                 EventResult::Consumed(None)
             }
             // The dashboard is the startup screen. Dismissing it into an
@@ -138,80 +182,46 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dashboard_starts_with_first_action_selected() {
+    fn starts_on_browse_files() {
         let dashboard = Dashboard::new();
-
-        assert_eq!(dashboard.selected, 0);
-        assert_eq!(dashboard.actions.len(), 6);
-        assert_eq!(dashboard.actions[0], DashboardAction::FindFile);
-    }
-
-    #[test]
-    fn dashboard_next_wraps_to_first_action() {
-        let mut dashboard = Dashboard::new();
-
-        dashboard.next();
-        assert_eq!(dashboard.selected, 1);
-
-        dashboard.next();
-        assert_eq!(dashboard.selected, 2);
-
-        dashboard.next();
-        assert_eq!(dashboard.selected, 3);
-
-        dashboard.next();
-        assert_eq!(dashboard.selected, 4);
-
-        dashboard.next();
-        assert_eq!(dashboard.selected, 5);
-
-        dashboard.next();
-        assert_eq!(dashboard.selected, 0);
-    }
-
-    #[test]
-    fn dashboard_previous_wraps_to_last_action() {
-        let mut dashboard = Dashboard::new();
-
-        dashboard.previous();
-        assert_eq!(dashboard.selected, 5);
-
-        dashboard.previous();
-        assert_eq!(dashboard.selected, 4);
-    }
-
-    #[test]
-    fn selected_action_returns_initial_action() {
-        let dashboard = Dashboard::new();
-
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::FindFile));
+        assert_eq!(dashboard.actions.len(), 6);
     }
 
     #[test]
-    fn selected_action_updates_after_navigation() {
+    fn vertical_navigation_stays_in_column_and_wraps() {
         let mut dashboard = Dashboard::new();
-
         dashboard.next();
-
-        assert_eq!(
-            dashboard.selected_action(),
-            Some(DashboardAction::RecentFiles)
-        );
-
+        assert_eq!(dashboard.selected_action(), Some(DashboardAction::RecentFiles));
         dashboard.next();
-
-        assert_eq!(
-            dashboard.selected_action(),
-            Some(DashboardAction::OpenProject)
-        );
+        assert_eq!(dashboard.selected_action(), Some(DashboardAction::NewFile));
+        dashboard.next();
+        assert_eq!(dashboard.selected_action(), Some(DashboardAction::Help));
+        dashboard.next();
+        assert_eq!(dashboard.selected_action(), Some(DashboardAction::FindFile));
+        dashboard.previous();
+        assert_eq!(dashboard.selected_action(), Some(DashboardAction::Help));
     }
 
     #[test]
-    fn selected_action_returns_none_for_invalid_index() {
+    fn horizontal_navigation_switches_columns() {
         let mut dashboard = Dashboard::new();
+        dashboard.right();
+        assert_eq!(dashboard.selected_action(), Some(DashboardAction::OpenProject));
+        dashboard.next();
+        assert_eq!(dashboard.selected_action(), Some(DashboardAction::Quit));
+        dashboard.left();
+        assert_eq!(dashboard.selected_action(), Some(DashboardAction::Help));
+        dashboard.right();
+        assert_eq!(dashboard.selected_action(), Some(DashboardAction::Quit));
+    }
 
+    #[test]
+    fn invalid_selection_is_safe() {
+        let mut dashboard = Dashboard::new();
         dashboard.selected = 100;
-
+        dashboard.next();
+        dashboard.right();
         assert_eq!(dashboard.selected_action(), None);
     }
 }
