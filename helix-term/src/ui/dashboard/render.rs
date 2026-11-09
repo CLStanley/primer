@@ -78,9 +78,9 @@ pub fn render_dashboard(
         .and_then(|style| style.underline_color.or(style.fg))
         .unwrap_or(Color::LightBlue);
     let green_color = theme
-        .try_get("diagnostic.hint")
-        .and_then(|style| style.underline_color.or(style.fg))
-        .or_else(|| theme.try_get("variable.builtin").and_then(|style| style.fg))
+        .try_get("variable.builtin")
+        .and_then(|style| style.fg)
+        .or_else(|| theme.try_get("diagnostic.hint").and_then(|style| style.underline_color.or(style.fg)))
         .unwrap_or(Color::LightGreen);
     let normal = Style::default().fg(description_color).bg(Color::Reset);
     let accent = Style::default().fg(accent_color).bg(Color::Reset);
@@ -158,10 +158,10 @@ pub fn render_dashboard(
         // Roadmap entries are intentionally non-interactive until implemented.
         // They make the missing features visible without pretending to work.
         for (x, y, key, label) in [
-            (left, menu_top + 4, "t", "Terminal [planned]"),
-            (right, menu_top + 4, "s", "Sessions [planned]"),
-            (left, menu_top + 5, "g", "Live grep [planned]"),
-            (right, menu_top + 5, "o", "Open project [planned]"),
+            (left, menu_top + 4, "t", "Terminal [todo]"),
+            (right, menu_top + 4, "s", "Sessions [todo]"),
+            (left, menu_top + 5, "g", "Live grep [todo]"),
+            (right, menu_top + 5, "o", "Projects [todo]"),
         ] {
             draw_line(key, x + 3, y, 1, shortcut);
             draw_line(label, x + 6, y, COLUMN_WIDTH - 6, pending);
