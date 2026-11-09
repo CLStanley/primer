@@ -416,6 +416,8 @@ impl MappableCommand {
         git_preview_change, "Preview previous Git change at cursor",
         git_blame_line, "Show Git blame for current line",
         git_toggle_inline_blame, "Toggle inline Git blame",
+        git_stage_hunk, "Stage Git hunk at cursor",
+        git_unstage_hunk, "Unstage Git hunk at cursor",
         select_references_to_symbol_under_cursor, "Select symbol references",
         workspace_symbol_picker, "Open workspace symbol picker",
         syntax_workspace_symbol_picker, "Open workspace symbol picker from syntax information",
@@ -4690,6 +4692,107 @@ fn git_change_segments(original: &str, current: &str) -> (String, String, String
 /// Git blame refers to the saved file, so unsaved edits are not included.
 /// Toggle cached inline blame for the current file. One asynchronous Git invocation
 /// retrieves the whole file, so cursor movement only selects a cached annotation.
+/// Parse a unified diff and isolate the hunk covering a one-based cursor line.
+/// Git's context may combine adjacent edits into one hunk.
+fn git_patch_for_line(diff: &str, line: usize) -> anyhow::Result<String> {
+    let mut header = String::new();
+    let mut hunks: Vec<(usize, usize, String)> = Vec::new();
+    let mut current: Option<(usize, usize, String)> = None;
+    for row in diff.split_inclusive('\n') {
+        if row.starts_with("@@ ") {
+            if let Some(hunk) = current.take() {
+                hunks.push(hunk);
+            }
+            let new_range = row.split_whitespace().nth(2).context("Malformed Git hunk")?;
+            let range = new_range.strip_prefix('+').context("Missing new range")?;
+            let (start, count) = range.split_once(',').unwrap_or((range, "1"));
+            current = Some((start.parse()?, count.parse()?, row.to_owned()));
+        } else if let Some((_, _, body)) = current.as_mut() {
+            body.push_str(row);
+        } else {
+            header.push_str(row);
+        }
+    }
+    if let Some(hunk) = current {
+        hunks.push(hunk);
+    }
+    let selected = hunks.into_iter().find(|(start, count, _)| {
+        if *count == 0 {
+            line == *start || line == start.saturating_add(1)
+        } else {
+            line >= *start && line < start.saturating_add(*count)
+        }
+    }).context("No Git hunk at cursor (the change may be unstaged or already staged)")?;
+    Ok(format!("{header}{}", selected.2))
+}
+
+/// Apply one Git-generated patch hunk to the index. Never changes the worktree.
+fn git_index_hunk(path: std::path::PathBuf, line: usize, unstage: bool) -> anyhow::Result<()> {
+    use std::io::Write;
+    let directory = path.parent().context("File has no parent directory")?;
+    let mut diff_cmd = std::process::Command::new("git");
+    diff_cmd.arg("-C").arg(directory).args(["diff", "--no-ext-diff", "--no-color", "--unified=3"]);
+    if unstage {
+        diff_cmd.arg("--cached");
+    }
+    let diff = diff_cmd.arg("--").arg(&path).output()?;
+    ensure!(diff.status.success(), "Git diff failed: {}", String::from_utf8_lossy(&diff.stderr));
+    let patch = git_patch_for_line(&String::from_utf8(diff.stdout)?, line)?;
+    let mut apply = std::process::Command::new("git");
+    apply.arg("-C").arg(directory).args(["apply", "--cached"]);
+    if unstage {
+        apply.arg("--reverse");
+    }
+    let mut child = apply
+        .arg("--")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    child.stdin.take().context("Unable to open git apply stdin")?.write_all(patch.as_bytes())?;
+    let output = child.wait_with_output()?;
+    ensure!(output.status.success(), "Git apply failed: {}", String::from_utf8_lossy(&output.stderr));
+    Ok(())
+}
+
+fn git_stage_hunk(cx: &mut Context) {
+    git_change_index_hunk(cx, false);
+}
+
+fn git_unstage_hunk(cx: &mut Context) {
+    git_change_index_hunk(cx, true);
+}
+
+fn git_change_index_hunk(cx: &mut Context, unstage: bool) {
+    let (path, line) = {
+        let (view, doc) = current!(cx.editor);
+        let Some(path) = doc.path() else {
+            cx.editor.set_status("Git hunk operations require a file on disk");
+            return;
+        };
+        if doc.is_modified() {
+            cx.editor.set_status("Save the file before staging or unstaging hunks");
+            return;
+        }
+        (path.to_path_buf(), doc.selection(view.id).primary().cursor_line(doc.text().slice(..)) + 1)
+    };
+    cx.editor.set_status(if unstage { "Unstaging Git hunk…" } else { "Staging Git hunk…" });
+    cx.jobs.callback(async move {
+        let result = tokio::task::spawn_blocking(move || git_index_hunk(path, line, unstage)).await;
+        let message = match result {
+            Ok(Ok(())) => Ok(if unstage { "Git hunk unstaged" } else { "Git hunk staged" }),
+            Ok(Err(error)) => Err(error.to_string()),
+            Err(error) => Err(error.to_string()),
+        };
+        Ok(Callback::EditorCompositor(Box::new(move |editor, _| {
+            match message {
+                Ok(message) => editor.set_status(message),
+                Err(message) => editor.set_error(message),
+            }
+        })))
+    });
+}
+
 fn git_toggle_inline_blame(cx: &mut Context) {
     let (path, version, line_count) = {
         let (_, doc) = current!(cx.editor);
