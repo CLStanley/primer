@@ -1,9 +1,9 @@
 use std::borrow::Cow;
 
-use helix_view::{graphics::Rect, Editor};
+use helix_view::{editor::UiBorderStyle, graphics::Rect, Editor};
 use tui::{
     buffer::Buffer as Surface,
-    widgets::{Block, Widget as _},
+    widgets::{Block, BorderType, Widget as _},
 };
 
 use crate::compositor::{Component, Context, Event, EventResult};
@@ -57,7 +57,13 @@ impl<T: Item> Component for Select<T> {
     }
 
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
-        const BLOCK: Block<'_> = Block::bordered();
+        let block = Block::bordered()
+            .border_type(match cx.editor.config().border_style {
+                UiBorderStyle::Square => BorderType::Plain,
+                UiBorderStyle::Rounded => BorderType::Rounded,
+                UiBorderStyle::Double => BorderType::Double,
+            })
+            .border_style(cx.editor.theme.get("ui.window"));
 
         // +---------------------+
         // | message             |
@@ -86,13 +92,13 @@ impl<T: Item> Component for Select<T> {
         };
 
         // Message
-        let background = cx.editor.theme.get("ui.background");
+        let background = cx.editor.theme.try_get("ui.popup").unwrap_or_else(|| cx.editor.theme.get("ui.background"));
         let text = cx.editor.theme.get("ui.text");
         let message_box = area.with_height(message_height + 2);
         surface.clear_with(message_box, background.patch(text));
-        BLOCK.render(message_box, surface);
+        block.clone().render(message_box, surface);
         // Add horizontal padding so the message isn't too close to the border.
-        let message_area = BLOCK.inner(message_box).clip_left(1).clip_right(1);
+        let message_area = block.inner(message_box).clip_left(1).clip_right(1);
         self.message.render(message_area, surface, cx);
 
         // Options menu
