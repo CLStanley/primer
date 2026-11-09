@@ -9,7 +9,8 @@ use std::sync::Arc;
 use std::{borrow::Cow, ops::RangeFrom};
 use tui::buffer::Buffer as Surface;
 use tui::text::Span;
-use tui::widgets::{Block, Widget};
+use tui::widgets::{Block, BorderType, Widget};
+use helix_view::editor::UiBorderStyle;
 
 use helix_core::{
     unicode::segmentation::{GraphemeCursor, UnicodeSegmentation},
@@ -402,12 +403,25 @@ const BASE_WIDTH: u16 = 30;
 
 impl Prompt {
     pub fn render_prompt(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
-        let theme = &cx.editor.theme;
-        let prompt_color = theme.get("ui.text");
-        let completion_color = theme.get("ui.menu");
-        let selected_color = theme.get("ui.menu.selected");
-        let suggestion_color = theme.get("ui.text.inactive");
-        let background = theme.get("ui.background");
+        let prompt_color = cx.editor.theme.get("ui.text");
+        let completion_color = cx.editor.theme.get("ui.menu");
+        let selected_color = cx.editor.theme.get("ui.menu.selected");
+        let suggestion_color = cx.editor.theme.get("ui.text.inactive");
+        let background = cx.editor.theme.get("ui.background");
+
+        // Keep a usable single-line fallback on very small terminals.
+        let floating = area.width >= 36 && area.height >= 10;
+        let popup_width = area.width.saturating_sub(4).min(72);
+        let popup = if floating {
+            Rect::new(
+                area.x + area.width.saturating_sub(popup_width) / 2,
+                area.y + area.height / 6,
+                popup_width,
+                3,
+            )
+        } else {
+            area.clip_top(area.height.saturating_sub(1))
+        };
         // completion
 
         let max_len = self
@@ -418,58 +432,54 @@ impl Prompt {
             .unwrap_or(BASE_WIDTH)
             .max(BASE_WIDTH);
 
-        let cols = std::cmp::max(1, area.width / max_len);
-        let col_width = (area.width.saturating_sub(cols)) / cols;
-
+        // Floating suggestions form a single, bordered list directly below the input.
+        // The compact fallback retains the original multi-column layout.
+        let completion_width = popup.width;
+        let cols = if floating { 1 } else { std::cmp::max(1, completion_width / max_len) };
+        let col_width = if floating {
+            completion_width.saturating_sub(2)
+        } else {
+            completion_width.saturating_sub(cols) / cols
+        };
+        let available_rows = if floating {
+            area.y.saturating_add(area.height).saturating_sub(popup.y + popup.height + 5)
+        } else {
+            area.height.saturating_sub(1)
+        };
         let height = (self.completion.len() as u16)
             .div_ceil(cols)
-            .min(10) // at most 10 rows (or less)
-            .min(area.height.saturating_sub(1));
+            .min(10)
+            .min(available_rows);
+        let completion_area = if floating {
+            Rect::new(popup.x, popup.y + popup.height, popup.width, height + if height > 0 { 2 } else { 0 })
+        } else {
+            Rect::new(area.x, area.y + area.height.saturating_sub(height + 1), area.width, height)
+        };
 
-        let completion_area = Rect::new(
-            area.x,
-            (area.height - height).saturating_sub(1),
-            area.width,
-            height,
-        );
-
-        if completion_area.height > 0 && !self.completion.is_empty() {
-            let area = completion_area;
-            let background = theme.get("ui.menu");
+        if height > 0 && !self.completion.is_empty() {
+            let menu_style = cx.editor.theme.get("ui.menu");
+            surface.clear_with(completion_area, menu_style);
+            if floating {
+                Block::bordered().border_type(match cx.editor.config().border_style { UiBorderStyle::Square => BorderType::Plain, UiBorderStyle::Rounded => BorderType::Rounded, UiBorderStyle::Double => BorderType::Double })
+                    .border_style(cx.editor.theme.get("ui.window"))
+                    .render(completion_area, surface);
+            }
 
             let items = height as usize * cols as usize;
-
-            let offset = self
-                .selection
-                .map(|selection| selection / items * items)
-                .unwrap_or_default();
-
-            surface.clear_with(area, background);
-
+            let offset = self.selection.map(|selection| selection / items * items).unwrap_or_default();
             let mut row = 0;
             let mut col = 0;
-
-            for (i, (_range, completion)) in
-                self.completion.iter().enumerate().skip(offset).take(items)
-            {
-                let is_selected = Some(i) == self.selection;
-
-                let completion_item_style = if is_selected {
+            for (i, (_range, completion)) in self.completion.iter().enumerate().skip(offset).take(items) {
+                let item_style = if Some(i) == self.selection {
                     selected_color
                 } else {
                     completion_color.patch(completion.style)
                 };
-
-                surface.set_stringn(
-                    area.x + col * (1 + col_width),
-                    area.y + row,
-                    &completion.content,
-                    col_width.saturating_sub(1) as usize,
-                    completion_item_style,
-                );
-
+                let x = completion_area.x + if floating { 1 } else { 0 } + col * (1 + col_width);
+                let y = completion_area.y + if floating { 1 } else { 0 } + row;
+                surface.set_stringn(x, y, &completion.content, col_width.saturating_sub(1) as usize, item_style);
                 row += 1;
-                if row > area.height - 1 {
+                if row >= height {
                     row = 0;
                     col += 1;
                 }
@@ -482,25 +492,29 @@ impl Prompt {
             let max_width = BASE_WIDTH * 3;
             let horizontal_padding = 2; // border + margin
             let vertical_padding = 1; // border only
-            let text_width = max_width - horizontal_padding * 2;
+            let text_width = if floating { popup.width.saturating_sub(horizontal_padding * 2) } else { max_width - horizontal_padding * 2 };
 
             let viewport = area;
 
             let (_width, height) = ui::text::required_size(&text.contents, text_width);
 
+            let doc_y = if floating {
+                completion_area.y + completion_area.height
+            } else {
+                completion_area.y.saturating_sub(height + vertical_padding * 2)
+            };
+            let doc_width = if floating { popup.width } else { max_width };
             let area = viewport.intersection(Rect::new(
                 completion_area.x,
-                completion_area
-                    .y
-                    .saturating_sub(height + vertical_padding * 2),
-                max_width,
+                doc_y,
+                doc_width,
                 height + vertical_padding * 2,
             ));
 
-            let background = theme.get("ui.help");
+            let background = cx.editor.theme.get("ui.help");
             surface.clear_with(area, background);
 
-            let block = Block::bordered()
+            let block = Block::bordered().border_type(match cx.editor.config().border_style { UiBorderStyle::Square => BorderType::Plain, UiBorderStyle::Rounded => BorderType::Rounded, UiBorderStyle::Double => BorderType::Double })
                 // .title(self.title.as_str())
                 .border_style(background);
 
@@ -510,15 +524,31 @@ impl Prompt {
             text.render(inner, surface, cx);
         }
 
-        let line = area.height - 1;
-        surface.clear_with(area.clip_top(line), background);
-        // render buffer text
-        surface.set_string(area.x, area.y + line, &self.prompt, prompt_color);
-
-        self.line_area = area
-            .clip_left(self.prompt.len() as u16)
-            .clip_top(line)
-            .clip_right(2);
+        if floating {
+            let border = cx.editor.theme.get("ui.window");
+            let panel = cx.editor.theme.get("ui.menu");
+            surface.clear_with(popup, panel);
+            Block::bordered().border_type(match cx.editor.config().border_style { UiBorderStyle::Square => BorderType::Plain, UiBorderStyle::Rounded => BorderType::Rounded, UiBorderStyle::Double => BorderType::Double }).border_style(border).render(popup, surface);
+            // Search prompts may include descriptive text rather than just '/' or '?'.
+            let prompt_kind = self.prompt.trim();
+            let search_prompt = matches!(prompt_kind, "/" | "?")
+                || prompt_kind.to_ascii_lowercase().contains("search")
+                || prompt_kind.to_ascii_lowercase().contains("regex");
+            let title = if search_prompt { " Search " } else { " Prompt " };
+            surface.set_stringn(popup.x + 2, popup.y, title, popup.width.saturating_sub(4) as usize, border);
+            let icon = if search_prompt { " " } else { " " };
+            surface.set_string(popup.x + 2, popup.y + 1, icon, prompt_color);
+            self.line_area = Rect::new(
+                popup.x + 2 + icon.width() as u16,
+                popup.y + 1,
+                popup.width.saturating_sub(5 + icon.width() as u16),
+                1,
+            );
+        } else {
+            surface.clear_with(popup, background);
+            surface.set_string(popup.x, popup.y, &self.prompt, prompt_color);
+            self.line_area = popup.clip_left(self.prompt.len() as u16).clip_right(2);
+        }
 
         if self.line.is_empty() {
             self.anchor = 0;
@@ -708,14 +738,33 @@ impl Component for Prompt {
                     return close_fn;
                 }
             }
-            ctrl!('p') | key!(Up) => {
+            ctrl!('p') => {
                 if let Some(register) = self.history_register {
                     self.change_history(cx, register, CompletionDirection::Backward);
                 }
             }
-            ctrl!('n') | key!(Down) => {
+            ctrl!('n') => {
                 if let Some(register) = self.history_register {
                     self.change_history(cx, register, CompletionDirection::Forward);
+                }
+            }
+            key!(Up) | key!(Down) if !self.completion.is_empty() => {
+                let direction = if event.code == KeyCode::Up {
+                    CompletionDirection::Backward
+                } else {
+                    CompletionDirection::Forward
+                };
+                self.change_completion_selection(direction);
+                (self.callback_fn)(cx, &self.line, PromptEvent::Update);
+            }
+            key!(Up) | key!(Down) => {
+                if let Some(register) = self.history_register {
+                    let direction = if event.code == KeyCode::Up {
+                        CompletionDirection::Backward
+                    } else {
+                        CompletionDirection::Forward
+                    };
+                    self.change_history(cx, register, direction);
                 }
             }
             key!(Tab) => {
@@ -769,12 +818,8 @@ impl Component for Prompt {
         self.render_prompt(area, surface, cx)
     }
 
-    fn cursor(&self, area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
-        let area = area
-            .clip_left(self.prompt.len() as u16)
-            .clip_right(if self.prompt.is_empty() { 2 } else { 0 });
-
-        let mut col = area.left() as usize + self.line[self.anchor..self.cursor].width();
+    fn cursor(&self, _area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
+        let mut col = self.line_area.x as usize + self.line[self.anchor..self.cursor].width();
 
         // ensure the cursor does not go beyond elipses
         if self.truncate_end
@@ -790,10 +835,8 @@ impl Component for Prompt {
                 .map_or(0, |g| g.width());
         }
 
-        let line = area.height as usize - 1;
-
         (
-            Some(Position::new(area.y as usize + line, col)),
+            Some(Position::new(self.line_area.y as usize, col)),
             editor.config().cursor_shape.from_mode(Mode::Insert),
         )
     }

@@ -33,3 +33,7 @@ signal to the Helix process, such as by using the command `pkill -USR1 hx`.
 Finally, you can have a `config.toml` and a `languages.toml` local to a project by putting it under a `.helix` directory in your repository.
 Its settings will be merged with the configuration directory and the built-in configuration.
 
+
+## Primer visual settings
+
+Primer adds UI appearance controls under `[editor]`. See [Primer appearance](./primer-appearance.md) for supported values, defaults, and a complete example. In particular, `border-style = "rounded"` can be changed to `"square"` or `"double"` without changing source code. Color customization belongs in a theme file, not in these switches.

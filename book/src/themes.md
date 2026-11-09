@@ -385,3 +385,7 @@ These scopes are used for theming the editor interface:
 
 [editor-section]: ./configuration.md#editor-section
 [#2380]: https://github.com/helix-editor/helix/issues/2380
+
+## Primer UI theme colors
+
+Primer's border and bufferline colors follow the existing theme system. See [Primer appearance and theming](./primer-appearance.md) for the supported keys and fallback behavior. In particular, `ui.window` styles bordered panels, `ui.statusline.normal` supplies the Normal-mode indicator colors, and the active buffer tab currently uses those Normal-mode colors as its final foreground/background override. Other bufferline colors can be configured with `ui.bufferline` and `ui.bufferline.background`.

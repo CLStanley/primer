@@ -62,3 +62,25 @@ Discuss the project on the community [Matrix Space](https://matrix.to/#/#helix-c
 # Credits
 
 Thanks to [@jakenvac](https://github.com/jakenvac) for designing the logo!
+
+## Primer-specific features and customization
+
+Primer builds on Helix's selection-first editing model with a dashboard, floating command/search prompts, rounded Powerline-style statusline and buffer tabs, and configurable UI borders.
+
+- [Primer appearance and visual settings](book/src/primer-appearance.md) — ready-to-use configuration, supported values, defaults, and theme color keys.
+- [Configuration guide](book/src/configuration.md) — where to place settings and how to reload them.
+- [Theme guide](book/src/themes.md) — how to customize component colors without editing Rust code.
+
+The UI uses terminal characters for rounded corners (╭ ╮ ╰ ╯), not pixel-level window rounding. Powerline caps require a font containing the `` and `` glyphs.
+
+### Primer buffer navigation
+
+| Key | Action |
+| --- | --- |
+| `Shift-H` / `[b` / `Space b p` | Previous buffer |
+| `Shift-L` / `]b` / `Space b n` | Next buffer |
+| `Space b b` | Buffer picker |
+| `Space b N` | New empty buffer |
+| `Space b q` | Close current buffer (respects unsaved changes); show dashboard when the last buffer closes |
+
+Embedded terminal buffers are **not yet implemented**; `Space b t` is reserved for future work.

@@ -1,3 +1,5 @@
+use helix_view::editor::UiBorderStyle;
+use tui::widgets::BorderType;
 use crate::compositor::{Component, Context};
 use helix_view::graphics::{Margin, Rect};
 use helix_view::info::Info;
@@ -25,7 +27,8 @@ impl Component for Info {
 
         let block = Block::bordered()
             .title(self.title.as_ref())
-            .border_style(popup_style);
+            .border_type(match cx.editor.config().border_style { UiBorderStyle::Square => BorderType::Plain, UiBorderStyle::Rounded => BorderType::Rounded, UiBorderStyle::Double => BorderType::Double })
+            .border_style(cx.editor.theme.get("ui.window"));
 
         let margin = Margin::horizontal(1);
         let inner = block.inner(area).inner(margin);

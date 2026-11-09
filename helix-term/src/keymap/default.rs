@@ -178,7 +178,10 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "a" => select_textobject_around,
             "i" => select_textobject_inner,
         },
+        "H" => primer_buffer_previous,
+        "L" => primer_buffer_next,
         "[" => { "Left bracket"
+            "b" => primer_buffer_previous,
             "d" => goto_prev_diag,
             "D" => goto_first_diag,
             "g" => goto_prev_change,
@@ -194,6 +197,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "space" => add_newline_above,
         },
         "]" => { "Right bracket"
+            "b" => primer_buffer_next,
             "d" => goto_next_diag,
             "D" => goto_last_diag,
             "g" => goto_next_change,
@@ -277,7 +281,13 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "F" => file_picker_in_current_directory,
             "e" => file_explorer,
             "." => file_explorer_in_current_buffer_directory,
-            "b" => buffer_picker,
+            "b" => { "Buffers"
+                "b" => buffer_picker,
+                "p" => primer_buffer_previous,
+                "n" => primer_buffer_next,
+                "N" => primer_buffer_new,
+                "q" => primer_buffer_close,
+            },
             "j" => jumplist_picker,
             "s" => { "Search"
                 "f" => { "File"
