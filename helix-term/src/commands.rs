@@ -4749,7 +4749,7 @@ fn git_blame_line(cx: &mut Context) {
     ];
     let popup = Popup::new(
         "git-blame-line",
-        ui::GitChangePreview::new("Last committed change".to_owned(), lines),
+        ui::GitChangePreview::new("Last committed change".to_owned(), lines).with_title("Git blame"),
     );
     cx.replace_or_push_layer("git-blame-line", popup);
 }
