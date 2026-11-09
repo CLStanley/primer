@@ -448,6 +448,11 @@ impl MappableCommand {
         primer_buffer_next, "Next buffer",
         primer_buffer_new, "New empty buffer",
         primer_buffer_close, "Close current buffer",
+        primer_notes_find, "Find Markdown notes in zk notebook",
+        primer_notes_inbox, "Browse zk inbox notes",
+        primer_notes_projects, "Browse zk project notes",
+        primer_notes_knowledge, "Browse zk knowledge notes",
+        primer_notes_reference, "Browse zk reference notes",
         goto_last_accessed_file, "Goto last accessed file",
         goto_last_modified_file, "Goto last modified file",
         goto_last_modification, "Goto last modification",
@@ -3172,6 +3177,40 @@ fn append_mode(cx: &mut Context) {
     });
     doc.set_selection(view.id, selection);
 }
+
+// Use the same notebook location as the Neovim zk integration. Never create
+// directories just to browse notes; a missing mount should be reported.
+fn primer_notes_root() -> std::path::PathBuf {
+    let path = std::env::var_os("NVIM_NOTES_DIR")
+        .or_else(|| std::env::var_os("ZK_NOTEBOOK_DIR"))
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("~/NAS/Notes"));
+    if let Ok(suffix) = path.strip_prefix("~") {
+        if let Some(home) = std::env::var_os("HOME") {
+            return std::path::PathBuf::from(home).join(suffix);
+        }
+    }
+    path
+}
+
+fn primer_notes_picker(cx: &mut Context, category: Option<&str>) {
+    let mut root = primer_notes_root();
+    if let Some(category) = category {
+        root.push(category);
+    }
+    if !root.is_dir() {
+        cx.editor.set_error(format!("Notes directory unavailable: {}", root.display()));
+        return;
+    }
+    let picker = ui::file_picker(cx.editor, root);
+    cx.push_layer(Box::new(overlaid(picker)));
+}
+
+fn primer_notes_find(cx: &mut Context) { primer_notes_picker(cx, None); }
+fn primer_notes_inbox(cx: &mut Context) { primer_notes_picker(cx, Some("00 Inbox")); }
+fn primer_notes_projects(cx: &mut Context) { primer_notes_picker(cx, Some("02 Projects")); }
+fn primer_notes_knowledge(cx: &mut Context) { primer_notes_picker(cx, Some("03 Knowledge")); }
+fn primer_notes_reference(cx: &mut Context) { primer_notes_picker(cx, Some("04 Reference")); }
 
 fn file_picker(cx: &mut Context) {
     let root = find_workspace().0;
