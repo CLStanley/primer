@@ -2,6 +2,7 @@ mod render;
 
 use crate::compositor::{Component, Context, Event, EventResult};
 use crate::key;
+use crate::commands::{self, MappableCommand};
 use helix_view::graphics::Rect;
 use tui::buffer::Buffer as Surface;
 
@@ -54,23 +55,56 @@ impl Dashboard {
 
 impl Component for Dashboard {
     fn render(&mut self, area: Rect, surface: &mut Surface, _ctx: &mut Context) {
-        render::render_dashboard(self, area, surface);
+        render::render_dashboard(self, area, surface, _ctx);
     }
 
     fn handle_event(&mut self, event: &Event, _ctx: &mut Context) -> EventResult {
-        match event {
-            Event::Key(key) => match *key {
-                key!('j') | key!(Down) => {
-                    self.next();
-                    EventResult::Consumed(None)
-                }
-                key!('k') | key!(Up) => {
-                    self.previous();
-                    EventResult::Consumed(None)
-                }
-                _ => EventResult::Ignored(None),
-            },
-            _ => EventResult::Ignored(None),
+        let key = match event {
+            Event::Key(key) => *key,
+            Event::Mouse(_) => return EventResult::Consumed(None),
+            _ => return EventResult::Ignored(None),
+        };
+
+        match key {
+            key!('j') | key!(Down) => {
+                self.next();
+                EventResult::Consumed(None)
+            }
+            key!('k') | key!(Up) => {
+                self.previous();
+                EventResult::Consumed(None)
+            }
+            key!(Esc) => EventResult::Consumed(Some(Box::new(|compositor, _| {
+                compositor.remove_type::<Dashboard>();
+            }))),
+            key!(Enter) => {
+                let action = self.selected_action();
+                EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+                    compositor.remove_type::<Dashboard>();
+                    let command = match action {
+                        Some(DashboardAction::FindFile) => MappableCommand::file_picker,
+                        Some(DashboardAction::RecentFiles) => MappableCommand::buffer_picker,
+                        Some(DashboardAction::OpenProject) => {
+                            MappableCommand::file_picker_in_current_directory
+                        }
+                        Some(DashboardAction::Help) => MappableCommand::command_palette,
+                        None => return,
+                    };
+                    let mut command_cx = commands::Context {
+                        register: None,
+                        count: None,
+                        editor: cx.editor,
+                        callback: Vec::new(),
+                        on_next_key_callback: None,
+                        jobs: cx.jobs,
+                    };
+                    command.execute(&mut command_cx);
+                    for callback in command_cx.callback {
+                        callback(compositor, cx);
+                    }
+                })))
+            }
+            _ => EventResult::Consumed(None),
         }
     }
 }
