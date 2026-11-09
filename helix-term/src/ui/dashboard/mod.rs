@@ -139,9 +139,14 @@ impl Component for Dashboard {
                     _ => self.selected_action(),
                 };
                 EventResult::Consumed(Some(Box::new(move |compositor, cx| {
-                    compositor.remove_type::<Dashboard>();
+                    // Keep the dashboard beneath pickers so cancelling returns home.
+                    // It is dismissed after a file is successfully opened.
                     if action == Some(DashboardAction::NewFile) {
+                        compositor.remove_type::<Dashboard>();
                         return;
+                    }
+                    if matches!(action, Some(DashboardAction::Quit)) {
+                        compositor.remove_type::<Dashboard>();
                     }
                     let command = match action {
                         Some(DashboardAction::FindFile) => MappableCommand::file_picker,
