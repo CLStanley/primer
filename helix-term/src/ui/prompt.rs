@@ -460,7 +460,7 @@ impl Prompt {
             let menu_style = cx.editor.theme.get("ui.menu");
             surface.clear_with(completion_area, menu_style);
             if floating {
-                Block::bordered().border_type(match cx.editor.config().border_style { UiBorderStyle::Square | UiBorderStyle::None => BorderType::Plain, UiBorderStyle::Rounded => BorderType::Rounded, UiBorderStyle::Double => BorderType::Double })
+                Block::bordered().border_type(match cx.editor.config().border_style { UiBorderStyle::Square => BorderType::Plain, UiBorderStyle::Rounded => BorderType::Rounded, UiBorderStyle::Double => BorderType::Double })
                     .border_style(cx.editor.theme.get("ui.window"))
                     .render(completion_area, surface);
             }
