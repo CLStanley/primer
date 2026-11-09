@@ -4086,11 +4086,11 @@ fn goto_column_impl(cx: &mut Context, movement: Movement) {
 }
 
 fn primer_buffer_previous(cx: &mut Context) {
-    typed::goto_buffer(cx.editor, Direction::Backward, 1);
+    goto_buffer(cx.editor, Direction::Backward, 1);
 }
 
 fn primer_buffer_next(cx: &mut Context) {
-    typed::goto_buffer(cx.editor, Direction::Forward, 1);
+    goto_buffer(cx.editor, Direction::Forward, 1);
 }
 
 fn primer_buffer_new(cx: &mut Context) {
@@ -4100,7 +4100,14 @@ fn primer_buffer_new(cx: &mut Context) {
 fn primer_buffer_close(cx: &mut Context) {
     let id = view!(cx.editor).doc;
     if let Err(err) = cx.editor.close_document(id, false) {
-        cx.editor.set_error(err.to_string());
+        let message = match err {
+            helix_view::editor::CloseError::DoesNotExist => "Buffer does not exist".to_string(),
+            helix_view::editor::CloseError::BufferModified(name) => {
+                format!("Buffer has unsaved changes: {name}")
+            }
+            helix_view::editor::CloseError::SaveError(error) => error.to_string(),
+        };
+        cx.editor.set_error(message);
     }
 }
 
