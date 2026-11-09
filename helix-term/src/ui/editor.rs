@@ -705,7 +705,7 @@ impl EditorView {
             } else {
                 bufferline_inactive
             }
-            .remove_modifier(Modifier::UNDERLINED);
+            .underline_style(helix_view::graphics::UnderlineStyle::Reset);
             let text = format!(" {}{} ", fname, if doc.is_modified() { " ●" } else { "" });
 
             // Rounded Powerline caps inherit the active tab's background color.
