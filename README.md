@@ -81,6 +81,6 @@ The UI uses terminal characters for rounded corners (╭ ╮ ╰ ╯), not pixel
 | `Shift-L` / `]b` / `Space b n` | Next buffer |
 | `Space b b` | Buffer picker |
 | `Space b N` | New empty buffer |
-| `Space b q` | Close current buffer (respects unsaved changes) |
+| `Space b q` | Close current buffer (respects unsaved changes); show dashboard when the last buffer closes |
 
 Embedded terminal buffers are **not yet implemented**; `Space b t` is reserved for future work.
