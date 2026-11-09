@@ -3882,7 +3882,17 @@ fn changed_file_picker(cx: &mut Context) {
         style_renamed: Style,
     }
 
-    let cwd = helix_stdx::env::current_working_dir();
+    let active_dir = active_buffer_directory(cx.editor);
+    let cwd = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&active_dir)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|root| PathBuf::from(root.trim()))
+        .unwrap_or(active_dir);
     if !cwd.exists() {
         cx.editor
             .set_error("Current working directory does not exist");
@@ -5218,7 +5228,7 @@ fn git_preview_change(cx: &mut Context) {
         return;
     };
     let contents = ui::GitChangePreview::new(heading, lines);
-    let popup = Popup::new("git-change-preview", contents);
+    let popup = Popup::new("git-change-preview", contents).with_border();
     cx.replace_or_push_layer("git-change-preview", popup);
 }
 
