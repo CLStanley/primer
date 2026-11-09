@@ -327,6 +327,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "D" => workspace_diagnostics_picker,
             "g" => { "Git"
                 "c" => changed_file_picker,
+                "p" => git_preview_change,
             },
             "a" => code_action,
             "l" => { "Language"
