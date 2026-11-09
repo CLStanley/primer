@@ -3209,7 +3209,7 @@ fn primer_notes_picker(cx: &mut Context, category: Option<&str>) {
 }
 
 fn primer_notes_new(cx: &mut Context) {
-    ui::prompt(cx, "New note (category: title): ".into(), None, ui::completers::none,
+    let mut prompt = Prompt::new("New note (category: title): ".into(), None, ui::completers::none,
         |cx, input, event| {
             if event != PromptEvent::Validate { return; }
             let Some((category, title)) = input.split_once(':') else {
@@ -3249,6 +3249,17 @@ fn primer_notes_new(cx: &mut Context) {
             }
             if let Err(err) = cx.editor.open(&path, Action::Replace) { cx.editor.set_error(err.to_string()); }
         });
+    prompt.doc_fn = Box::new(|input| {
+        if input.is_empty() {
+            Some("Format: category: title\\nExample: knowledge: Rust ownership\\nCategories: knowledge (k), project (p), reference (r), idea (i), inbox (b)".into())
+        } else if !input.contains(':') {
+            Some("Enter a category followed by a colon and a note title.\\nExample: project: Primer dashboard".into())
+        } else {
+            None
+        }
+    });
+    prompt.recalculate_completion(cx.editor);
+    cx.push_layer(Box::new(prompt));
 }
 fn primer_notes_daily(cx: &mut Context) {
     let root = primer_notes_root();
