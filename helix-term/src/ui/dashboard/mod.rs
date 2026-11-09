@@ -13,6 +13,7 @@ pub enum DashboardAction {
     FindNotes,
     NewNote,
     DailyNote,
+    Agenda,
     RecentFiles,
     OpenProject,
     Help,
@@ -36,6 +37,7 @@ impl Dashboard {
                 DashboardAction::FindNotes,
                 DashboardAction::NewNote,
                 DashboardAction::DailyNote,
+                DashboardAction::Agenda,
                 DashboardAction::NewFile,
                 DashboardAction::OpenProject,
                 DashboardAction::Help,
@@ -66,7 +68,7 @@ impl Dashboard {
         let Some(current) = self.selected_action() else { return };
         let target = if horizontal {
             match current {
-                DashboardAction::FindFile | DashboardAction::RecentFiles | DashboardAction::NewFile | DashboardAction::LiveGrep | DashboardAction::FindNotes | DashboardAction::NewNote | DashboardAction::DailyNote =>
+                DashboardAction::FindFile | DashboardAction::RecentFiles | DashboardAction::NewFile | DashboardAction::LiveGrep | DashboardAction::FindNotes | DashboardAction::NewNote | DashboardAction::DailyNote | DashboardAction::Agenda =>
                     DashboardAction::OpenProject,
                 DashboardAction::OpenProject => DashboardAction::FindFile,
                 DashboardAction::Help => DashboardAction::Quit,
@@ -74,10 +76,10 @@ impl Dashboard {
             }
         } else {
             let column: &[DashboardAction] = match current {
-                DashboardAction::FindFile | DashboardAction::RecentFiles | DashboardAction::NewFile | DashboardAction::LiveGrep | DashboardAction::FindNotes | DashboardAction::NewNote | DashboardAction::DailyNote |
+                DashboardAction::FindFile | DashboardAction::RecentFiles | DashboardAction::NewFile | DashboardAction::LiveGrep | DashboardAction::FindNotes | DashboardAction::NewNote | DashboardAction::DailyNote | DashboardAction::Agenda |
                 DashboardAction::Help => &[
                     DashboardAction::FindFile, DashboardAction::RecentFiles,
-                    DashboardAction::NewFile, DashboardAction::LiveGrep, DashboardAction::NewNote, DashboardAction::DailyNote, DashboardAction::FindNotes, DashboardAction::Help,
+                    DashboardAction::NewFile, DashboardAction::LiveGrep, DashboardAction::NewNote, DashboardAction::DailyNote, DashboardAction::FindNotes, DashboardAction::Agenda, DashboardAction::Help,
                 ],
                 DashboardAction::OpenProject | DashboardAction::Quit => &[
                     DashboardAction::OpenProject, DashboardAction::Quit,
@@ -133,7 +135,7 @@ impl Component for Dashboard {
             // The dashboard is the startup screen. Dismissing it into an
             // unnamed buffer must be an intentional New file action.
             key!(Esc) => EventResult::Consumed(None),
-            key!(Enter) | key!('f') | key!('r') | key!('g') | key!('o') | key!('a') | key!('d') | key!('p') | key!('?') | key!('n') | key!('q') => {
+            key!(Enter) | key!('f') | key!('r') | key!('g') | key!('o') | key!('a') | key!('d') | key!('e') | key!('p') | key!('?') | key!('n') | key!('q') => {
                 let action = match key {
                     key!('f') => Some(DashboardAction::FindFile),
                     key!('r') => Some(DashboardAction::RecentFiles),
@@ -141,6 +143,7 @@ impl Component for Dashboard {
                     key!('o') => Some(DashboardAction::FindNotes),
                     key!('a') => Some(DashboardAction::NewNote),
                     key!('d') => Some(DashboardAction::DailyNote),
+                    key!('e') => Some(DashboardAction::Agenda),
                     key!('p') => Some(DashboardAction::OpenProject),
                     key!('?') => Some(DashboardAction::Help),
                     key!('n') => Some(DashboardAction::NewFile),
@@ -163,6 +166,7 @@ impl Component for Dashboard {
                         Some(DashboardAction::FindNotes) => MappableCommand::primer_notes_find,
                         Some(DashboardAction::NewNote) => MappableCommand::primer_notes_new,
                         Some(DashboardAction::DailyNote) => MappableCommand::primer_notes_daily,
+                        Some(DashboardAction::Agenda) => MappableCommand::primer_agenda,
                         Some(DashboardAction::RecentFiles) => MappableCommand::buffer_picker,
                         Some(DashboardAction::OpenProject) => {
                             MappableCommand::file_picker_in_current_directory
@@ -206,7 +210,7 @@ mod tests {
     fn starts_on_browse_files() {
         let dashboard = Dashboard::new();
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::FindFile));
-        assert_eq!(dashboard.actions.len(), 10);
+        assert_eq!(dashboard.actions.len(), 11);
     }
 
     #[test]
@@ -224,6 +228,8 @@ mod tests {
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::DailyNote));
         dashboard.next();
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::FindNotes));
+        dashboard.next();
+        assert_eq!(dashboard.selected_action(), Some(DashboardAction::Agenda));
         dashboard.next();
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::Help));
         dashboard.next();
