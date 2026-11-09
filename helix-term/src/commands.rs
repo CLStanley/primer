@@ -3257,9 +3257,64 @@ fn primer_agenda_create(cx: &mut Context, kind: &'static str) {
                 else { format!("{}-{slug}.md", date) };
             let path = dir.join(filename);
             let content = match kind {
-                "todo" => format!("---\\ntitle: \\"{escaped}\\"\\ntype: todo\\nstatus: open\\ncreated: {today}\\nupdated: {today}\\ndue: {date}\\nreminder: \\npriority: normal\\ntags:\\n  - \\n---\\n\\n# {title}\\n\\n## Details\\n\\n## Related\\n\\n- \\n\\n## Notes\\n"),
-                "event" => format!("---\\ntitle: \\"{escaped}\\"\\ntype: event\\ndate: {date}\\nstart: {time}\\nend: \\nreminder: \\nlocation: \\"\\"\\ncreated: {today}\\nupdated: {today}\\ntags:\\n  - \\n---\\n\\n# {title}\\n\\n## Details\\n\\n## Related\\n\\n- \\n\\n## Notes\\n\\n## Follow Up\\n\\n- [ ] \\n"),
-                _ => format!("---\\ntitle: \\"{escaped}\\"\\ndate: {date}\\ntime: {time}\\nrepeat: none\\n---\\n"),
+                "todo" => format!(r#"---
+title: "{escaped}"
+type: todo
+status: open
+created: {today}
+updated: {today}
+due: {date}
+reminder:
+priority: normal
+tags:
+  -
+---
+
+# {title}
+
+## Details
+
+## Related
+
+-
+
+## Notes
+"#),
+                "event" => format!(r#"---
+title: "{escaped}"
+type: event
+date: {date}
+start: {time}
+end:
+reminder:
+location: ""
+created: {today}
+updated: {today}
+tags:
+  -
+---
+
+# {title}
+
+## Details
+
+## Related
+
+-
+
+## Notes
+
+## Follow Up
+
+- [ ]
+"#),
+                _ => format!(r#"---
+title: "{escaped}"
+date: {date}
+time: {time}
+repeat: none
+---
+"#),
             };
             use std::io::Write as _;
             match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
@@ -3269,7 +3324,7 @@ fn primer_agenda_create(cx: &mut Context, kind: &'static str) {
             }
             if let Err(err) = cx.editor.open(&path, Action::Replace) { cx.editor.set_error(err.to_string()); }
         });
-    prompt.doc_fn = Box::new(move |_| Some(format!("{heading}\\nFormat: title | YYYY-MM-DD | HH:MM\\nExample: {example}").into()));
+    prompt.doc_fn = Box::new(move |_| Some(format!("{heading}\nFormat: title | YYYY-MM-DD | HH:MM\nExample: {example}").into()));
     prompt.recalculate_completion(cx.editor);
     cx.push_layer(Box::new(prompt));
 }
@@ -3279,7 +3334,7 @@ fn primer_agenda_new_event(cx: &mut Context) { primer_agenda_create(cx, "event")
 fn primer_agenda_new_reminder(cx: &mut Context) { primer_agenda_create(cx, "reminder"); }
 
 fn primer_agenda_mark_done(cx: &mut Context) {
-    let Some(path) = cx.editor.current_path().map(|p| p.to_path_buf()) else {
+    let Some(path) = doc!(cx.editor).path().map(|p| p.to_path_buf()) else {
         cx.editor.set_error("Open a todo before marking it complete");
         return;
     };
@@ -3301,7 +3356,7 @@ fn primer_agenda_mark_done(cx: &mut Context) {
         if line.starts_with("status:") { "status: done".to_string() }
         else if line.starts_with("updated:") { format!("updated: {today}") }
         else { line.to_string() }
-    }).collect::<Vec<_>>().join("\\n") + "\\n";
+    }).collect::<Vec<_>>().join("\n") + "\n";
     if let Err(err) = std::fs::write(&path, updated) { cx.editor.set_error(err.to_string()); return; }
     cx.editor.set_status("Todo marked complete; reopen the file to refresh its contents");
 }
