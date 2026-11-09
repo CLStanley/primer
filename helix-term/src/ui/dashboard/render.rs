@@ -63,7 +63,7 @@ pub fn render_dashboard(
     // Theme scopes rather than fixed RGB values keep the dashboard aligned
     // with the user's chosen theme. Primer's default heading color is lilac.
     let accent_color = theme
-        .try_get("markup.heading")
+        .try_get("ui.dashboard.heading")
         .and_then(|style| style.fg)
         .or_else(|| theme.try_get("ui.linenr.selected").and_then(|style| style.fg))
         .unwrap_or(text_color);
@@ -74,17 +74,21 @@ pub fn render_dashboard(
         .and_then(|style| style.fg)
         .unwrap_or(text_color);
     let shortcut_color = theme
-        .try_get("diagnostic.info")
-        .and_then(|style| style.underline_color.or(style.fg))
-        .unwrap_or(Color::LightBlue);
-    let green_color = theme
-        .try_get("variable.builtin")
+        .try_get_exact("ui.dashboard.shortcut")
         .and_then(|style| style.fg)
-        .or_else(|| theme.try_get("diagnostic.hint").and_then(|style| style.underline_color.or(style.fg)))
-        .unwrap_or(Color::LightGreen);
+        .unwrap_or(Color::Rgb(86, 200, 255));
+    let green_color = theme
+        .try_get_exact("ui.dashboard.motto")
+        .and_then(|style| style.fg)
+        .unwrap_or(Color::Rgb(159, 242, 143));
     let normal = Style::default().fg(description_color).bg(Color::Reset);
     let accent = Style::default().fg(accent_color).bg(Color::Reset);
     let shortcut = Style::default().fg(shortcut_color).bg(Color::Reset);
+    let logo_color = theme
+        .try_get_exact("ui.dashboard.logo")
+        .and_then(|style| style.fg)
+        .unwrap_or(shortcut_color);
+    let logo_style = Style::default().fg(logo_color).bg(Color::Reset);
     let selected = normal.add_modifier(Modifier::BOLD);
     let selected_shortcut = shortcut.add_modifier(Modifier::BOLD);
     let green = Style::default().fg(green_color).bg(Color::Reset);
@@ -118,11 +122,11 @@ pub fn render_dashboard(
         for (index, line) in LOGO.iter().enumerate() {
             let width = line.len() as u16;
             let x = area.x + area.width.saturating_sub(width) / 2;
-            draw_line(line, x, top + index as u16, width, shortcut);
+            draw_line(line, x, top + index as u16, width, logo_style);
         }
     } else {
         let x = area.x + area.width.saturating_sub(6) / 2;
-        draw_line("PRIMER", x, top, 6, shortcut);
+        draw_line("PRIMER", x, top, 6, logo_style);
     }
 
     let motto = "Leaves from the vine...";
