@@ -403,7 +403,7 @@ const BASE_WIDTH: u16 = 30;
 impl Prompt {
     pub fn render_prompt(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
         let prompt_color = cx.editor.theme.get("ui.text");
-        let completion_color = cx.editor.cx.editor.theme.get("ui.menu");
+        let completion_color = cx.editor.theme.get("ui.menu");
         let selected_color = cx.editor.theme.get("ui.menu.selected");
         let suggestion_color = cx.editor.theme.get("ui.text.inactive");
         let background = cx.editor.theme.get("ui.background");
