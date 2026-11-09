@@ -90,16 +90,19 @@ impl Component for Dashboard {
                         Some(DashboardAction::Help) => MappableCommand::command_palette,
                         None => return,
                     };
-                    let mut command_cx = commands::Context {
-                        register: None,
-                        count: None,
-                        editor: cx.editor,
-                        callback: Vec::new(),
-                        on_next_key_callback: None,
-                        jobs: cx.jobs,
+                    let callbacks = {
+                        let mut command_cx = commands::Context {
+                            register: None,
+                            count: None,
+                            editor: &mut *cx.editor,
+                            callback: Vec::new(),
+                            on_next_key_callback: None,
+                            jobs: &mut *cx.jobs,
+                        };
+                        command.execute(&mut command_cx);
+                        command_cx.callback
                     };
-                    command.execute(&mut command_cx);
-                    for callback in command_cx.callback {
+                    for callback in callbacks {
                         callback(compositor, cx);
                     }
                 })))
