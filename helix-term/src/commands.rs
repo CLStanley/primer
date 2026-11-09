@@ -4715,7 +4715,7 @@ fn git_toggle_inline_blame(cx: &mut Context) {
     };
     // Reuse previously retrieved blame if the document has not changed.
     if let Some(doc) = cx.editor.document_by_path_mut(&path) {
-        if doc.git_inline_blame.is_some() && !doc.git_blame_annotations.is_empty() {
+        if doc.git_blame_cached_version == Some(version) && doc.git_inline_blame.is_some() && !doc.git_blame_annotations.is_empty() {
             doc.git_inline_blame_enabled = true;
             cx.editor.set_status("Inline Git blame enabled (cached)");
             return;
@@ -4764,6 +4764,10 @@ fn git_toggle_inline_blame(cx: &mut Context) {
             if doc.version() != version || doc.is_modified() || doc.text().len_lines() != line_count {
                 return;
             }
+            if entries.len() != line_count && entries.len() + 1 != line_count {
+                editor.set_error("Git blame line count did not match the document");
+                return;
+            }
             let text = doc.text();
             let annotations = entries.iter().enumerate().map(|(line, message)| {
                 let start = text.line_to_char(line);
@@ -4773,6 +4777,7 @@ fn git_toggle_inline_blame(cx: &mut Context) {
             }).collect();
             doc.git_blame_annotations = annotations;
             doc.git_inline_blame = Some(entries);
+            doc.git_blame_cached_version = Some(version);
             doc.git_inline_blame_enabled = true;
             editor.set_status("Inline Git blame enabled");
         })))
