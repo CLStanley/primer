@@ -99,7 +99,7 @@ pub fn render_dashboard(
     let show_logo = area.width >= logo_width && area.height >= 20;
     let wide = area.width >= WIDE_LAYOUT_WIDTH && area.height >= 19;
     let heading_height: u16 = if show_logo { LOGO.len() as u16 } else { 1 };
-    let menu_height = if wide { 11 } else { dashboard.actions.len() as u16 + 3 };
+    let menu_height = if wide { 19 } else { 25 };
     let content_height = heading_height + 5 + menu_height;
     let top = area.y + area.height.saturating_sub(content_height) / 2;
 
@@ -136,70 +136,132 @@ pub fn render_dashboard(
     }
 
     let menu_top = top + heading_height + 5;
+    // Entries are the dashboard roadmap. A missing action is deliberately
+    // displayed as [todo] and never receives a key handler.
+    // The two-column layout uses two rows of sections.
+    let sections: [(&str, [(&str, &str, Option<DashboardAction>); 4]); 4] = [
+        ("FILES", [
+            ("f", "Browse files", Some(DashboardAction::FindFile)),
+            ("r", "Open buffers", Some(DashboardAction::RecentFiles)),
+            ("g", "Live grep", None),
+            ("t", "Terminal", None),
+        ]),
+        ("PROJECTS", [
+            ("p", "Browse workspace", Some(DashboardAction::OpenProject)),
+            ("s", "Switch project", None),
+            ("w", "Sessions", None),
+            ("l", "Recent projects", None),
+        ]),
+        ("NOTES", [
+            ("a", "New note", None),
+            ("d", "Daily note", None),
+            ("o", "Find notes", None),
+            ("e", "Agenda", None),
+        ]),
+        ("REMOTE SSH", [
+            ("c", "Connect to host", None),
+            ("h", "Saved hosts", None),
+            ("u", "Remote files", None),
+            ("x", "Remote terminal", None),
+        ]),
+    ];
+
     if wide {
-        // Match the two-column dashboard rhythm of the Neovim setup.
-        // The first two actions are on the left; the remaining two on the right.
         let total_width = COLUMN_WIDTH * 2 + COLUMN_GAP;
         let left = area.x + area.width.saturating_sub(total_width) / 2;
         let right = left + COLUMN_WIDTH + COLUMN_GAP;
-        // Center each heading above its column, not against its left edge.
-        draw_line("FILES", left + (COLUMN_WIDTH - 5) / 2, menu_top, 5, accent);
-        draw_line("WORKSPACE", right + (COLUMN_WIDTH - 9) / 2, menu_top, 9, accent);
-
-        for (index, action) in dashboard.actions.iter().enumerate().take(4) {
-            let column = index / 2;
-            let row = index % 2;
-            let x = if column == 0 { left } else { right };
-            let y = menu_top + 2 + row as u16;
-            let active = index == dashboard.selected;
-            let marker = if active { ">" } else { " " };
-            draw_line(marker, x, y, 1, if active { accent } else { normal });
-            let key = action.shortcut().to_string();
-            draw_line(&key, x + 3, y, 1, if active { selected_shortcut } else { shortcut });
-            draw_line(action.label(), x + 6, y, COLUMN_WIDTH - 6, if active { selected } else { normal });
+        for (section_index, (heading, entries)) in sections.iter().enumerate() {
+            let x = if section_index % 2 == 0 { left } else { right };
+            let section_top = menu_top + (section_index / 2) as u16 * 7;
+            let heading_width = heading.len() as u16;
+            draw_line(
+                heading,
+                x + (COLUMN_WIDTH - heading_width) / 2,
+                section_top,
+                heading_width,
+                accent,
+            );
+            for (row, (key, label, action)) in entries.iter().enumerate() {
+                let y = section_top + 2 + row as u16;
+                let active = action.is_some() && *action == dashboard.selected_action();
+                if active {
+                    draw_line(">", x, y, 1, accent);
+                }
+                draw_line(
+                    key,
+                    x + 3,
+                    y,
+                    1,
+                    if active { selected_shortcut } else { shortcut },
+                );
+                let description = if action.is_some() {
+                    label.to_string()
+                } else {
+                    format!("{label} [todo]")
+                };
+                draw_line(
+                    &description,
+                    x + 6,
+                    y,
+                    COLUMN_WIDTH - 6,
+                    if active { selected } else if action.is_some() { normal } else { pending },
+                );
+            }
         }
-
-        // Roadmap entries are intentionally non-interactive until implemented.
-        // They make the missing features visible without pretending to work.
-        for (x, y, key, label) in [
-            (left, menu_top + 4, "t", "Terminal [todo]"),
-            (right, menu_top + 4, "s", "Sessions [todo]"),
-            (left, menu_top + 5, "g", "Live grep [todo]"),
-            (right, menu_top + 5, "o", "Projects [todo]"),
-        ] {
-            draw_line(key, x + 3, y, 1, shortcut);
-            draw_line(label, x + 6, y, COLUMN_WIDTH - 6, pending);
-        }
-
+        let footer_y = menu_top + 15;
         for (action, x) in [
             (DashboardAction::NewFile, left),
+            (DashboardAction::Help, left + 16),
             (DashboardAction::Quit, right),
         ] {
             let active = dashboard.selected_action() == Some(action);
             let key = action.shortcut().to_string();
-            draw_line(&key, x + 3, menu_top + 8, 1, if active { selected_shortcut } else { shortcut });
-            draw_line(action.label(), x + 6, menu_top + 8, COLUMN_WIDTH - 6, if active { selected } else { normal });
+            draw_line(&key, x, footer_y, 1, if active { selected_shortcut } else { shortcut });
+            draw_line(action.label(), x + 2, footer_y, 13, if active { selected } else { normal });
         }
-
-        // Draw shortcut hints in blue and descriptions in white.
         let hint = [("j/k", " navigate  "), ("Enter", " select")];
         let hint_width: u16 = hint.iter().map(|(key, label)| (key.len() + label.len()) as u16).sum();
         let mut hint_x = left + total_width.saturating_sub(hint_width) / 2;
         for (key, label) in hint {
-            draw_line(key, hint_x, menu_top + 10, key.len() as u16, shortcut);
+            draw_line(key, hint_x, menu_top + 17, key.len() as u16, shortcut);
             hint_x += key.len() as u16;
-            draw_line(label, hint_x, menu_top + 10, label.len() as u16, normal);
+            draw_line(label, hint_x, menu_top + 17, label.len() as u16, normal);
             hint_x += label.len() as u16;
         }
     } else {
-        for (index, action) in dashboard.actions.iter().enumerate() {
-            let y = menu_top + index as u16;
-            let x = area.x + area.width.saturating_sub(COLUMN_WIDTH) / 2;
-            let active = index == dashboard.selected;
-            draw_line(if active { ">" } else { " " }, x, y, 1, accent);
+        let x = area.x + area.width.saturating_sub(COLUMN_WIDTH) / 2;
+        let mut y = menu_top;
+        for (heading, entries) in &sections {
+            draw_line(heading, x, y, heading.len() as u16, accent);
+            y += 1;
+            for (key, label, action) in entries {
+                let active = action.is_some() && *action == dashboard.selected_action();
+                if active {
+                    draw_line(">", x, y, 1, accent);
+                }
+                draw_line(key, x + 2, y, 1, shortcut);
+                let description = if action.is_some() {
+                    label.to_string()
+                } else {
+                    format!("{label} [todo]")
+                };
+                draw_line(
+                    &description,
+                    x + 4,
+                    y,
+                    COLUMN_WIDTH - 4,
+                    if active { selected } else if action.is_some() { normal } else { pending },
+                );
+                y += 1;
+            }
+            y += 1;
+        }
+        for action in [DashboardAction::NewFile, DashboardAction::Help, DashboardAction::Quit] {
+            let active = dashboard.selected_action() == Some(action);
             let key = action.shortcut().to_string();
-            draw_line(&key, x + 3, y, 1, if active { selected_shortcut } else { shortcut });
-            draw_line(action.label(), x + 6, y, COLUMN_WIDTH - 6, if active { selected } else { normal });
+            draw_line(&key, x + 2, y, 1, shortcut);
+            draw_line(action.label(), x + 4, y, COLUMN_WIDTH - 4, if active { selected } else { normal });
+            y += 1;
         }
     }
 }
