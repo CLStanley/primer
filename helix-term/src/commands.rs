@@ -449,6 +449,7 @@ impl MappableCommand {
         primer_buffer_new, "New empty buffer",
         primer_buffer_close, "Close current buffer",
         primer_notes_find, "Search all notes in your notebook by filename",
+        primer_agenda, "Browse open todos, events, and reminders by date",
         primer_notes_daily, "Open or create today's journal and daily notes",
         primer_notes_new, "Create a note with a category, title, and template",
         primer_notes_inbox, "Review uncategorized notes to organize later",
@@ -3205,6 +3206,65 @@ fn primer_notes_picker(cx: &mut Context, category: Option<&str>) {
         return;
     }
     let picker = ui::file_picker(cx.editor, root);
+    cx.push_layer(Box::new(overlaid(picker)));
+}
+
+#[derive(Clone)]
+struct PrimerAgendaItem {
+    path: PathBuf,
+    kind: String,
+    when: String,
+    time: String,
+    title: String,
+}
+
+fn primer_agenda(cx: &mut Context) {
+    let root = primer_notes_root().join("Agenda");
+    if !root.is_dir() {
+        cx.editor.set_error(format!("Agenda directory unavailable: {}", root.display()));
+        return;
+    }
+    let mut items = Vec::new();
+    for (folder, kind) in [("Todos", "TODO"), ("Events", "EVENT"), ("Reminders", "REMIND")] {
+        let directory = root.join(folder);
+        let Ok(entries) = std::fs::read_dir(&directory) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("md") { continue; }
+            let Ok(content) = std::fs::read_to_string(&path) else { continue };
+            let mut fields = HashMap::new();
+            if content.lines().next() != Some("---") { continue; }
+            for line in content.lines().skip(1).take(80) {
+                if line == "---" { break; }
+                if let Some((key, value)) = line.split_once(':') {
+                    fields.insert(key.trim(), value.trim().trim_matches('"'));
+                }
+            }
+            if kind == "TODO" && fields.get("status") == Some(&"done") { continue; }
+            let date_key = if kind == "TODO" { "due" } else { "date" };
+            let when = fields.get(date_key).copied().filter(|value| !value.is_empty()).unwrap_or("No date").to_string();
+            let time = fields.get(if kind == "REMIND" { "time" } else { "start" }).copied().unwrap_or("").to_string();
+            let title = fields.get("title").copied().unwrap_or_else(|| path.file_stem().and_then(|s| s.to_str()).unwrap_or("Untitled")).to_string();
+            items.push(PrimerAgendaItem { path, kind: kind.into(), when, time, title });
+        }
+    }
+    items.sort_by(|a, b| {
+        let date = |value: &str| if value == "No date" { "9999-99-99" } else { value };
+        date(&a.when).cmp(date(&b.when)).then(a.time.cmp(&b.time)).then(a.title.cmp(&b.title))
+    });
+    if items.is_empty() {
+        cx.editor.set_status("Agenda is empty. Add a todo, event, or reminder.");
+        return;
+    }
+    let columns = [
+        PickerColumn::new("type", |item: &PrimerAgendaItem, _: &()| item.kind.as_str().into()),
+        PickerColumn::new("date", |item: &PrimerAgendaItem, _: &()| item.when.as_str().into()),
+        PickerColumn::new("time", |item: &PrimerAgendaItem, _: &()| item.time.as_str().into()),
+        PickerColumn::new("title", |item: &PrimerAgendaItem, _: &()| item.title.as_str().into()),
+    ];
+    let picker = Picker::new(columns, 3, items, (), |cx, item: &PrimerAgendaItem, action| {
+        if let Err(err) = cx.editor.open(&item.path, action) { cx.editor.set_error(err.to_string()); }
+    }).with_preview(|_, item| Some((item.path.clone().into(), None)));
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
