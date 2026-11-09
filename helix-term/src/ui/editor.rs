@@ -708,7 +708,7 @@ impl EditorView {
 
             // Rounded Powerline caps inherit the active tab's background color.
             // When a theme has no active background, bold text still distinguishes it.
-            if active {
+            if active && editor.config().bufferline_powerline {
                 if let Some(bg) = style.bg {
                     x = surface.set_stringn(
                         x, viewport.y, "", surface.area.right().saturating_sub(x) as usize,
@@ -719,7 +719,7 @@ impl EditorView {
             x = surface.set_stringn(
                 x, viewport.y, &text, surface.area.right().saturating_sub(x) as usize, style,
             ).0;
-            if active {
+            if active && editor.config().bufferline_powerline {
                 if let Some(bg) = style.bg {
                     x = surface.set_stringn(
                         x, viewport.y, "", surface.area.right().saturating_sub(x) as usize,
@@ -728,7 +728,8 @@ impl EditorView {
                 }
             }
             x = surface.set_stringn(
-                x, viewport.y, "  ", surface.area.right().saturating_sub(x) as usize,
+                x, viewport.y, if editor.config().bufferline_separators { " │ " } else { "  " },
+                surface.area.right().saturating_sub(x) as usize,
                 bufferline_inactive,
             ).0;
             if x >= surface.area.right() {
