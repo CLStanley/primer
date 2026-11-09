@@ -414,6 +414,7 @@ impl MappableCommand {
         lsp_or_syntax_symbol_picker, "Open symbol picker from LSP or syntax information",
         changed_file_picker, "Open changed file picker",
         git_preview_change, "Preview previous Git change at cursor",
+        git_blame_line, "Show Git blame for current line",
         select_references_to_symbol_under_cursor, "Select symbol references",
         workspace_symbol_picker, "Open workspace symbol picker",
         syntax_workspace_symbol_picker, "Open workspace symbol picker from syntax information",
@@ -4682,6 +4683,75 @@ fn git_change_segments(original: &str, current: &str) -> (String, String, String
         old[prefix..old.len() - suffix].iter().collect(),
         old[old.len() - suffix..].iter().collect(),
     )
+}
+
+/// Show the last committed change for the cursor line.
+/// Git blame refers to the saved file, so unsaved edits are not included.
+fn git_blame_line(cx: &mut Context) {
+    let (path, line, modified) = {
+        let (view, doc) = current!(cx.editor);
+        let Some(path) = doc.path() else {
+            cx.editor.set_status("Git blame requires a file on disk");
+            return;
+        };
+        let line = doc.selection(view.id).primary().cursor_line(doc.text().slice(..)) + 1;
+        (path.to_path_buf(), line, doc.is_modified())
+    };
+    if modified {
+        cx.editor.set_status("Save the file before viewing Git blame");
+        return;
+    }
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(path.parent().unwrap_or_else(|| std::path::Path::new(".")))
+        .args(["blame", "--line-porcelain", "-L"])
+        .arg(format!("{line},{line}"))
+        .arg("--")
+        .arg(&path)
+        .output();
+    let output = match output {
+        Ok(output) if output.status.success() => output,
+        Ok(output) => {
+            let reason = String::from_utf8_lossy(&output.stderr);
+            cx.editor.set_error(format!("Git blame failed: {}", reason.trim()));
+            return;
+        }
+        Err(err) => {
+            cx.editor.set_error(format!("Unable to run git blame: {err}"));
+            return;
+        }
+    };
+    let porcelain = String::from_utf8_lossy(&output.stdout);
+    let commit = porcelain.split_whitespace().next().unwrap_or("unknown");
+    let mut author = "Unknown";
+    let mut summary = "No commit message";
+    let mut timestamp = None;
+    for row in porcelain.lines() {
+        if let Some(value) = row.strip_prefix("author ") {
+            author = value;
+        } else if let Some(value) = row.strip_prefix("summary ") {
+            summary = value;
+        } else if let Some(value) = row.strip_prefix("author-time ") {
+            timestamp = value.parse::<i64>().ok();
+        }
+    }
+    let short_commit = &commit[..commit.len().min(12)];
+    let date = timestamp
+        .and_then(|time| chrono::DateTime::from_timestamp(time, 0))
+        .map(|date| date.format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|| "Unknown date".to_owned());
+    let lines = vec![
+        ("Line".to_owned(), line.to_string(), String::new(), String::new()),
+        ("Author".to_owned(), format!("  {author}"), String::new(), String::new()),
+        ("Date".to_owned(), format!("  {date}"), String::new(), String::new()),
+        ("Commit".to_owned(), format!("  {short_commit}"), String::new(), String::new()),
+        ("Message".to_owned(), format!("  {summary}"), String::new(), String::new()),
+    ];
+    let popup = Popup::new(
+        "git-blame-line",
+        ui::GitChangePreview::new("Last committed change".to_owned(), lines),
+    );
+    cx.replace_or_push_layer("git-blame-line", popup);
 }
 
 fn git_preview_change(cx: &mut Context) {
