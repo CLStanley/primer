@@ -190,7 +190,7 @@ where
     };
     // Powerline-style rounded caps use the mode background as their foreground.
     // They remain transparent against the surrounding statusline background.
-    if visible && config.color_modes {
+    if visible && config.color_modes && config.statusline_powerline {
         if let Some(background) = style.bg {
             write(context, Span::styled("", Style::default().fg(background)));
             write(context, Span::styled(content, style));
