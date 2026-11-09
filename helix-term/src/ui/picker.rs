@@ -699,7 +699,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let background = cx.editor.theme.get("ui.background");
         surface.clear_with(area, background);
 
-        let block = Block::bordered().border_type(match cx.editor.config().border_style {
+        let block = Block::bordered().border_style(cx.editor.theme.get("ui.window")).border_type(match cx.editor.config().border_style {
             UiBorderStyle::Square => BorderType::Plain,
             UiBorderStyle::Rounded => BorderType::Rounded,
             UiBorderStyle::Double => BorderType::Double,
@@ -892,7 +892,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let directory = cx.editor.theme.get("ui.text.directory");
         surface.clear_with(area, background);
 
-        let block = Block::bordered().border_type(match cx.editor.config().border_style {
+        let block = Block::bordered().border_style(cx.editor.theme.get("ui.window")).border_type(match cx.editor.config().border_style {
             UiBorderStyle::Square => BorderType::Plain,
             UiBorderStyle::Rounded => BorderType::Rounded,
             UiBorderStyle::Double => BorderType::Double,
