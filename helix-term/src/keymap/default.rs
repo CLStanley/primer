@@ -291,6 +291,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "n" => primer_buffer_next,
                 "N" => primer_buffer_new,
                 "q" => primer_buffer_close,
+                "r" => primer_buffer_reload,
             },
             "n" => { "Notes"
                 "a" => primer_agenda,
