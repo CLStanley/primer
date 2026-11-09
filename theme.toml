@@ -32,7 +32,7 @@ tabstop = { modifiers = ["italic"], bg = "bossanova" }
 "markup.heading" = "lilac"
 
 # Dashboard color roles; editable independently of syntax highlighting.
-"ui.dashboard.logo" = { fg = "sky" }
+"ui.dashboard.logo" = { fg = "lilac" }
 "ui.dashboard.shortcut" = { fg = "sky" }
 "ui.dashboard.motto" = { fg = "mint" }
 "ui.dashboard.heading" = { fg = "lilac" }
