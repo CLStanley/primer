@@ -444,6 +444,10 @@ impl MappableCommand {
         goto_window_top, "Goto window top",
         goto_window_center, "Goto window center",
         goto_window_bottom, "Goto window bottom",
+        primer_buffer_previous, "Previous buffer",
+        primer_buffer_next, "Next buffer",
+        primer_buffer_new, "New empty buffer",
+        primer_buffer_close, "Close current buffer",
         goto_last_accessed_file, "Goto last accessed file",
         goto_last_modified_file, "Goto last modified file",
         goto_last_modification, "Goto last modification",
@@ -4079,6 +4083,25 @@ fn goto_column_impl(cx: &mut Context, movement: Movement) {
     });
     push_jump(view, doc);
     doc.set_selection(view.id, selection);
+}
+
+fn primer_buffer_previous(cx: &mut Context) {
+    typed::goto_buffer(cx.editor, Direction::Backward, 1);
+}
+
+fn primer_buffer_next(cx: &mut Context) {
+    typed::goto_buffer(cx.editor, Direction::Forward, 1);
+}
+
+fn primer_buffer_new(cx: &mut Context) {
+    cx.editor.new_file(Action::Replace);
+}
+
+fn primer_buffer_close(cx: &mut Context) {
+    let id = view!(cx.editor).doc;
+    if let Err(err) = cx.editor.close_document(id, false) {
+        cx.editor.set_error(err.to_string());
+    }
 }
 
 fn goto_last_accessed_file(cx: &mut Context) {
