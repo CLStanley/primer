@@ -295,7 +295,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                     "s" => lsp_or_syntax_symbol_picker,
                 },
                 "p" => { "Project"
-                    "t" => global_search,
                     "r" => select_references_to_symbol_under_cursor,
                     "s" => lsp_or_syntax_workspace_symbol_picker,
                 },
