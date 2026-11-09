@@ -24,6 +24,7 @@ impl DashboardAction {
         match self {
             Self::FindFile => "Browse files",
             Self::LiveGrep => "Live grep",
+            Self::FindNotes => "Find notes",
             Self::RecentFiles => "Open buffers",
             Self::OpenProject => "Browse workspace",
             Self::Help => "Keybind help",
@@ -36,6 +37,7 @@ impl DashboardAction {
         match self {
             Self::FindFile => 'f',
             Self::LiveGrep => 'g',
+            Self::FindNotes => 'o',
             Self::RecentFiles => 'r',
             Self::OpenProject => 'p',
             Self::Help => '?',
@@ -158,7 +160,7 @@ pub fn render_dashboard(
         ("NOTES", vec![
             ("a", "New note", None),
             ("d", "Daily note", None),
-            ("o", "Find notes", None),
+            ("o", "Find notes", Some(DashboardAction::FindNotes)),
             ("e", "Agenda", None),
         ]),
         ("REMOTE SSH", vec![
