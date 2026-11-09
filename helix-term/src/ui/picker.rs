@@ -1179,7 +1179,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
     }
 
     fn cursor(&self, area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
-        let block = Block::bordered().border_type(match cx.editor.config().border_style {
+        let block = Block::bordered().border_type(match editor.config().border_style {
             UiBorderStyle::Square => BorderType::Plain,
             UiBorderStyle::Rounded => BorderType::Rounded,
             UiBorderStyle::Double => BorderType::Double,
