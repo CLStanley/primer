@@ -12,6 +12,7 @@ pub enum DashboardAction {
     RecentFiles,
     OpenProject,
     Help,
+    Quit,
 }
 
 pub struct Dashboard {
@@ -28,6 +29,7 @@ impl Dashboard {
                 DashboardAction::RecentFiles,
                 DashboardAction::OpenProject,
                 DashboardAction::Help,
+                DashboardAction::Quit,
             ],
         }
     }
@@ -77,12 +79,13 @@ impl Component for Dashboard {
             key!(Esc) => EventResult::Consumed(Some(Box::new(|compositor, _| {
                 compositor.remove_type::<Dashboard>();
             }))),
-            key!(Enter) | key!('f') | key!('r') | key!('p') | key!('?') => {
+            key!(Enter) | key!('f') | key!('r') | key!('p') | key!('?') | key!('q') => {
                 let action = match key {
                     key!('f') => Some(DashboardAction::FindFile),
                     key!('r') => Some(DashboardAction::RecentFiles),
                     key!('p') => Some(DashboardAction::OpenProject),
                     key!('?') => Some(DashboardAction::Help),
+                    key!('q') => Some(DashboardAction::Quit),
                     _ => self.selected_action(),
                 };
                 EventResult::Consumed(Some(Box::new(move |compositor, cx| {
@@ -94,6 +97,11 @@ impl Component for Dashboard {
                             MappableCommand::file_picker_in_current_directory
                         }
                         Some(DashboardAction::Help) => MappableCommand::command_palette,
+                        Some(DashboardAction::Quit) => MappableCommand::Typable {
+                            name: "quit-all".to_owned(),
+                            args: String::new(),
+                            doc: "Close all views".to_owned(),
+                        },
                         None => return,
                     };
                     let callbacks = {
@@ -127,7 +135,7 @@ mod tests {
         let dashboard = Dashboard::new();
 
         assert_eq!(dashboard.selected, 0);
-        assert_eq!(dashboard.actions.len(), 4);
+        assert_eq!(dashboard.actions.len(), 5);
         assert_eq!(dashboard.actions[0], DashboardAction::FindFile);
     }
 
@@ -145,6 +153,9 @@ mod tests {
         assert_eq!(dashboard.selected, 3);
 
         dashboard.next();
+        assert_eq!(dashboard.selected, 4);
+
+        dashboard.next();
         assert_eq!(dashboard.selected, 0);
     }
 
@@ -153,10 +164,10 @@ mod tests {
         let mut dashboard = Dashboard::new();
 
         dashboard.previous();
-        assert_eq!(dashboard.selected, 3);
+        assert_eq!(dashboard.selected, 4);
 
         dashboard.previous();
-        assert_eq!(dashboard.selected, 2);
+        assert_eq!(dashboard.selected, 3);
     }
 
     #[test]
