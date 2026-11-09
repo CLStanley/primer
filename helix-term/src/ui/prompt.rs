@@ -414,7 +414,7 @@ impl Prompt {
         let popup = if floating {
             Rect::new(
                 area.x + area.width.saturating_sub(popup_width) / 2,
-                area.y + area.height / 3,
+                area.y + area.height / 4,
                 popup_width,
                 3,
             )
@@ -528,19 +528,14 @@ impl Prompt {
             let panel = cx.editor.theme.get("ui.menu");
             surface.clear_with(popup, panel);
             Block::bordered().border_style(border).render(popup, surface);
+            // Search prompts may include descriptive text rather than just '/' or '?'.
             let prompt_kind = self.prompt.trim();
-            let title = match prompt_kind {
-                ":" => " Cmdline ",
-                "/" | "?" => " Search ",
-                _ => " Prompt ",
-            };
+            let search_prompt = matches!(prompt_kind, "/" | "?")
+                || prompt_kind.to_ascii_lowercase().contains("search")
+                || prompt_kind.to_ascii_lowercase().contains("regex");
+            let title = if search_prompt { " Search " } else { " Prompt " };
             surface.set_stringn(popup.x + 2, popup.y, title, popup.width.saturating_sub(4) as usize, border);
-            let icon = match prompt_kind {
-                ":" => " ",
-                "/" => " ",
-                "?" => " ",
-                _ => "› ",
-            };
+            let icon = if search_prompt { " " } else { " " };
             surface.set_string(popup.x + 2, popup.y + 1, icon, prompt_color);
             self.line_area = Rect::new(
                 popup.x + 2 + icon.width() as u16,
