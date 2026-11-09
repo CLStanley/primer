@@ -408,6 +408,20 @@ impl Prompt {
         let selected_color = theme.get("ui.menu.selected");
         let suggestion_color = theme.get("ui.text.inactive");
         let background = theme.get("ui.background");
+
+        // Keep a usable single-line fallback on very small terminals.
+        let floating = area.width >= 36 && area.height >= 10;
+        let popup_width = area.width.saturating_sub(4).min(72);
+        let popup = if floating {
+            Rect::new(
+                area.x + area.width.saturating_sub(popup_width) / 2,
+                area.y + area.height / 3,
+                popup_width,
+                3,
+            )
+        } else {
+            area.clip_top(area.height.saturating_sub(1))
+        };
         // completion
 
         let max_len = self
@@ -418,20 +432,20 @@ impl Prompt {
             .unwrap_or(BASE_WIDTH)
             .max(BASE_WIDTH);
 
-        let cols = std::cmp::max(1, area.width / max_len);
-        let col_width = (area.width.saturating_sub(cols)) / cols;
+        let completion_width = popup.width;
+        let cols = std::cmp::max(1, completion_width / max_len);
+        let col_width = (completion_width.saturating_sub(cols)) / cols;
 
         let height = (self.completion.len() as u16)
             .div_ceil(cols)
             .min(10) // at most 10 rows (or less)
-            .min(area.height.saturating_sub(1));
+            .min(if floating { area.height.saturating_sub(popup.y - area.y + popup.height + 2) } else { area.height.saturating_sub(1) });
 
-        let completion_area = Rect::new(
-            area.x,
-            (area.height - height).saturating_sub(1),
-            area.width,
-            height,
-        );
+        let completion_area = if floating {
+            Rect::new(popup.x, popup.y + popup.height, popup.width, height)
+        } else {
+            Rect::new(area.x, area.y + area.height.saturating_sub(height + 1), area.width, height)
+        };
 
         if completion_area.height > 0 && !self.completion.is_empty() {
             let area = completion_area;
@@ -510,15 +524,36 @@ impl Prompt {
             text.render(inner, surface, cx);
         }
 
-        let line = area.height - 1;
-        surface.clear_with(area.clip_top(line), background);
-        // render buffer text
-        surface.set_string(area.x, area.y + line, &self.prompt, prompt_color);
-
-        self.line_area = area
-            .clip_left(self.prompt.len() as u16)
-            .clip_top(line)
-            .clip_right(2);
+        if floating {
+            let border = theme.get("ui.window");
+            let panel = theme.get("ui.menu");
+            surface.clear_with(popup, panel);
+            Block::bordered().border_style(border).render(popup, surface);
+            let title = match self.prompt.as_ref() {
+                ":" => " Cmdline ",
+                "/" => " Search forward ",
+                "?" => " Search backward ",
+                _ => " Prompt ",
+            };
+            surface.set_stringn(popup.x + 2, popup.y, title, popup.width.saturating_sub(4) as usize, border);
+            let icon = match self.prompt.as_ref() {
+                ":" => " ",
+                "/" => " ",
+                "?" => " ",
+                _ => "› ",
+            };
+            surface.set_string(popup.x + 2, popup.y + 1, icon, prompt_color);
+            self.line_area = Rect::new(
+                popup.x + 2 + icon.width() as u16,
+                popup.y + 1,
+                popup.width.saturating_sub(5 + icon.width() as u16),
+                1,
+            );
+        } else {
+            surface.clear_with(popup, background);
+            surface.set_string(popup.x, popup.y, &self.prompt, prompt_color);
+            self.line_area = popup.clip_left(self.prompt.len() as u16).clip_right(2);
+        }
 
         if self.line.is_empty() {
             self.anchor = 0;
@@ -788,12 +823,8 @@ impl Component for Prompt {
         self.render_prompt(area, surface, cx)
     }
 
-    fn cursor(&self, area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
-        let area = area
-            .clip_left(self.prompt.len() as u16)
-            .clip_right(if self.prompt.is_empty() { 2 } else { 0 });
-
-        let mut col = area.left() as usize + self.line[self.anchor..self.cursor].width();
+    fn cursor(&self, _area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
+        let mut col = self.line_area.x as usize + self.line[self.anchor..self.cursor].width();
 
         // ensure the cursor does not go beyond elipses
         if self.truncate_end
@@ -809,10 +840,8 @@ impl Component for Prompt {
                 .map_or(0, |g| g.width());
         }
 
-        let line = area.height as usize - 1;
-
         (
-            Some(Position::new(area.y as usize + line, col)),
+            Some(Position::new(self.line_area.y as usize, col)),
             editor.config().cursor_shape.from_mode(Mode::Insert),
         )
     }
