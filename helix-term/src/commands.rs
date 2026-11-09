@@ -419,6 +419,7 @@ impl MappableCommand {
         git_stage_hunk, "Stage Git hunk at cursor",
         git_unstage_hunk, "Unstage Git hunk at cursor",
         git_revert_hunk, "Revert unstaged Git hunk with confirmation",
+        git_repository_status, "Show Git repository status",
         select_references_to_symbol_under_cursor, "Select symbol references",
         workspace_symbol_picker, "Open workspace symbol picker",
         syntax_workspace_symbol_picker, "Open workspace symbol picker from syntax information",
