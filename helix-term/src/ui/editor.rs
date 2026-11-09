@@ -674,8 +674,8 @@ impl EditorView {
             .theme
             .try_get("ui.bufferline.active")
             .unwrap_or_else(|| editor.theme.get("ui.statusline.active"))
-            .bg(helix_view::graphics::Color::Rgb(183, 156, 222))
-            .fg(helix_view::graphics::Color::Rgb(29, 22, 43));
+            .bg(editor.theme.get("ui.statusline.normal").bg.unwrap_or(helix_view::graphics::Color::Rgb(183, 156, 222)))
+            .fg(editor.theme.get("ui.statusline.normal").fg.unwrap_or(helix_view::graphics::Color::Rgb(29, 22, 43)));
 
         let bufferline_inactive = editor
             .theme
