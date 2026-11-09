@@ -1,6 +1,7 @@
 mod completion;
 pub mod dashboard;
 mod document;
+mod git_change_preview;
 pub(crate) mod editor;
 mod info;
 pub mod lsp;
@@ -21,6 +22,7 @@ use crate::filter_picker_entry;
 use crate::job::{self, Callback};
 pub use completion::Completion;
 pub use editor::EditorView;
+pub use git_change_preview::GitChangePreview;
 use helix_stdx::rope;
 use helix_view::theme::Style;
 pub use markdown::Markdown;
