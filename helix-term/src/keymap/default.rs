@@ -330,6 +330,8 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "p" => git_preview_change,
                 "b" => git_blame_line,
                 "i" => git_toggle_inline_blame,
+                "s" => git_stage_hunk,
+                "u" => git_unstage_hunk,
             },
             "a" => code_action,
             "l" => { "Language"
