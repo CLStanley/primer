@@ -178,6 +178,15 @@ impl Compositor {
             callback(self, cx)
         }
 
+        // The dashboard remains underneath dashboard-launched pickers so Esc
+        // returns home. Once a real file is opened, dismiss that home layer.
+        // An explicit New file action dismisses it in the dashboard itself.
+        if self.find::<crate::ui::dashboard::Dashboard>().is_some()
+            && cx.editor.documents().any(|doc| doc.path().is_some())
+        {
+            self.remove_type::<crate::ui::dashboard::Dashboard>();
+        }
+
         consumed
     }
 
