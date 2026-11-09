@@ -3224,7 +3224,7 @@ fn primer_agenda_create(cx: &mut Context, kind: &'static str) {
     let (heading, example) = match kind {
         "todo" => ("New Todo", "Buy groceries | 2026-11-15 (date optional)"),
         "event" => ("New Event", "Team meeting | 2026-11-15 | 14:30 (time optional)"),
-        _ => ("New Reminder", "Call dentist | 2026-11-15 | 09:00"),
+        _ => ("New Reminder", "Call dentist | 2026-11-15 | 09:00 | weekly"),
     };
     let mut prompt = Prompt::new(format!("{heading}: ").into(), None, ui::completers::none,
         move |cx, input, event| {
@@ -3233,6 +3233,23 @@ fn primer_agenda_create(cx: &mut Context, kind: &'static str) {
             let title = parts.first().copied().unwrap_or("");
             let date = parts.get(1).copied().unwrap_or("");
             let time = parts.get(2).copied().unwrap_or("");
+            let repeat_input = parts.get(3).copied().unwrap_or("none").to_ascii_lowercase();
+            let (repeat, days) = if kind == "reminder" {
+                if let Some(custom) = repeat_input.strip_prefix("days:") {
+                    let valid = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+                    let selected: Vec<&str> = custom.split(',').map(str::trim).collect();
+                    if selected.is_empty() || selected.iter().any(|day| !valid.contains(day)) {
+                        cx.editor.set_error("Custom repeat: days:mon,wed,fri");
+                        return;
+                    }
+                    ("days", selected.join(","))
+                } else if ["none", "daily", "weekdays", "weekly"].contains(&repeat_input.as_str()) {
+                    (repeat_input.as_str(), String::new())
+                } else {
+                    cx.editor.set_error("Repeat: none, daily, weekdays, weekly, or days:mon,wed,fri");
+                    return;
+                }
+            } else { ("none", String::new()) };
             let valid_date = |value: &str| {
                 value.len() == 10 && value.as_bytes()[4] == b'-' && value.as_bytes()[7] == b'-'
                     && value.chars().enumerate().all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
@@ -3242,7 +3259,7 @@ fn primer_agenda_create(cx: &mut Context, kind: &'static str) {
             if title.is_empty() || (kind != "todo" && !valid_date(date))
                 || (!date.is_empty() && !valid_date(date))
                 || (!time.is_empty() && !valid_time(time))
-                || (kind == "reminder" && time.is_empty()) {
+                || (kind == "reminder" && time.is_empty()) || parts.len() > (if kind == "reminder" { 4 } else { 3 }) {
                 cx.editor.set_error("Expected: title | YYYY-MM-DD | HH:MM (date/time optional for todos)");
                 return;
             }
@@ -3254,7 +3271,9 @@ fn primer_agenda_create(cx: &mut Context, kind: &'static str) {
             let today = chrono::Local::now().format("%Y-%m-%d").to_string();
             let escaped = title.replace('"', "\\\"");
             let filename = if kind == "todo" { format!("{slug}.md") }
-                else { format!("{}-{slug}.md", date) };
+                else if kind == "reminder" {
+                    format!("{}-{slug}-{}.md", date, chrono::Local::now().timestamp_micros())
+                } else { format!("{}-{slug}.md", date) };
             let path = dir.join(filename);
             let content = match kind {
                 "todo" => format!(r#"---
@@ -3312,7 +3331,8 @@ tags:
 title: "{escaped}"
 date: {date}
 time: {time}
-repeat: none
+repeat: {repeat}
+days: {days}
 ---
 "#),
             };
@@ -3324,7 +3344,7 @@ repeat: none
             }
             if let Err(err) = cx.editor.open(&path, Action::Replace) { cx.editor.set_error(err.to_string()); }
         });
-    prompt.doc_fn = Box::new(move |_| Some(format!("{heading}\nFormat: title | YYYY-MM-DD | HH:MM\nExample: {example}").into()));
+    prompt.doc_fn = Box::new(move |_| Some(format!("{heading}\nFormat: title | YYYY-MM-DD | HH:MM{}\nExample: {example}", if kind == "reminder" { " | repeat (optional)" } else { "" }).into()));
     prompt.recalculate_completion(cx.editor);
     cx.push_layer(Box::new(prompt));
 }
@@ -3338,6 +3358,10 @@ fn primer_agenda_mark_done(cx: &mut Context) {
         cx.editor.set_error("Open a todo before marking it complete");
         return;
     };
+    if doc!(cx.editor).is_modified() {
+        cx.editor.set_error("Save the todo before marking it complete");
+        return;
+    }
     let todo_dir = primer_notes_root().join("Agenda").join("Todos");
     if !path.starts_with(&todo_dir) {
         cx.editor.set_error("Open a todo before marking it complete");
