@@ -418,6 +418,7 @@ impl MappableCommand {
         git_toggle_inline_blame, "Toggle inline Git blame",
         git_stage_hunk, "Stage Git hunk at cursor",
         git_unstage_hunk, "Unstage Git hunk at cursor",
+        git_revert_hunk, "Revert unstaged Git hunk with confirmation",
         select_references_to_symbol_under_cursor, "Select symbol references",
         workspace_symbol_picker, "Open workspace symbol picker",
         syntax_workspace_symbol_picker, "Open workspace symbol picker from syntax information",
@@ -4753,6 +4754,84 @@ fn git_index_hunk(path: std::path::PathBuf, line: usize, unstage: bool) -> anyho
     let output = child.wait_with_output()?;
     ensure!(output.status.success(), "Git apply failed: {}", String::from_utf8_lossy(&output.stderr));
     Ok(())
+}
+
+/// Discard only the unstaged Git hunk at the cursor, leaving the index unchanged.
+/// This is destructive; callers must obtain explicit confirmation first.
+fn git_revert_worktree_hunk(path: std::path::PathBuf, line: usize) -> anyhow::Result<()> {
+    use std::io::Write;
+    let directory = path.parent().context("File has no parent directory")?;
+    let diff = std::process::Command::new("git")
+        .arg("-C").arg(directory)
+        .args(["diff", "--no-ext-diff", "--no-color", "--unified=3", "--"])
+        .arg(&path).output()?;
+    ensure!(diff.status.success(), "Git diff failed: {}", String::from_utf8_lossy(&diff.stderr));
+    let patch = git_patch_for_line(&String::from_utf8(diff.stdout)?, line)?;
+    let mut apply = std::process::Command::new("git")
+        .arg("-C").arg(directory)
+        .args(["apply", "--reverse", "--"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    apply.stdin.take().context("Unable to write Git patch")?.write_all(patch.as_bytes())?;
+    let output = apply.wait_with_output()?;
+    ensure!(output.status.success(), "Git revert failed: {}", String::from_utf8_lossy(&output.stderr));
+    Ok(())
+}
+
+fn git_revert_hunk(cx: &mut Context) {
+    let (path, line) = {
+        let (view, doc) = current!(cx.editor);
+        let Some(path) = doc.path() else {
+            cx.editor.set_error("Reverting a Git hunk requires a tracked file");
+            return;
+        };
+        if doc.is_modified() {
+            cx.editor.set_error("Save your file before reverting a hunk");
+            return;
+        }
+        (path.to_path_buf(), doc.selection(view.id).primary().cursor_line(doc.text().slice(..)) + 1)
+    };
+    let prompt = Prompt::new(
+        "Discard unstaged Git hunk? Type REVERT to confirm: ".into(),
+        None,
+        ui::completers::none,
+        move |cx, input, event| {
+            if event != PromptEvent::Validate { return; }
+            if input.trim() != "REVERT" {
+                cx.editor.set_status("Git hunk revert cancelled");
+                return;
+            }
+            // Reject if the file was edited while the confirmation prompt was open.
+            if let Some(doc) = cx.editor.document_by_path_mut(&path) {
+                if doc.is_modified() {
+                    cx.editor.set_error("File changed; save before reverting");
+                    return;
+                }
+            } else {
+                cx.editor.set_error("Original file is no longer open");
+                return;
+            }
+            let path = path.clone();
+            cx.editor.set_status("Reverting unstaged Git hunk…");
+            cx.jobs.callback(async move {
+                let result = tokio::task::spawn_blocking(move || git_revert_worktree_hunk(path, line)).await;
+                let message = match result {
+                    Ok(Ok(())) => Ok("Git hunk reverted on disk. Reload the buffer to see the change."),
+                    Ok(Err(err)) => Err(err.to_string()),
+                    Err(err) => Err(err.to_string()),
+                };
+                Ok(Callback::EditorCompositor(Box::new(move |editor, _| {
+                    match message {
+                        Ok(message) => editor.set_status(message),
+                        Err(message) => editor.set_error(message),
+                    }
+                })))
+            });
+        },
+    );
+    cx.push_layer(Box::new(prompt));
 }
 
 fn git_stage_hunk(cx: &mut Context) {
