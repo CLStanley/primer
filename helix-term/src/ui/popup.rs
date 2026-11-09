@@ -1,3 +1,5 @@
+use helix_view::editor::UiBorderStyle;
+use tui::widgets::BorderType;
 use crate::{
     commands::Open,
     compositor::{Callback, Component, Context, Event, EventResult},
@@ -338,7 +340,7 @@ impl<T: Component> Component for Popup<T> {
         let mut inner = area;
         if render_borders {
             inner = area.inner(Margin::all(1));
-            Widget::render(Block::bordered(), area, surface);
+            Widget::render(Block::bordered().border_type(match cx.editor.config().border_style { UiBorderStyle::Square => BorderType::Plain, UiBorderStyle::Rounded => BorderType::Rounded, UiBorderStyle::Double => BorderType::Double }).border_style(cx.editor.theme.get("ui.window")), area, surface);
         }
         let border = usize::from(render_borders);
 
