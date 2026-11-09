@@ -4674,6 +4674,7 @@ fn git_preview_change(cx: &mut Context) {
     let line = doc.selection(view.id).primary().cursor_line(doc.text().slice(..)) as u32;
     let diff = handle.load();
     let Some(idx) = diff.hunk_at(line, false) else {
+        drop(diff);
         cx.editor.set_status("Cursor is not on a changed line");
         return;
     };
