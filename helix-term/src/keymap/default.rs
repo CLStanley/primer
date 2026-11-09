@@ -292,6 +292,13 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "N" => primer_buffer_new,
                 "q" => primer_buffer_close,
             },
+            "n" => { "Notes"
+                "f" => primer_notes_find,
+                "i" => primer_notes_inbox,
+                "p" => primer_notes_projects,
+                "k" => primer_notes_knowledge,
+                "r" => primer_notes_reference,
+            },
             "j" => jumplist_picker,
             "s" => { "Search"
                 "f" => { "File"
