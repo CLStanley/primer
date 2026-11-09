@@ -17,7 +17,7 @@ const LOGO: [&str; 5] = [
 ];
 const WIDE_LAYOUT_WIDTH: u16 = 76;
 const COLUMN_GAP: u16 = 8;
-const COLUMN_WIDTH: u16 = 24;
+const COLUMN_WIDTH: u16 = 30;
 
 impl DashboardAction {
     pub fn label(self) -> &'static str {
@@ -96,7 +96,7 @@ pub fn render_dashboard(
     let show_logo = area.width >= logo_width && area.height >= 20;
     let wide = area.width >= WIDE_LAYOUT_WIDTH && area.height >= 19;
     let heading_height: u16 = if show_logo { LOGO.len() as u16 } else { 1 };
-    let menu_height = if wide { 19 } else { 25 };
+    let menu_height = if wide { 21 } else { 29 };
     let content_height = heading_height + 5 + menu_height;
     let top = area.y + area.height.saturating_sub(content_height) / 2;
 
@@ -136,26 +136,26 @@ pub fn render_dashboard(
     // Entries are the dashboard roadmap. A missing action is deliberately
     // displayed as [todo] and never receives a key handler.
     // The two-column layout uses two rows of sections.
-    let sections: [(&str, [(&str, &str, Option<DashboardAction>); 4]); 4] = [
-        ("FILES", [
+    let sections: [(&str, Vec<(&str, &str, Option<DashboardAction>)>); 4] = [
+        ("FILES", vec![
             ("f", "Browse files", Some(DashboardAction::FindFile)),
             ("r", "Open buffers", Some(DashboardAction::RecentFiles)),
+            ("n", "New file", Some(DashboardAction::NewFile)),
             ("g", "Live grep", None),
-            ("t", "Terminal", None),
         ]),
-        ("PROJECTS", [
+        ("PROJECTS", vec![
             ("p", "Browse workspace", Some(DashboardAction::OpenProject)),
             ("s", "Switch project", None),
             ("w", "Sessions", None),
             ("l", "Recent projects", None),
         ]),
-        ("NOTES", [
+        ("NOTES", vec![
             ("a", "New note", None),
             ("d", "Daily note", None),
             ("o", "Find notes", None),
             ("e", "Agenda", None),
         ]),
-        ("REMOTE SSH", [
+        ("REMOTE SSH", vec![
             ("c", "Connect to host", None),
             ("h", "Saved hosts", None),
             ("u", "Remote files", None),
@@ -205,24 +205,26 @@ pub fn render_dashboard(
                 );
             }
         }
-        let footer_y = menu_top + 15;
-        for (action, x) in [
-            (DashboardAction::NewFile, left),
-            (DashboardAction::Help, left + 16),
-            (DashboardAction::Quit, right),
-        ] {
-            let active = dashboard.selected_action() == Some(action);
-            let key = action.shortcut().to_string();
-            draw_line(&key, x, footer_y, 1, if active { selected_shortcut } else { shortcut });
-            draw_line(action.label(), x + 2, footer_y, 13, if active { selected } else { normal });
+        let footer_y = menu_top + 16;
+        // Shared actions form one evenly spaced horizontal footer.
+        let footer = [
+            (left, "t", "Terminal [todo]", None),
+            (left + 23, "?", "Keybind help", Some(DashboardAction::Help)),
+            (right + 18, "q", "Quit", Some(DashboardAction::Quit)),
+        ];
+        for (x, key, label, action) in footer {
+            let active = action.is_some() && action == dashboard.selected_action();
+            draw_line(key, x, footer_y, 1, if active { selected_shortcut } else { shortcut });
+            draw_line(label, x + 2, footer_y, label.len() as u16,
+                if active { selected } else if action.is_some() { normal } else { pending });
         }
-        let hint = [("j/k", " navigate  "), ("Enter", " select")];
+        let hint = [("h/j/k/l", " navigate  "), ("Enter", " select")];
         let hint_width: u16 = hint.iter().map(|(key, label)| (key.len() + label.len()) as u16).sum();
         let mut hint_x = left + total_width.saturating_sub(hint_width) / 2;
         for (key, label) in hint {
-            draw_line(key, hint_x, menu_top + 17, key.len() as u16, shortcut);
+            draw_line(key, hint_x, menu_top + 19, key.len() as u16, shortcut);
             hint_x += key.len() as u16;
-            draw_line(label, hint_x, menu_top + 17, label.len() as u16, normal);
+            draw_line(label, hint_x, menu_top + 19, label.len() as u16, normal);
             hint_x += label.len() as u16;
         }
     } else {
@@ -253,11 +255,15 @@ pub fn render_dashboard(
             }
             y += 1;
         }
-        for action in [DashboardAction::NewFile, DashboardAction::Help, DashboardAction::Quit] {
-            let active = dashboard.selected_action() == Some(action);
-            let key = action.shortcut().to_string();
-            draw_line(&key, x + 2, y, 1, shortcut);
-            draw_line(action.label(), x + 4, y, COLUMN_WIDTH - 4, if active { selected } else { normal });
+        for (key, label, action) in [
+            ("t", "Terminal [todo]", None),
+            ("?", "Keybind help", Some(DashboardAction::Help)),
+            ("q", "Quit", Some(DashboardAction::Quit)),
+        ] {
+            let active = action.is_some() && action == dashboard.selected_action();
+            draw_line(key, x + 2, y, 1, shortcut);
+            draw_line(label, x + 4, y, COLUMN_WIDTH - 4,
+                if active { selected } else if action.is_some() { normal } else { pending });
             y += 1;
         }
     }
