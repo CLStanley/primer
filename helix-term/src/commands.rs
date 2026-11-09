@@ -3588,7 +3588,7 @@ fn file_picker_in_current_buffer_directory(cx: &mut Context) {
 }
 
 fn file_picker_in_current_directory(cx: &mut Context) {
-    let cwd = helix_stdx::env::current_working_dir();
+    let cwd = active_buffer_directory(cx.editor);
     if !cwd.exists() {
         cx.editor
             .set_error("Current working directory does not exist");
@@ -3861,6 +3861,15 @@ fn jumplist_picker(cx: &mut Context) {
         Some((meta.id.into(), Some((line, line))))
     });
     cx.push_layer(Box::new(overlaid(picker)));
+}
+
+/// Directory context follows the focused file; unnamed buffers inherit the launch directory.
+fn active_buffer_directory(editor: &Editor) -> PathBuf {
+    let (view, doc) = current!(editor);
+    let _ = view;
+    doc.path()
+        .and_then(|path| path.parent().map(ToOwned::to_owned))
+        .unwrap_or_else(helix_stdx::env::current_working_dir)
 }
 
 fn changed_file_picker(cx: &mut Context) {
@@ -4916,15 +4925,7 @@ fn git_revert_hunk(cx: &mut Context) {
 
 /// Show repository status without leaving Primer.
 fn git_repository_status(cx: &mut Context) {
-    // Resolve Git relative to the active document, not Primer's launch directory.
-    let cwd = {
-        let (_, doc) = current!(cx.editor);
-        match doc.path() {
-            Some(path) => path.parent().map(ToOwned::to_owned),
-            None => None,
-        }
-        .unwrap_or_else(helix_stdx::env::current_working_dir)
-    };
+    let cwd = active_buffer_directory(cx.editor);
     cx.editor.set_status("Loading Git status…");
     cx.jobs.callback(async move {
         let output = tokio::process::Command::new("git")
@@ -4956,7 +4957,8 @@ fn git_repository_status(cx: &mut Context) {
             let popup = Popup::new(
                 "git-repository-status",
                 ui::GitChangePreview::new("Git status · staged / unstaged / untracked".to_owned(), lines)
-                    .with_title("Repository status · Space g c opens changed files"),
+                    .with_title("Repository status · Space g c opens changed files")
+                    .with_status_file_highlight(),
             ).with_border();
             compositor.replace_or_push("git-repository-status", popup);
         })))
