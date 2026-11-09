@@ -11,7 +11,7 @@ use crate::{
 use helix_core::{
     char_idx_at_visual_offset,
     doc_formatter::TextFormat,
-    text_annotations::TextAnnotations,
+    text_annotations::{InlineAnnotation, TextAnnotations},
     visual_offset_from_anchor, visual_offset_from_block, Position, RopeSlice, Selection,
     Transaction,
     VisualOffsetError::{PosAfterMaxRow, PosBeforeAnchorRow},
@@ -507,6 +507,33 @@ impl View {
 
                 text_annotations.add_inline_annotations(color_swatches_padding, None);
             }
+        }
+
+        // Render only the current line's cached blame. The cache is populated
+        // asynchronously, so cursor movement never invokes Git.
+        let blame_annotation = if doc.git_inline_blame_enabled && !doc.is_modified() {
+            let cursor = doc.selection(self.id).primary().cursor(doc.text().slice(..));
+            let line = doc.text().char_to_line(cursor);
+            doc.git_inline_blame
+                .as_ref()
+                .and_then(|entries| entries.get(line))
+                .filter(|message| !message.is_empty())
+                .map(|message| {
+                    let text = doc.text();
+                    let end = text.line_to_char(line) + text.line(line).len_chars();
+                    let end = if line + 1 < text.len_lines() {
+                        end.saturating_sub(1)
+                    } else {
+                        end
+                    };
+                    InlineAnnotation::new(end, format!("  · {}", message))
+                })
+        } else {
+            None
+        };
+        if let Some(annotation) = blame_annotation.as_ref() {
+            let style = theme.and_then(|t| t.find_highlight("ui.virtual.inlay-hint"));
+            text_annotations.add_inline_annotations(std::slice::from_ref(annotation), style);
         }
 
         let width = self.inner_width(doc);
