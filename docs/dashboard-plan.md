@@ -22,5 +22,14 @@ Introduce a visually polished, keyboard-driven startup dashboard inspired by the
 - Recent entries handle missing or moved paths gracefully.
 - Existing editing workflows and motion bindings remain unaffected.
 
-## Status
-Planning scaffold only; dashboard functionality has not yet been implemented.
+## Current implementation
+- Dashboard appears for an interactive launch with no file arguments (not for tutor or piped input).
+- Centered, theme-aware menu with j/k and arrow navigation, Enter to activate, and Esc to return to editing.
+- Actions reuse existing commands: Find file, Open buffers (session-local, not persistent recent files), Browse workspace, and Command palette.
+- Existing selection-state unit tests remain in place.
+
+## Follow-up work
+- Persist recent files and projects across sessions; current Open buffers is not a persistent recent-file list.
+- Add dedicated project discovery/opening rather than browsing the current working directory.
+- Improve visual parity with the customized Neovim dashboard (logo/artwork, layout, dynamic lists).
+- Add end-to-end event/startup tests and validate formatting, compilation, and terminal behavior locally. Changes made through GitHub have not been compiled in this environment.
