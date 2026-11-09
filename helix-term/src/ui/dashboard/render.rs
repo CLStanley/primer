@@ -119,10 +119,11 @@ pub fn render_dashboard(
     };
 
     if show_logo {
+        // ASCII art is one fixed-width block. Centering individual rows
+        // shifts their strokes whenever line lengths differ.
+        let logo_x = area.x + area.width.saturating_sub(logo_width) / 2;
         for (index, line) in LOGO.iter().enumerate() {
-            let width = line.len() as u16;
-            let x = area.x + area.width.saturating_sub(width) / 2;
-            draw_line(line, x, top + index as u16, width, logo_style);
+            draw_line(line, logo_x, top + index as u16, logo_width, logo_style);
         }
     } else {
         let x = area.x + area.width.saturating_sub(6) / 2;
