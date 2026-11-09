@@ -10,6 +10,7 @@ use tui::buffer::Buffer as Surface;
 pub enum DashboardAction {
     FindFile,
     LiveGrep,
+    FindNotes,
     RecentFiles,
     OpenProject,
     Help,
@@ -30,6 +31,7 @@ impl Dashboard {
                 DashboardAction::FindFile,
                 DashboardAction::RecentFiles,
                 DashboardAction::LiveGrep,
+                DashboardAction::FindNotes,
                 DashboardAction::NewFile,
                 DashboardAction::OpenProject,
                 DashboardAction::Help,
@@ -60,7 +62,7 @@ impl Dashboard {
         let Some(current) = self.selected_action() else { return };
         let target = if horizontal {
             match current {
-                DashboardAction::FindFile | DashboardAction::RecentFiles | DashboardAction::NewFile | DashboardAction::LiveGrep =>
+                DashboardAction::FindFile | DashboardAction::RecentFiles | DashboardAction::NewFile | DashboardAction::LiveGrep | DashboardAction::FindNotes =>
                     DashboardAction::OpenProject,
                 DashboardAction::OpenProject => DashboardAction::FindFile,
                 DashboardAction::Help => DashboardAction::Quit,
@@ -68,10 +70,10 @@ impl Dashboard {
             }
         } else {
             let column: &[DashboardAction] = match current {
-                DashboardAction::FindFile | DashboardAction::RecentFiles | DashboardAction::NewFile | DashboardAction::LiveGrep |
+                DashboardAction::FindFile | DashboardAction::RecentFiles | DashboardAction::NewFile | DashboardAction::LiveGrep | DashboardAction::FindNotes |
                 DashboardAction::Help => &[
                     DashboardAction::FindFile, DashboardAction::RecentFiles,
-                    DashboardAction::NewFile, DashboardAction::LiveGrep, DashboardAction::Help,
+                    DashboardAction::NewFile, DashboardAction::LiveGrep, DashboardAction::FindNotes, DashboardAction::Help,
                 ],
                 DashboardAction::OpenProject | DashboardAction::Quit => &[
                     DashboardAction::OpenProject, DashboardAction::Quit,
@@ -127,11 +129,12 @@ impl Component for Dashboard {
             // The dashboard is the startup screen. Dismissing it into an
             // unnamed buffer must be an intentional New file action.
             key!(Esc) => EventResult::Consumed(None),
-            key!(Enter) | key!('f') | key!('r') | key!('g') | key!('p') | key!('?') | key!('n') | key!('q') => {
+            key!(Enter) | key!('f') | key!('r') | key!('g') | key!('o') | key!('p') | key!('?') | key!('n') | key!('q') => {
                 let action = match key {
                     key!('f') => Some(DashboardAction::FindFile),
                     key!('r') => Some(DashboardAction::RecentFiles),
                     key!('g') => Some(DashboardAction::LiveGrep),
+                    key!('o') => Some(DashboardAction::FindNotes),
                     key!('p') => Some(DashboardAction::OpenProject),
                     key!('?') => Some(DashboardAction::Help),
                     key!('n') => Some(DashboardAction::NewFile),
@@ -151,6 +154,7 @@ impl Component for Dashboard {
                     let command = match action {
                         Some(DashboardAction::FindFile) => MappableCommand::file_picker,
                         Some(DashboardAction::LiveGrep) => MappableCommand::global_search,
+                        Some(DashboardAction::FindNotes) => MappableCommand::primer_notes_find,
                         Some(DashboardAction::RecentFiles) => MappableCommand::buffer_picker,
                         Some(DashboardAction::OpenProject) => {
                             MappableCommand::file_picker_in_current_directory
@@ -194,7 +198,7 @@ mod tests {
     fn starts_on_browse_files() {
         let dashboard = Dashboard::new();
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::FindFile));
-        assert_eq!(dashboard.actions.len(), 7);
+        assert_eq!(dashboard.actions.len(), 8);
     }
 
     #[test]
@@ -206,6 +210,8 @@ mod tests {
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::NewFile));
         dashboard.next();
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::LiveGrep));
+        dashboard.next();
+        assert_eq!(dashboard.selected_action(), Some(DashboardAction::FindNotes));
         dashboard.next();
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::Help));
         dashboard.next();
