@@ -4666,36 +4666,42 @@ fn goto_first_change_impl(cx: &mut Context, reverse: bool) {
 
 /// Show the original Git content of the change under the cursor without editing the buffer.
 fn git_preview_change(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    let Some(handle) = doc.diff_handle() else {
-        cx.editor.set_status("No Git diff available for this buffer");
-        return;
+    let preview = {
+        let (view, doc) = current!(cx.editor);
+        let Some(handle) = doc.diff_handle() else {
+            cx.editor.set_status("No Git diff available for this buffer");
+            return;
+        };
+        let line = doc.selection(view.id).primary().cursor_line(doc.text().slice(..)) as u32;
+        let diff = handle.load();
+        diff.hunk_at(line, false).map(|idx| {
+            let hunk = diff.nth_hunk(idx);
+            let base = diff.diff_base();
+            let mut lines = Vec::new();
+            for i in hunk.before.start..hunk.before.end {
+                let content = base.line(i as usize).to_string();
+                lines.push(format!("{:>4}  {}", i + 1, content.trim_end()));
+            }
+            let heading = if hunk.is_pure_insertion() {
+                "Added lines — no previous content"
+            } else if hunk.is_pure_removal() {
+                "Deleted lines — previous content"
+            } else {
+                "Modified lines — previous content"
+            };
+            if lines.is_empty() {
+                lines.push("(No previous content)".to_owned());
+            }
+            format!("**Git change preview (HEAD)**\\n\\n{}\\n\\n\\x60\\x60\\x60text\\n{}\\n\\x60\\x60\\x60", heading, lines.join("\\n"))
+        })
     };
-    let line = doc.selection(view.id).primary().cursor_line(doc.text().slice(..)) as u32;
-    let diff = handle.load();
-    let Some(idx) = diff.hunk_at(line, false) else {
-        drop(diff);
+    let Some(preview) = preview else {
         cx.editor.set_status("Cursor is not on a changed line");
         return;
     };
-    let hunk = diff.nth_hunk(idx);
-    let base = diff.diff_base();
-    let original: Vec<String> = (hunk.before.start..hunk.before.end)
-        .take(12)
-        .map(|i| base.line(i as usize).to_string().trim_end_matches(['\r', '\n']).to_owned())
-        .collect();
-    let mut rows: Vec<(String, String)> = Vec::new();
-    if original.is_empty() {
-        rows.push(("Before".into(), "(newly added lines)".into()));
-    } else {
-        for (i, text) in original.iter().enumerate() {
-            rows.push((format!("{}", hunk.before.start + i as u32 + 1), text.clone()));
-        }
-        if hunk.before.end - hunk.before.start > 12 {
-            rows.push(("…".into(), "Additional original lines omitted".into()));
-        }
-    }
-    cx.editor.autoinfo = Some(Info::new("Git: previous content (HEAD)", &rows));
+    let contents = ui::Markdown::new(preview, cx.editor.syn_loader.clone());
+    let popup = Popup::new("git-change-preview", contents);
+    cx.replace_or_push_layer("git-change-preview", popup);
 }
 
 fn goto_next_change(cx: &mut Context) {
