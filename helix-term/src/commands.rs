@@ -3264,7 +3264,7 @@ fn primer_agenda(cx: &mut Context) {
     ];
     let picker = Picker::new(columns, 3, items, (), |cx, item: &PrimerAgendaItem, action| {
         if let Err(err) = cx.editor.open(&item.path, action) { cx.editor.set_error(err.to_string()); }
-    }).with_preview(|_, item| Some((item.path.clone().into(), None)));
+    }).with_preview(|_, item| Some((item.path.as_path().into(), None)));
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
