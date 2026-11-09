@@ -4757,7 +4757,7 @@ fn git_blame_line(cx: &mut Context) {
                 "git-blame-line",
                 ui::GitChangePreview::new("Last committed change".to_owned(), lines)
                     .with_title("Git blame"),
-            );
+            ).with_border();
             compositor.replace_or_push("git-blame-line", popup);
         })))
     });
