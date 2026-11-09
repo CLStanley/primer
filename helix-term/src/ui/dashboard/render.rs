@@ -23,6 +23,7 @@ impl DashboardAction {
     pub fn label(self) -> &'static str {
         match self {
             Self::FindFile => "Browse files",
+            Self::LiveGrep => "Live grep",
             Self::RecentFiles => "Open buffers",
             Self::OpenProject => "Browse workspace",
             Self::Help => "Keybind help",
@@ -34,6 +35,7 @@ impl DashboardAction {
     pub fn shortcut(self) -> char {
         match self {
             Self::FindFile => 'f',
+            Self::LiveGrep => 'g',
             Self::RecentFiles => 'r',
             Self::OpenProject => 'p',
             Self::Help => '?',
@@ -145,7 +147,7 @@ pub fn render_dashboard(
             ("f", "Browse files", Some(DashboardAction::FindFile)),
             ("r", "Open buffers", Some(DashboardAction::RecentFiles)),
             ("n", "New file", Some(DashboardAction::NewFile)),
-            ("g", "Live grep", None),
+            ("g", "Live grep", Some(DashboardAction::LiveGrep)),
         ]),
         ("PROJECTS", vec![
             ("p", "Browse workspace", Some(DashboardAction::OpenProject)),
