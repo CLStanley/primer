@@ -154,6 +154,7 @@ pub struct Document {
     /// Cached per-line Git blame annotations for the saved file.
     pub git_inline_blame: Option<Vec<String>>,
     pub git_inline_blame_enabled: bool,
+    pub git_blame_annotations: Vec<helix_core::text_annotations::InlineAnnotation>,
     /// LSP document highlights for each view, stored as char ranges.
     pub(crate) document_highlights: HashMap<ViewId, DocumentHighlights>,
     /// LSP code action hints for each view.
@@ -775,6 +776,7 @@ impl Document {
             color_swatch_controller: TaskController::new(),
             git_inline_blame: None,
             git_inline_blame_enabled: false,
+            git_blame_annotations: Vec::new(),
             document_highlight_controllers: HashMap::new(),
             code_action_controllers: HashMap::new(),
             syn_loader,
