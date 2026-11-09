@@ -4692,7 +4692,7 @@ fn git_preview_change(cx: &mut Context) {
             if lines.is_empty() {
                 lines.push("(No previous content)".to_owned());
             }
-            format!("**Git change preview (HEAD)**\\n\\n{}\\n\\n\\x60\\x60\\x60text\\n{}\\n\\x60\\x60\\x60", heading, lines.join("\\n"))
+            format!("**Git change preview · HEAD**\n\n*{}*\n\n```text\n{}\n```", heading, lines.join("\n"))
         })
     };
     let Some(preview) = preview else {
