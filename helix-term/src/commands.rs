@@ -3188,9 +3188,20 @@ fn append_mode(cx: &mut Context) {
 // Use the same notebook location as the Neovim zk integration. Never create
 // directories just to browse notes; a missing mount should be reported.
 fn primer_notes_root() -> std::path::PathBuf {
+    // Match the QuickShell calendar's per-machine notebook source while
+    // retaining explicit editor environment overrides.
+    let quickshell_source = std::env::var_os("HOME").and_then(|home| {
+        let source = std::path::PathBuf::from(home)
+            .join(".local/state/quickshell/agenda-source");
+        std::fs::read_to_string(source).ok().and_then(|value| {
+            let value = value.trim();
+            if value.is_empty() { None } else { Some(std::path::PathBuf::from(value)) }
+        })
+    });
     let path = std::env::var_os("NVIM_NOTES_DIR")
         .or_else(|| std::env::var_os("ZK_NOTEBOOK_DIR"))
         .map(std::path::PathBuf::from)
+        .or(quickshell_source)
         .unwrap_or_else(|| std::path::PathBuf::from("~/NAS/Notes"));
     if let Ok(suffix) = path.strip_prefix("~") {
         if let Some(home) = std::env::var_os("HOME") {
