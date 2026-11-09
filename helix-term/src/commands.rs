@@ -4864,9 +4864,9 @@ fn git_revert_hunk(cx: &mut Context) {
             }
             let path = path.clone();
             cx.editor.set_status("Reverting unstaged Git hunk…");
+            let expected_bytes = original_bytes.clone();
             cx.jobs.callback(async move {
                 let work_path = path.clone();
-                let expected_bytes = original_bytes.clone();
                 let result = tokio::task::spawn_blocking(move || {
                     ensure!(std::fs::read(&work_path)? == expected_bytes, "File changed on disk since revert was requested; retry");
                     git_revert_worktree_hunk(work_path, line)
