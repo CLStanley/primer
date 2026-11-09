@@ -277,9 +277,13 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "C-o" => jump_backward,
         "C-s" => save_selection,
         "space" => { "Space"
-            "f" => file_picker,
-            "F" => file_picker_in_current_directory,
-            "e" => file_explorer,
+            "f" => { "Find"
+                "f" => file_picker,
+                "F" => file_picker_in_current_directory,
+                "e" => file_explorer,
+                "g" => global_search,
+                "h" => command_palette,
+            },
             "." => file_explorer_in_current_buffer_directory,
             "b" => { "Buffers"
                 "b" => buffer_picker,
@@ -364,14 +368,12 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "p" => paste_clipboard_after,
             "P" => paste_clipboard_before,
             "R" => replace_selections_with_clipboard,
-            "/" => global_search,
             "k" => hover,
             "r" => rename_symbol,
             "h" => select_references_to_symbol_under_cursor,
             "c" => toggle_comments,
             "C" => toggle_block_comments,
             "A-c" => toggle_line_comments,
-            "?" => command_palette,
         },
         "z" => { "View"
             "z" | "c" => align_view_center,
