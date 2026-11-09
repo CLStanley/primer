@@ -415,6 +415,7 @@ impl MappableCommand {
         changed_file_picker, "Open changed file picker",
         git_preview_change, "Preview previous Git change at cursor",
         git_blame_line, "Show Git blame for current line",
+        git_toggle_inline_blame, "Toggle inline Git blame",
         select_references_to_symbol_under_cursor, "Select symbol references",
         workspace_symbol_picker, "Open workspace symbol picker",
         syntax_workspace_symbol_picker, "Open workspace symbol picker from syntax information",
@@ -4687,6 +4688,97 @@ fn git_change_segments(original: &str, current: &str) -> (String, String, String
 
 /// Show the last committed change for the cursor line.
 /// Git blame refers to the saved file, so unsaved edits are not included.
+/// Toggle cached inline blame for the current file. One asynchronous Git invocation
+/// retrieves the whole file, so cursor movement only selects a cached annotation.
+fn git_toggle_inline_blame(cx: &mut Context) {
+    let (path, version, line_count) = {
+        let (_, doc) = current!(cx.editor);
+        if doc.git_inline_blame_enabled {
+            let path = doc.path().map(|path| path.to_path_buf());
+            if let Some(path) = path {
+                if let Some(doc) = cx.editor.document_by_path_mut(&path) {
+                    doc.git_inline_blame_enabled = false;
+                }
+            }
+            cx.editor.set_status("Inline Git blame disabled");
+            return;
+        }
+        let Some(path) = doc.path() else {
+            cx.editor.set_status("Inline blame requires a saved file");
+            return;
+        };
+        if doc.is_modified() {
+            cx.editor.set_status("Save the file before enabling inline blame");
+            return;
+        }
+        (path.to_path_buf(), doc.version(), doc.text().len_lines())
+    };
+    // Reuse previously retrieved blame if the document has not changed.
+    if let Some(doc) = cx.editor.document_by_path_mut(&path) {
+        if doc.git_inline_blame.is_some() && !doc.git_blame_annotations.is_empty() {
+            doc.git_inline_blame_enabled = true;
+            cx.editor.set_status("Inline Git blame enabled (cached)");
+            return;
+        }
+    }
+    cx.editor.set_status("Loading inline Git blame…");
+    cx.jobs.callback(async move {
+        let output = tokio::process::Command::new("git")
+            .arg("-C")
+            .arg(path.parent().unwrap_or_else(|| std::path::Path::new(".")))
+            .args(["blame", "--line-porcelain", "--"])
+            .arg(&path)
+            .output()
+            .await;
+        let output = match output {
+            Ok(output) if output.status.success() => output,
+            Ok(output) => {
+                let message = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+                return Ok(Callback::EditorCompositor(Box::new(move |editor, _| {
+                    editor.set_error(format!("Git blame failed: {message}"));
+                })));
+            }
+            Err(err) => {
+                return Ok(Callback::EditorCompositor(Box::new(move |editor, _| {
+                    editor.set_error(format!("Git blame failed: {err}"));
+                })));
+            }
+        };
+        let mut author = String::new();
+        let mut summary = String::new();
+        let mut entries = Vec::new();
+        for row in String::from_utf8_lossy(&output.stdout).lines() {
+            if let Some(value) = row.strip_prefix("author ") {
+                author = value.to_owned();
+            } else if let Some(value) = row.strip_prefix("summary ") {
+                summary = value.to_owned();
+            } else if row.starts_with('\t') {
+                entries.push(format!("{} · {}", author, summary));
+            }
+        }
+        Ok(Callback::EditorCompositor(Box::new(move |editor, _| {
+            let Some(doc) = editor.document_by_path_mut(&path) else {
+                return;
+            };
+            // Discard results if the file was edited, reloaded, or replaced.
+            if doc.version() != version || doc.is_modified() || doc.text().len_lines() != line_count {
+                return;
+            }
+            let text = doc.text();
+            let annotations = entries.iter().enumerate().map(|(line, message)| {
+                let start = text.line_to_char(line);
+                let end = start + text.line(line).len_chars();
+                let end = if line + 1 < text.len_lines() { end.saturating_sub(1) } else { end };
+                helix_core::text_annotations::InlineAnnotation::new(end, format!("  · {message}"))
+            }).collect();
+            doc.git_blame_annotations = annotations;
+            doc.git_inline_blame = Some(entries);
+            doc.git_inline_blame_enabled = true;
+            editor.set_status("Inline Git blame enabled");
+        })))
+    });
+}
+
 fn git_blame_line(cx: &mut Context) {
     let (path, line, modified) = {
         let (view, doc) = current!(cx.editor);
