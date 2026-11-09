@@ -723,9 +723,9 @@ pub struct ModeConfig {
 impl Default for ModeConfig {
     fn default() -> Self {
         Self {
-            normal: String::from("普"),
-            insert: String::from("挿"),
-            select: String::from("視"),
+            normal: String::from("NOR"),
+            insert: String::from("INS"),
+            select: String::from("SEL"),
         }
     }
 }
