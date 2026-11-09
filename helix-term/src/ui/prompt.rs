@@ -708,14 +708,33 @@ impl Component for Prompt {
                     return close_fn;
                 }
             }
-            ctrl!('p') | key!(Up) => {
+            ctrl!('p') => {
                 if let Some(register) = self.history_register {
                     self.change_history(cx, register, CompletionDirection::Backward);
                 }
             }
-            ctrl!('n') | key!(Down) => {
+            ctrl!('n') => {
                 if let Some(register) = self.history_register {
                     self.change_history(cx, register, CompletionDirection::Forward);
+                }
+            }
+            key!(Up) | key!(Down) if !self.completion.is_empty() => {
+                let direction = if event.code == KeyCode::Up {
+                    CompletionDirection::Backward
+                } else {
+                    CompletionDirection::Forward
+                };
+                self.change_completion_selection(direction);
+                (self.callback_fn)(cx, &self.line, PromptEvent::Update);
+            }
+            key!(Up) | key!(Down) => {
+                if let Some(register) = self.history_register {
+                    let direction = if event.code == KeyCode::Up {
+                        CompletionDirection::Backward
+                    } else {
+                        CompletionDirection::Forward
+                    };
+                    self.change_history(cx, register, direction);
                 }
             }
             key!(Tab) => {
