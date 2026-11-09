@@ -4820,7 +4820,7 @@ fn git_revert_worktree_hunk(path: std::path::PathBuf, line: usize) -> anyhow::Re
 }
 
 fn git_revert_hunk(cx: &mut Context) {
-    let (path, line) = {
+    let (path, line, version) = {
         let (view, doc) = current!(cx.editor);
         let Some(path) = doc.path() else {
             cx.editor.set_error("Reverting a Git hunk requires a tracked file");
@@ -4830,7 +4830,7 @@ fn git_revert_hunk(cx: &mut Context) {
             cx.editor.set_error("Save your file before reverting a hunk");
             return;
         }
-        (path.to_path_buf(), doc.selection(view.id).primary().cursor_line(doc.text().slice(..)) + 1)
+        (path.to_path_buf(), doc.selection(view.id).primary().cursor_line(doc.text().slice(..)) + 1, doc.version())
     };
     let mut prompt = Prompt::new(
         "Discard unstaged Git hunk? Type REVERT to confirm: ".into(),
@@ -4844,8 +4844,8 @@ fn git_revert_hunk(cx: &mut Context) {
             }
             // Reject if the file was edited while the confirmation prompt was open.
             if let Some(doc) = cx.editor.document_by_path_mut(&path) {
-                if doc.is_modified() {
-                    cx.editor.set_error("File changed; save before reverting");
+                if doc.is_modified() || doc.version() != version {
+                    cx.editor.set_error("File changed since revert was requested; cancel and retry");
                     return;
                 }
             } else {
@@ -4855,16 +4855,40 @@ fn git_revert_hunk(cx: &mut Context) {
             let path = path.clone();
             cx.editor.set_status("Reverting unstaged Git hunk…");
             cx.jobs.callback(async move {
-                let result = tokio::task::spawn_blocking(move || git_revert_worktree_hunk(path, line)).await;
-                let message = match result {
-                    Ok(Ok(())) => Ok("Git hunk reverted on disk. Reload the buffer to see the change."),
-                    Ok(Err(err)) => Err(err.to_string()),
+                let work_path = path.clone();
+                let result = tokio::task::spawn_blocking(move || git_revert_worktree_hunk(work_path, line)).await;
+                let outcome = match result {
+                    Ok(value) => value.map_err(|err| err.to_string()),
                     Err(err) => Err(err.to_string()),
                 };
                 Ok(Callback::EditorCompositor(Box::new(move |editor, _| {
-                    match message {
-                        Ok(message) => editor.set_status(message),
-                        Err(message) => editor.set_error(message),
+                    if let Err(message) = outcome {
+                        editor.set_error(message);
+                        return;
+                    }
+                    let Some(doc) = editor.document_by_path(&path) else {
+                        editor.set_status("Git hunk reverted on disk; buffer was closed");
+                        return;
+                    };
+                    if doc.is_modified() || doc.version() != version {
+                        editor.set_status("Git hunk reverted on disk; newer buffer edits preserved. Reload manually when ready.");
+                        return;
+                    }
+                    let active_path = {
+                        let (_, current_doc) = current_ref!(editor);
+                        current_doc.path().map(|p| p.to_path_buf())
+                    };
+                    if active_path.as_deref() != Some(path.as_path()) {
+                        editor.set_status("Git hunk reverted on disk; reload when you return to the file");
+                        return;
+                    }
+                    let command = typed::TYPABLE_COMMAND_MAP.get("reload").expect("reload command exists");
+                    let mut jobs = crate::job::Jobs::new();
+                    let mut context = compositor::Context { editor, jobs: &mut jobs, scroll: None };
+                    if let Err(err) = typed::execute_command(&mut context, command, "", PromptEvent::Validate) {
+                        context.editor.set_error(format!("Git hunk reverted, but buffer reload failed: {err}"));
+                    } else {
+                        context.editor.set_status("Git hunk reverted and buffer refreshed");
                     }
                 })))
             });
