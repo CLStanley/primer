@@ -700,7 +700,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         surface.clear_with(area, background);
 
         let block = Block::bordered().border_type(match cx.editor.config().border_style {
-            UiBorderStyle::Square | UiBorderStyle::None => BorderType::Plain,
+            UiBorderStyle::Square => BorderType::Plain,
             UiBorderStyle::Rounded => BorderType::Rounded,
             UiBorderStyle::Double => BorderType::Double,
         });
@@ -893,7 +893,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         surface.clear_with(area, background);
 
         let block = Block::bordered().border_type(match cx.editor.config().border_style {
-            UiBorderStyle::Square | UiBorderStyle::None => BorderType::Plain,
+            UiBorderStyle::Square => BorderType::Plain,
             UiBorderStyle::Rounded => BorderType::Rounded,
             UiBorderStyle::Double => BorderType::Double,
         });
@@ -1180,7 +1180,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
 
     fn cursor(&self, area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
         let block = Block::bordered().border_type(match cx.editor.config().border_style {
-            UiBorderStyle::Square | UiBorderStyle::None => BorderType::Plain,
+            UiBorderStyle::Square => BorderType::Plain,
             UiBorderStyle::Rounded => BorderType::Rounded,
             UiBorderStyle::Double => BorderType::Double,
         });
