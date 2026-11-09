@@ -3864,7 +3864,7 @@ fn jumplist_picker(cx: &mut Context) {
 }
 
 /// Directory context follows the focused file; unnamed buffers inherit the launch directory.
-fn active_buffer_directory(editor: &Editor) -> PathBuf {
+fn active_buffer_directory(editor: &mut Editor) -> PathBuf {
     let (view, doc) = current!(editor);
     let _ = view;
     doc.path()
