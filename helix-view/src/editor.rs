@@ -701,6 +701,7 @@ impl Default for StatusLineConfig {
                 E::Mode,
                 E::Spinner,
                 E::FileName,
+                E::VersionControl,
                 E::ReadOnlyIndicator,
                 E::FileModificationIndicator,
             ],
