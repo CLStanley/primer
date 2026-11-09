@@ -412,6 +412,12 @@ pub struct Config {
     pub popup_border: PopupBorderConfig,
     /// Border line style for bordered UI panels.
     pub border_style: UiBorderStyle,
+    /// Whether to draw Powerline caps around the statusline mode label.
+    pub statusline_powerline: bool,
+    /// Whether to draw Powerline caps around the active buffer tab.
+    pub bufferline_powerline: bool,
+    /// Whether to show vertical separators between buffer tabs.
+    pub bufferline_separators: bool,
     /// Which indent heuristic to use when a new line is inserted
     #[serde(default)]
     pub indent_heuristic: IndentationHeuristic,
@@ -1242,6 +1248,9 @@ impl Default for Config {
             smart_tab: Some(SmartTabConfig::default()),
             popup_border: PopupBorderConfig::None,
             border_style: UiBorderStyle::default(),
+            statusline_powerline: true,
+            bufferline_powerline: true,
+            bufferline_separators: false,
             indent_heuristic: IndentationHeuristic::default(),
             jump_label_alphabet: ('a'..='z').collect(),
             inline_diagnostics: InlineDiagnosticsConfig::default(),
