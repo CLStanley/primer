@@ -450,6 +450,7 @@ impl MappableCommand {
         primer_buffer_close, "Close current buffer",
         primer_notes_find, "Find Markdown notes in zk notebook",
         primer_notes_daily, "Open today\u0027s daily note",
+        primer_notes_new, "Create structured Markdown note",
         primer_notes_inbox, "Browse zk inbox notes",
         primer_notes_projects, "Browse zk project notes",
         primer_notes_knowledge, "Browse zk knowledge notes",
@@ -3207,6 +3208,48 @@ fn primer_notes_picker(cx: &mut Context, category: Option<&str>) {
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
+fn primer_notes_new(cx: &mut Context) {
+    ui::prompt(cx, "New note (category: title): ".into(), None, ui::completers::none,
+        |cx, input, event| {
+            if event != PromptEvent::Validate { return; }
+            let Some((category, title)) = input.split_once(':') else {
+                cx.editor.set_error("Use category: title, e.g. knowledge: Rust");
+                return;
+            };
+            let title = title.trim();
+            let (folder, kind, sections) = match category.trim().to_ascii_lowercase().as_str() {
+                "knowledge" | "k" => ("03 Knowledge", "knowledge", "## Overview\n\n## Concepts\n\n## Examples\n\n## Connections\n\n- \n\n## Questions\n\n- \n\n## Sources\n\n- "),
+                "project" | "p" => ("02 Projects", "project", "## Goal\n\n## Current State\n\n## Next Steps\n\n- [ ] \n\n## Decisions\n\n## Problems / Questions\n\n- \n\n## Related Knowledge\n\n- \n\n## References\n\n- "),
+                "reference" | "r" => ("04 Reference", "reference", "## Overview\n\n## Reference\n\n## Notes\n\n## Related\n\n- \n\n## Sources\n\n- "),
+                "idea" | "i" => ("05 Ideas", "idea", "## Idea\n\n## Why It Interests Me\n\n## Possibilities\n\n- \n\n## Questions\n\n- \n\n## Connections\n\n- "),
+                "inbox" | "b" => ("00 Inbox", "inbox", "## Notes\n\n## Follow Up\n\n- [ ] Process this note"),
+                _ => { cx.editor.set_error("Categories: knowledge, project, reference, idea, inbox"); return; }
+            };
+            let slug = title.to_ascii_lowercase().chars().filter_map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' { Some(ch) }
+                else if ch.is_whitespace() { Some('-') } else { None }
+            }).collect::<String>();
+            let slug = slug.trim_matches('-');
+            if slug.is_empty() { cx.editor.set_error("Note title cannot be empty"); return; }
+            let root = primer_notes_root();
+            if !root.is_dir() { cx.editor.set_error("Notebook unavailable"); return; }
+            let folder = root.join(folder);
+            if let Err(err) = std::fs::create_dir_all(&folder) { cx.editor.set_error(err.to_string()); return; }
+            let path = folder.join(format!("{slug}.md"));
+            if !path.exists() {
+                let date = chrono::Local::now().format("%Y-%m-%d").to_string();
+                let safe_title = title.replace('"', "\\\"");
+                let content = format!("---\ntitle: \"{safe_title}\"\ntype: {kind}\ncreated: {date}\nupdated: {date}\ntags:\n  - \n---\n\n# {title}\n\n{sections}\n");
+                use std::io::Write as _;
+                match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+                    Ok(mut file) => if let Err(err) = file.write_all(content.as_bytes()) { cx.editor.set_error(err.to_string()); return; },
+                    Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {},
+                    Err(err) => { cx.editor.set_error(err.to_string()); return; }
+                }
+            }
+            if let Err(err) = cx.editor.open(&path, Action::Replace) { cx.editor.set_error(err.to_string()); }
+        });
+}
 fn primer_notes_daily(cx: &mut Context) {
     let root = primer_notes_root();
     if !root.is_dir() {
