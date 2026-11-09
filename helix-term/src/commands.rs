@@ -450,6 +450,10 @@ impl MappableCommand {
         primer_buffer_close, "Close current buffer",
         primer_notes_find, "Search all notes in your notebook by filename",
         primer_agenda, "Browse open todos, events, and reminders by date",
+        primer_agenda_new_todo, "Create a todo with an optional due date",
+        primer_agenda_new_event, "Create an event with a date and optional time",
+        primer_agenda_new_reminder, "Create a scheduled reminder",
+        primer_agenda_mark_done, "Mark the current todo as completed",
         primer_notes_daily, "Open or create today's journal and daily notes",
         primer_notes_new, "Create a note with a category, title, and template",
         primer_notes_inbox, "Review uncategorized notes to organize later",
@@ -3207,6 +3211,99 @@ fn primer_notes_picker(cx: &mut Context, category: Option<&str>) {
     }
     let picker = ui::file_picker(cx.editor, root);
     cx.push_layer(Box::new(overlaid(picker)));
+}
+
+fn primer_agenda_slug(title: &str) -> String {
+    title.to_ascii_lowercase().chars().filter_map(|ch| {
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' { Some(ch) }
+        else if ch.is_whitespace() { Some('-') } else { None }
+    }).collect::<String>().trim_matches('-').to_string()
+}
+
+fn primer_agenda_create(cx: &mut Context, kind: &'static str) {
+    let (heading, example) = match kind {
+        "todo" => ("New Todo", "Buy groceries | 2026-11-15 (date optional)"),
+        "event" => ("New Event", "Team meeting | 2026-11-15 | 14:30 (time optional)"),
+        _ => ("New Reminder", "Call dentist | 2026-11-15 | 09:00"),
+    };
+    let mut prompt = Prompt::new(format!("{heading}: ").into(), None, ui::completers::none,
+        move |cx, input, event| {
+            if event != PromptEvent::Validate { return; }
+            let parts: Vec<&str> = input.split('|').map(str::trim).collect();
+            let title = parts.first().copied().unwrap_or("");
+            let date = parts.get(1).copied().unwrap_or("");
+            let time = parts.get(2).copied().unwrap_or("");
+            let valid_date = |value: &str| {
+                value.len() == 10 && value.as_bytes()[4] == b'-' && value.as_bytes()[7] == b'-'
+                    && value.chars().enumerate().all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
+                    && chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").is_ok()
+            };
+            let valid_time = |value: &str| chrono::NaiveTime::parse_from_str(value, "%H:%M").is_ok();
+            if title.is_empty() || (kind != "todo" && !valid_date(date))
+                || (!date.is_empty() && !valid_date(date))
+                || (!time.is_empty() && !valid_time(time))
+                || (kind == "reminder" && time.is_empty()) {
+                cx.editor.set_error("Expected: title | YYYY-MM-DD | HH:MM (date/time optional for todos)");
+                return;
+            }
+            let slug = primer_agenda_slug(title);
+            if slug.is_empty() { cx.editor.set_error("Title must contain letters or numbers"); return; }
+            let folder = match kind { "todo" => "Todos", "event" => "Events", _ => "Reminders" };
+            let dir = primer_notes_root().join("Agenda").join(folder);
+            if let Err(err) = std::fs::create_dir_all(&dir) { cx.editor.set_error(err.to_string()); return; }
+            let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+            let escaped = title.replace('"', "\\\"");
+            let filename = if kind == "todo" { format!("{slug}.md") }
+                else { format!("{}-{slug}.md", date) };
+            let path = dir.join(filename);
+            let content = match kind {
+                "todo" => format!("---\\ntitle: \\"{escaped}\\"\\ntype: todo\\nstatus: open\\ncreated: {today}\\nupdated: {today}\\ndue: {date}\\nreminder: \\npriority: normal\\ntags:\\n  - \\n---\\n\\n# {title}\\n\\n## Details\\n\\n## Related\\n\\n- \\n\\n## Notes\\n"),
+                "event" => format!("---\\ntitle: \\"{escaped}\\"\\ntype: event\\ndate: {date}\\nstart: {time}\\nend: \\nreminder: \\nlocation: \\"\\"\\ncreated: {today}\\nupdated: {today}\\ntags:\\n  - \\n---\\n\\n# {title}\\n\\n## Details\\n\\n## Related\\n\\n- \\n\\n## Notes\\n\\n## Follow Up\\n\\n- [ ] \\n"),
+                _ => format!("---\\ntitle: \\"{escaped}\\"\\ndate: {date}\\ntime: {time}\\nrepeat: none\\n---\\n"),
+            };
+            use std::io::Write as _;
+            match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+                Ok(mut file) => if let Err(err) = file.write_all(content.as_bytes()) { cx.editor.set_error(err.to_string()); return; },
+                Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {},
+                Err(err) => { cx.editor.set_error(err.to_string()); return; }
+            }
+            if let Err(err) = cx.editor.open(&path, Action::Replace) { cx.editor.set_error(err.to_string()); }
+        });
+    prompt.doc_fn = Box::new(move |_| Some(format!("{heading}\\nFormat: title | YYYY-MM-DD | HH:MM\\nExample: {example}").into()));
+    prompt.recalculate_completion(cx.editor);
+    cx.push_layer(Box::new(prompt));
+}
+
+fn primer_agenda_new_todo(cx: &mut Context) { primer_agenda_create(cx, "todo"); }
+fn primer_agenda_new_event(cx: &mut Context) { primer_agenda_create(cx, "event"); }
+fn primer_agenda_new_reminder(cx: &mut Context) { primer_agenda_create(cx, "reminder"); }
+
+fn primer_agenda_mark_done(cx: &mut Context) {
+    let Some(path) = cx.editor.current_path().map(|p| p.to_path_buf()) else {
+        cx.editor.set_error("Open a todo before marking it complete");
+        return;
+    };
+    let todo_dir = primer_notes_root().join("Agenda").join("Todos");
+    if !path.starts_with(&todo_dir) {
+        cx.editor.set_error("Open a todo before marking it complete");
+        return;
+    }
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        cx.editor.set_error("Could not read todo");
+        return;
+    };
+    if !content.lines().any(|line| line.starts_with("status:")) {
+        cx.editor.set_error("Todo is missing a status field");
+        return;
+    }
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let updated = content.lines().map(|line| {
+        if line.starts_with("status:") { "status: done".to_string() }
+        else if line.starts_with("updated:") { format!("updated: {today}") }
+        else { line.to_string() }
+    }).collect::<Vec<_>>().join("\\n") + "\\n";
+    if let Err(err) = std::fs::write(&path, updated) { cx.editor.set_error(err.to_string()); return; }
+    cx.editor.set_status("Todo marked complete; reopen the file to refresh its contents");
 }
 
 #[derive(Clone)]
