@@ -4,7 +4,10 @@
 //! It establishes the UI boundary: PTY output is drained and painted without
 //! converting terminal contents into an editable text document.
 
-use crate::compositor::{Component, Context};
+use crate::compositor::{Component, Context, Event, EventResult};
+use crate::terminal::input::encode_key;
+use crate::terminal::TerminalInputMode;
+use helix_view::keyboard::{KeyCode, KeyModifiers};
 use crate::terminal::{render::render_terminal, runtime::RunningTerminal};
 use helix_view::graphics::Rect;
 use tui::buffer::Buffer;
@@ -17,6 +20,8 @@ pub struct TerminalView {
     terminal: RunningTerminal,
     last_size: Option<(u16, u16)>,
     error: Option<String>,
+    input_mode: TerminalInputMode,
+    escape_pending: bool,
 }
 
 impl TerminalView {
@@ -25,6 +30,8 @@ impl TerminalView {
             terminal,
             last_size: None,
             error: None,
+            input_mode: TerminalInputMode::Terminal,
+            escape_pending: false,
         }
     }
 
@@ -36,12 +43,64 @@ impl TerminalView {
         &mut self.terminal
     }
 
+    pub fn input_mode(&self) -> TerminalInputMode {
+        self.input_mode
+    }
+
+    pub fn set_input_mode(&mut self, mode: TerminalInputMode) {
+        self.input_mode = mode;
+        self.escape_pending = false;
+    }
+
     pub fn error(&self) -> Option<&str> {
         self.error.as_deref()
     }
 }
 
 impl Component for TerminalView {
+    fn handle_event(&mut self, event: &Event, _ctx: &mut Context) -> EventResult {
+        if self.input_mode == TerminalInputMode::Normal {
+            return EventResult::Ignored(None);
+        }
+        match event {
+            Event::Key(key) => {
+                let prefix = key.code == KeyCode::Char('\\\\')
+                    && key.modifiers.contains(KeyModifiers::CONTROL);
+                if self.escape_pending {
+                    self.escape_pending = false;
+                    if key.code == KeyCode::Char('n')
+                        && key.modifiers.contains(KeyModifiers::CONTROL)
+                    {
+                        self.input_mode = TerminalInputMode::Normal;
+                        return EventResult::Consumed(None);
+                    }
+                    if let Err(err) = self.terminal.write_input(&[28]) {
+                        self.error = Some(err.to_string());
+                    }
+                } else if prefix {
+                    self.escape_pending = true;
+                    return EventResult::Consumed(None);
+                }
+                if let Some(bytes) = encode_key(*key) {
+                    if let Err(err) = self.terminal.write_input(&bytes) {
+                        self.error = Some(err.to_string());
+                    }
+                }
+                EventResult::Consumed(None)
+            }
+            Event::Paste(text) => {
+                if self.escape_pending {
+                    self.escape_pending = false;
+                    let _ = self.terminal.write_input(&[28]);
+                }
+                if let Err(err) = self.terminal.write_input(text.as_bytes()) {
+                    self.error = Some(err.to_string());
+                }
+                EventResult::Consumed(None)
+            }
+            _ => EventResult::Ignored(None),
+        }
+    }
     fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
         // A zero-sized pane must not trigger an invalid PTY resize.
         if area.width > 0 && area.height > 0 {
