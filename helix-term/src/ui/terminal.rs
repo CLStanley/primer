@@ -122,6 +122,7 @@ impl Component for TerminalView {
                                 // Restore the home screen when there is no real file to show.
                                 // Do not discard existing named editing buffers.
                                 if !cx.editor.documents().any(|doc| doc.path().is_some())
+                                    && cx.editor.terminal_documents.is_empty()
                                     && compositor
                                         .find::<crate::ui::dashboard::Dashboard>()
                                         .is_none()
@@ -210,7 +211,7 @@ impl Component for TerminalView {
                                         // Preserve the pending keys for the next level.
                                     }
                                     Some(KeyTrie::MappableCommand(command)) => {
-                                        if let Some(terminal) = compositor.find::<TerminalView>() {
+                                        if let Some(terminal) = compositor.find_terminal_document(cx.editor.tree.get(cx.editor.tree.focus).doc) {
                                             terminal.pending_keys.clear();
                                             terminal.close_sequence = 0;
                                         }
@@ -274,7 +275,7 @@ impl Component for TerminalView {
                                         }
                                     }
                                     _ => {
-                                        if let Some(terminal) = compositor.find::<TerminalView>() {
+                                        if let Some(terminal) = compositor.find_terminal_document(cx.editor.tree.get(cx.editor.tree.focus).doc) {
                                             terminal.pending_keys.clear();
                                             terminal.close_sequence = 0;
                                         }
