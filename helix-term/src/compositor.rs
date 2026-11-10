@@ -153,6 +153,18 @@ impl Compositor {
         self.layers
             .retain(|component| component.type_name() != type_name);
     }
+    /// Look up a PTY by its backing editor document, not layer order.
+    pub fn find_terminal_document(
+        &mut self,
+        id: helix_view::DocumentId,
+    ) -> Option<&mut crate::ui::terminal::TerminalView> {
+        self.layers.iter_mut().find_map(|layer| {
+            let terminal = layer.as_any_mut()
+                .downcast_mut::<crate::ui::terminal::TerminalView>()?;
+            (terminal.document_id() == id).then_some(terminal)
+        })
+    }
+
     /// Remove only the terminal session associated with the given document.
     pub fn remove_terminal_document(&mut self, id: helix_view::DocumentId) {
         self.layers.retain(|layer| {
