@@ -9,7 +9,7 @@ use crate::terminal::input::encode_key;
 use crate::terminal::TerminalInputMode;
 use helix_view::keyboard::{KeyCode, KeyModifiers};
 use crate::terminal::{render::render_terminal, runtime::RunningTerminal};
-use helix_view::graphics::{Rect, CursorKind};
+use helix_view::graphics::{Rect, CursorKind, Color, Modifier};
 use helix_core::Position;
 use tui::buffer::Buffer;
 
@@ -157,16 +157,16 @@ impl Component for TerminalView {
             self.error = Some(err.to_string());
         }
 
-        render_terminal(self.terminal.screen(), pane, surface, cx.editor.theme.get("ui.text"));
+        render_terminal(self.terminal.screen(), pane, surface, cx.editor.theme.get("ui.text").fg(Color::LightGray));
 
         if area.height >= 3 {
             let tab = Rect::new(area.x, area.y, area.width, 1);
-            let tab_style = cx.editor.theme.get("ui.bufferline.active");
+            let tab_style = cx.editor.theme.get("ui.bufferline.active").add_modifier(Modifier::BOLD);
             surface.set_style(tab, cx.editor.theme.get("ui.background"));
             let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".into());
             let name = std::path::Path::new(&shell)
                 .file_name().and_then(|name| name.to_str()).unwrap_or("terminal");
-            let title = format!("  > {name}  ");
+            let title = format!("  {name}  ");
             surface.set_stringn(tab.x, tab.y, &title, tab.width as usize, tab_style);
 
             let status = Rect::new(area.x, area.y + area.height - 2, area.width, 1);
@@ -175,7 +175,7 @@ impl Component for TerminalView {
             surface.set_stringn(status.x, status.y, &" ".repeat(status.width as usize), status.width as usize, status_style);
             let (columns, rows) = self.terminal.screen().size();
             let mode = if self.input_mode == TerminalInputMode::Terminal { "TERMINAL" } else { "NORMAL" };
-            let detail = format!("  {mode}  |  {name}  |  {columns}x{rows}");
+            let detail = format!("  {mode}  │  {name}  │  {columns}×{rows}");
             surface.set_stringn(status.x, status.y, &detail, status.width as usize, status_style);
 
             let command = Rect::new(area.x, area.y + area.height - 1, area.width, 1);
