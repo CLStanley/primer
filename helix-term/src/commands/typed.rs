@@ -3003,7 +3003,7 @@ const WRITE_NO_CODE_ACTIONS_FLAG: Flag = Flag {
     ..Flag::DEFAULT
 };
 
-/// Open an interactive PTY terminal as a compositor layer (tab integration follows).
+/// Create a PTY-backed editor document with its own terminal session.
 fn open_terminal(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {
         return Ok(());
@@ -3014,12 +3014,6 @@ fn open_terminal(cx: &mut compositor::Context, _args: Args, event: PromptEvent) 
     cx.jobs.callback(async move {
         Ok(job::Callback::EditorCompositor(Box::new(
             move |editor: &mut Editor, compositor: &mut Compositor| {
-                if let Some(view) = compositor.find::<crate::ui::terminal::TerminalView>() {
-                    let id = view.document_id();
-                    editor.switch(id, helix_view::editor::Action::Replace);
-                    compositor.raise_type::<crate::ui::terminal::TerminalView>();
-                    return;
-                }
                 match crate::terminal::runtime::RunningTerminal::spawn(
                     &shell, &[], &directory, 80, 24, 1000,
                 ) {
@@ -3040,7 +3034,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "terminal",
         aliases: &["term"],
-        doc: "Open or return to the existing interactive terminal session.",
+        doc: "Create a new interactive terminal buffer.",
         fun: open_terminal,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
