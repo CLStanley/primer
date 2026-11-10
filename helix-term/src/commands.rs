@@ -4974,7 +4974,7 @@ fn primer_branch_stash(root: &Path, branch: &str) -> Result<Option<String>, Stri
         .map(|(reference, _)| reference.to_owned()))
 }
 
-fn primer_finish_branch_switch(cx: &mut Context, root: &Path, name: &str) {
+fn primer_finish_branch_switch(cx: &mut compositor::Context, root: &Path, name: &str) {
     if let Err(error) = primer_git(root, &["switch", "--", name]) {
         cx.editor.set_error(format!("Could not switch to {name}: {error}"));
         return;
@@ -5122,7 +5122,12 @@ fn git_branch_picker(cx: &mut Context) {
         prompt.doc_fn = Box::new(|_| Some(
             "STASH saves tracked and untracked changes for this branch before switching. NORMAL uses standard Git behavior, potentially carrying changes. CANCEL leaves everything unchanged.".into()
         ));
-        cx.push_layer(Box::new(prompt));
+        prompt.recalculate_completion(cx.editor);
+        cx.jobs.callback(async move {
+            Ok(Callback::EditorCompositor(Box::new(move |_, compositor| {
+                compositor.push(Box::new(prompt));
+            })))
+        });
     });
     let mut overlay = overlaid(picker.with_title("Git Branches"));
     overlay.calc_child_size = Box::new(|area| {
