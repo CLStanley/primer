@@ -1679,7 +1679,8 @@ impl Component for EditorView {
             self.render_view(cx.editor, doc, view, area, surface, is_focused);
         }
 
-        if config.auto_info {
+        if config.auto_info && !cx.editor.tree.try_get(cx.editor.tree.focus)
+            .is_some_and(|view| cx.editor.terminal_documents.contains(&view.doc)) {
             if let Some(mut info) = cx.editor.autoinfo.take() {
                 info.render(area, surface, cx);
                 cx.editor.autoinfo = Some(info)
