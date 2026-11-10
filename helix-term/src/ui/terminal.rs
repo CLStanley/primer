@@ -72,8 +72,15 @@ impl Component for TerminalView {
                         self.close_sequence = 0;
                         if key.code == KeyCode::Char('y') {
                             let _ = self.terminal.kill();
-                            return EventResult::Consumed(Some(Box::new(|compositor, _| {
+                            return EventResult::Consumed(Some(Box::new(|compositor, cx| {
                                 compositor.remove_type::<TerminalView>();
+                                // Restore the home screen when there is no real file to show.
+                                // Do not discard existing named editing buffers.
+                                if !cx.editor.documents().any(|doc| doc.path().is_some())
+                                    && compositor.find::<crate::ui::dashboard::Dashboard>().is_none()
+                                {
+                                    compositor.push(Box::new(crate::ui::dashboard::Dashboard::new()));
+                                }
                             })));
                         }
                         return EventResult::Consumed(None);
