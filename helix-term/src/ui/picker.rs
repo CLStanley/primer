@@ -770,8 +770,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     
             // -- Render the contents:
             // subtract area of prompt from top
-            let inner = inner.clip_top(2);
-            };
+            inner.clip_top(2)
+        };
         let rows = inner.height.saturating_sub(self.header_height()) as u32;
         let offset = self.cursor - (self.cursor % std::cmp::max(1, rows));
         let cursor = self.cursor.saturating_sub(offset);
