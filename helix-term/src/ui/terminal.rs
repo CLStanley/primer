@@ -340,7 +340,7 @@ impl Component for TerminalView {
         }
     }
     fn cursor(&self, area: Rect, _editor: &helix_view::Editor) -> (Option<Position>, CursorKind) {
-        let pane = Self::terminal_area(area);
+        let pane = area;
         if self.input_mode != TerminalInputMode::Terminal || pane.width == 0 || pane.height == 0 {
             return (None, CursorKind::Hidden);
         }
@@ -362,9 +362,10 @@ impl Component for TerminalView {
     }
 
     fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
-        let pane = Self::terminal_area(area);
-        if pane.width > 0 && pane.height > 0 {
-            let size = (pane.width, pane.height);
+        // The compositor passes the active editor pane's content rectangle.
+        // Terminal chrome is shared with EditorView rather than recreated here.
+        if area.width > 0 && area.height > 0 {
+            let size = (area.width, area.height);
             if self.last_size != Some(size) {
                 match self.terminal.resize(size.0, size.1) {
                     Ok(()) => self.last_size = Some(size),
@@ -372,88 +373,14 @@ impl Component for TerminalView {
                 }
             }
         }
-
         if let Err(err) = self.terminal.drain_output() {
             self.error = Some(err.to_string());
         }
-
         render_terminal(
             self.terminal.screen(),
-            pane,
+            area,
             surface,
             cx.editor.theme.get("ui.text").fg(Color::LightGray),
         );
-
-        if area.height >= 3 {
-            // The terminal uses the same document bufferline as text buffers.
-            crate::ui::EditorView::render_bufferline(
-                cx.editor,
-                Rect::new(area.x, area.y, area.width, 1),
-                surface,
-            );
-            let status = Rect::new(area.x, area.y + area.height - 2, area.width, 1);
-            let (columns, rows) = self.terminal.screen().size();
-            let name = cx.editor.terminal_names.get(&self.document_id)
-                .map(String::as_str)
-                .unwrap_or("terminal");
-            if let Some(view) = cx.editor.tree.try_get(cx.editor.tree.focus) {
-                if let Some(doc) = cx.editor.documents.get(&self.document_id) {
-                    let spinners = crate::ui::ProgressSpinners::default();
-                    let mut context = crate::ui::statusline::RenderContext::new(
-                        cx.editor, doc, view, true, &spinners,
-                    );
-                    context.terminal = Some(crate::ui::statusline::TerminalStatus {
-                        name,
-                        input_mode: self.input_mode == TerminalInputMode::Terminal,
-                        columns,
-                        rows,
-                    });
-                    crate::ui::statusline::render(&mut context, status, surface);
-                }
-            }
-
-            let command = Rect::new(area.x, area.y + area.height - 1, area.width, 1);
-            let command_style = cx.editor.theme.get("ui.text");
-            surface.set_style(command, cx.editor.theme.get("ui.background"));
-            surface.set_stringn(
-                command.x,
-                command.y,
-                &" ".repeat(command.width as usize),
-                command.width as usize,
-                command_style,
-            );
-            let message = if self.confirm_close {
-                "Kill terminal and running processes? [y/N]"
-            } else {
-                ""
-            };
-            surface.set_stringn(
-                command.x,
-                command.y,
-                message,
-                command.width as usize,
-                command_style,
-            );
-        }
-
-        // EditorView renders autoinfo before this compositor layer, so its
-        // Which-Key panel is otherwise painted over by the terminal surface.
-        // Draw the shared popup last while terminal Normal Mode is active.
-        if self.input_mode == TerminalInputMode::Normal && !self.pending_keys.is_empty() {
-            if let Some(mut info) = cx.editor.autoinfo.take() {
-                info.render(area, surface, cx);
-                cx.editor.autoinfo = Some(info);
-            }
-        }
-    }
-}
-
-impl TerminalView {
-    /// Keep the terminal grid inside the editor chrome: tab, statusline, commandline.
-    fn terminal_area(area: Rect) -> Rect {
-        if area.height < 3 {
-            return Rect::new(area.x, area.y, area.width, 0);
-        }
-        Rect::new(area.x, area.y + 1, area.width, area.height - 3)
     }
 }
