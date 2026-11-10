@@ -4981,10 +4981,10 @@ fn git_branch_picker(cx: &mut Context) {
         })
         .collect();
     let columns = [
-        PickerColumn::new("current", |branch: &(bool, String), _| {
+        PickerColumn::new("", |branch: &(bool, String), _| {
             if branch.0 { "*".into() } else { "".into() }
         }),
-        PickerColumn::new("branch", |branch: &(bool, String), _| {
+        PickerColumn::new("", |branch: &(bool, String), _| {
             branch.1.clone().into()
         }),
     ];
