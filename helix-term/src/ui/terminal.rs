@@ -126,7 +126,8 @@ impl Component for TerminalView {
         }
     }
     fn cursor(&self, area: Rect, _editor: &helix_view::Editor) -> (Option<Position>, CursorKind) {
-        if self.input_mode != TerminalInputMode::Terminal || area.width == 0 || area.height <= 1 {
+        let pane = Self::terminal_area(area);
+        if self.input_mode != TerminalInputMode::Terminal || pane.width == 0 || pane.height == 0 {
             return (None, CursorKind::Hidden);
         }
         let screen = self.terminal.screen().screen();
@@ -134,18 +135,16 @@ impl Component for TerminalView {
             return (None, CursorKind::Hidden);
         }
         let (row, col) = screen.cursor_position();
-        if col >= area.width || row >= area.height - 1 {
+        if col >= pane.width || row >= pane.height {
             return (None, CursorKind::Hidden);
         }
-        (Some(Position::new(area.y as usize + row as usize, area.x as usize + col as usize)), CursorKind::Bar)
+        (Some(Position::new((pane.y + row) as usize, (pane.x + col) as usize)), CursorKind::Bar)
     }
 
     fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
-        let terminal_area = Rect::new(area.x, area.y, area.width, area.height.saturating_sub(1));
-        // Reserve the bottom row for a terminal mode/status line.
-        // A zero-sized pane must not trigger an invalid PTY resize.
-        if terminal_area.width > 0 && terminal_area.height > 0 {
-            let size = (terminal_area.width, terminal_area.height);
+        let pane = Self::terminal_area(area);
+        if pane.width > 0 && pane.height > 0 {
+            let size = (pane.width, pane.height);
             if self.last_size != Some(size) {
                 match self.terminal.resize(size.0, size.1) {
                     Ok(()) => self.last_size = Some(size),
@@ -158,22 +157,44 @@ impl Component for TerminalView {
             self.error = Some(err.to_string());
         }
 
-        render_terminal(
-            self.terminal.screen(),
-            terminal_area,
-            surface,
-            cx.editor.theme.get("ui.text"),
-        );
-        if area.height > 0 {
-            let label = match self.input_mode {
-                TerminalInputMode::Terminal => " TERMINAL  Esc: normal ",
-                TerminalInputMode::Normal => " NORMAL  i: terminal  q: close ",
-            };
-            let status = cx.editor.theme.get("ui.statusline");
-            let status_area = Rect::new(area.x, area.y + area.height - 1, area.width, 1);
-            surface.set_style(status_area, status);
-            surface.set_stringn(status_area.x, status_area.y, &" ".repeat(area.width as usize), area.width as usize, status);
-            surface.set_stringn(status_area.x, status_area.y, label, area.width as usize, status);
+        render_terminal(self.terminal.screen(), pane, surface, cx.editor.theme.get("ui.text"));
+
+        if area.height >= 3 {
+            let tab = Rect::new(area.x, area.y, area.width, 1);
+            let tab_style = cx.editor.theme.get("ui.bufferline.active");
+            surface.set_style(tab, cx.editor.theme.get("ui.background"));
+            let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".into());
+            let name = std::path::Path::new(&shell)
+                .file_name().and_then(|name| name.to_str()).unwrap_or("terminal");
+            let title = format!("  > {name}  ");
+            surface.set_stringn(tab.x, tab.y, &title, tab.width as usize, tab_style);
+
+            let status = Rect::new(area.x, area.y + area.height - 2, area.width, 1);
+            let status_style = cx.editor.theme.get("ui.statusline");
+            surface.set_style(status, status_style);
+            surface.set_stringn(status.x, status.y, &" ".repeat(status.width as usize), status.width as usize, status_style);
+            let (columns, rows) = self.terminal.screen().size();
+            let mode = if self.input_mode == TerminalInputMode::Terminal { "TERMINAL" } else { "NORMAL" };
+            let detail = format!("  {mode}  |  {name}  |  {columns}x{rows}");
+            surface.set_stringn(status.x, status.y, &detail, status.width as usize, status_style);
+
+            let command = Rect::new(area.x, area.y + area.height - 1, area.width, 1);
+            let command_style = cx.editor.theme.get("ui.text");
+            surface.set_style(command, cx.editor.theme.get("ui.background"));
+            surface.set_stringn(command.x, command.y, &" ".repeat(command.width as usize), command.width as usize, command_style);
+            if self.input_mode == TerminalInputMode::Terminal {
+                surface.set_stringn(command.x, command.y, "-- TERMINAL --", command.width as usize, command_style);
+            }
         }
+    }
+}
+
+impl TerminalView {
+    /// Keep the terminal grid inside the editor chrome: tab, statusline, commandline.
+    fn terminal_area(area: Rect) -> Rect {
+        if area.height < 3 {
+            return Rect::new(area.x, area.y, area.width, 0);
+        }
+        Rect::new(area.x, area.y + 1, area.width, area.height - 3)
     }
 }
