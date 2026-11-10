@@ -13,7 +13,7 @@ pub mod popup;
 pub mod prompt;
 mod select;
 mod spinner;
-mod statusline;
+pub(crate) mod statusline;
 mod text;
 mod text_decorations;
 pub mod terminal;
