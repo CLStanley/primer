@@ -234,8 +234,8 @@ impl Component for TerminalView {
                                             compositor.sync_terminal_document(cx.editor);
                                             return;
                                         }
-                                        // Only editor-wide UI actions are safe until
-                                        // terminal sessions become real editor buffers.
+                                        // Editor-wide commands, including creating a
+                                        // new PTY, work from terminal Normal Mode.
                                         if matches!(
                                             command.name(),
                                             "file_picker"
@@ -246,6 +246,7 @@ impl Component for TerminalView {
                                                 | "command_palette"
                                                 | "buffer_picker"
                                                 | "primer_agenda"
+                                                | "primer_terminal"
                                         ) {
                                             let mut command_cx = crate::commands::Context {
                                                 editor: cx.editor,
