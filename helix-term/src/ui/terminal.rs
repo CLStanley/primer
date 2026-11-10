@@ -151,12 +151,54 @@ impl Component for TerminalView {
                         _ if !self.pending_keys.is_empty() => {
                             self.pending_keys.push(*key);
                             let keys = self.pending_keys.clone();
+                            self.pending_keys.clear();
+                            self.close_sequence = 0;
                             return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
-                                if let Some(view) = compositor.find::<crate::ui::EditorView>() {
-                                    let keymaps = view.keymaps.map();
-                                    match keymaps[&Mode::Normal].search(&keys) {
-                                        Some(KeyTrie::Node(node)) => cx.editor.autoinfo = Some(node.infobox()),
-                                        _ => cx.editor.autoinfo = None,
+                                let result = compositor.find::<crate::ui::EditorView>()
+                                    .and_then(|view| {
+                                        let keymaps = view.keymaps.map();
+                                        keymaps[&Mode::Normal].search(&keys).cloned()
+                                    });
+                                match result {
+                                    Some(KeyTrie::Node(node)) => {
+                                        cx.editor.autoinfo = Some(node.infobox());
+                                        if let Some(terminal) = compositor.find::<TerminalView>() {
+                                            // The compositor owns terminal input state.
+                                            // Nested families remain available in the preview.
+                                            let _ = terminal;
+                                        }
+                                    }
+                                    Some(KeyTrie::MappableCommand(command)) => {
+                                        cx.editor.autoinfo = None;
+                                        // Only editor-wide UI actions are safe until
+                                        // terminal sessions become real editor buffers.
+                                        if matches!(command.name(),
+                                            "file_picker" | "file_picker_in_current_directory"
+                                            | "file_explorer" | "file_explorer_in_current_buffer_directory"
+                                            | "global_search" | "command_palette"
+                                            | "buffer_picker" | "primer_agenda"
+                                        ) {
+                                            let mut command_cx = crate::commands::Context {
+                                                editor: cx.editor,
+                                                count: None,
+                                                register: None,
+                                                callback: Vec::new(),
+                                                on_next_key_callback: None,
+                                                jobs: cx.jobs,
+                                            };
+                                            command.execute(&mut command_cx);
+                                            for callback in command_cx.callback {
+                                                callback(compositor, cx);
+                                            }
+                                        } else {
+                                            cx.editor.set_error(format!(
+                                                "Terminal buffer integration required for {}",
+                                                command.name()
+                                            ));
+                                        }
+                                    }
+                                    _ => {
+                                        cx.editor.autoinfo = None;
                                     }
                                 }
                             })));
