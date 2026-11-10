@@ -1301,6 +1301,8 @@ pub struct Editor {
     pub documents: BTreeMap<DocumentId, Document>,
     /// Documents backed by live terminal sessions rather than editable text.
     pub terminal_documents: std::collections::BTreeSet<DocumentId>,
+    /// Display names for PTY-backed buffers.
+    pub terminal_names: BTreeMap<DocumentId, String>,
 
     // We Flatten<> to resolve the inner DocumentSavedEventFuture. For that we need a stream of streams, hence the Once<>.
     // https://stackoverflow.com/a/66875668
@@ -1456,6 +1458,7 @@ impl Editor {
             next_document_id: DocumentId::default(),
             documents: BTreeMap::new(),
             terminal_documents: std::collections::BTreeSet::new(),
+            terminal_names: BTreeMap::new(),
             saves: HashMap::new(),
             save_queue: SelectAll::new(),
             write_count: 0,
@@ -2230,6 +2233,7 @@ impl Editor {
         }
 
         self.terminal_documents.remove(&doc_id);
+        self.terminal_names.remove(&doc_id);
         let doc = self.documents.remove(&doc_id).unwrap();
 
         // If the document we removed was visible in all views, we will have no more views. We don't
