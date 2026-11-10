@@ -101,7 +101,7 @@ impl Component for TerminalView {
                             // behind this terminal.
                             return EventResult::Consumed(Some(Box::new(|compositor, cx| {
                                 if let Some(view) = compositor.find::<crate::ui::EditorView>() {
-                                    let key = crate::key!(Space);
+                                    let key = crate::key!(' ');
                                     let keymaps = view.keymaps.map();
                                     if let Some(KeyTrie::Node(node)) = keymaps[&Mode::Normal].search(&[key]) {
                                         cx.editor.autoinfo = Some(node.infobox());
