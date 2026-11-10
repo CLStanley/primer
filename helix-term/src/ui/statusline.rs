@@ -77,7 +77,7 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
         && !config.statusline.right.contains(&StatusLineElementID::VersionControl)
     {
         render_version_control(context, |context, span| {
-            append(&mut context.parts.left, span, base_style)
+            append(&mut context.parts.right, span, base_style)
         });
     }
 
@@ -462,7 +462,17 @@ where
 {
     let file_type = context.doc.language_name().unwrap_or(DEFAULT_LANGUAGE_NAME);
 
-    write(context, format!(" {} ", file_type).into());
+    let style = context.editor.theme.get("ui.statusline.select");
+    if context.editor.config().statusline_powerline {
+        if let Some(background) = style.bg {
+            write(context, Span::from(" "));
+            write(context, Span::styled("", Style::default().fg(background)));
+            write(context, Span::styled(format!(" {file_type} "), style));
+            write(context, Span::styled("", Style::default().fg(background)));
+            return;
+        }
+    }
+    write(context, Span::styled(format!(" {file_type} "), style));
 }
 
 fn render_file_name<'a, F>(context: &mut RenderContext<'a>, write: F)
@@ -566,7 +576,7 @@ where
         .to_string();
 
     if !head.is_empty() {
-        let style = context.editor.theme.get("ui.text.focus");
+        let style = context.editor.theme.get("ui.statusline.select");
         if context.editor.config().statusline_powerline {
             if let Some(background) = style.bg {
                 write(context, Span::from(" "));
