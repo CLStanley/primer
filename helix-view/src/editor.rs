@@ -728,6 +728,7 @@ pub struct ModeConfig {
     pub normal: String,
     pub insert: String,
     pub select: String,
+    pub terminal: String,
 }
 
 impl Default for ModeConfig {
@@ -736,6 +737,7 @@ impl Default for ModeConfig {
             normal: String::from("NOR"),
             insert: String::from("INS"),
             select: String::from("SEL"),
+            terminal: String::from("TERMINAL"),
         }
     }
 }
