@@ -5,15 +5,15 @@
 //! converting terminal contents into an editable text document.
 
 use crate::compositor::{Component, Context, Event, EventResult};
-use crate::terminal::input::encode_key;
 use crate::keymap::KeyTrie;
-use helix_view::document::Mode;
+use crate::terminal::input::encode_key;
 use crate::terminal::TerminalInputMode;
-use helix_view::keyboard::{KeyCode, KeyModifiers};
-use helix_view::input::KeyEvent;
 use crate::terminal::{render::render_terminal, runtime::RunningTerminal};
-use helix_view::graphics::{Rect, CursorKind, Color, Modifier, UnderlineStyle};
 use helix_core::Position;
+use helix_view::document::Mode;
+use helix_view::graphics::{Color, CursorKind, Modifier, Rect};
+use helix_view::input::KeyEvent;
+use helix_view::keyboard::{KeyCode, KeyModifiers};
 use tui::buffer::Buffer;
 
 /// A terminal surface owned by the compositor.
@@ -79,26 +79,30 @@ impl Component for TerminalView {
     fn handle_event(&mut self, event: &Event, ctx: &mut Context) -> EventResult {
         if self.input_mode == TerminalInputMode::Normal {
             if let Event::Key(key) = event {
-                    // Terminal Normal Mode shares the editor's buffer navigation.
-                    // Terminals may report shifted letters with a SHIFT modifier.
-                    if self.close_sequence == 0
-                        && (key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT)
-                        && matches!(key.code, KeyCode::Char('H') | KeyCode::Char('L'))
-                    {
-                        let forward = key.code == KeyCode::Char('L');
-                        return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
-                            let current = cx.editor.tree.get(cx.editor.tree.focus).doc;
-                            let ids: Vec<_> = cx.editor.documents.keys().copied().collect();
-                            if let Some(index) = ids.iter().position(|id| *id == current) {
-                                if ids.len() > 1 {
-                                    let next = if forward { (index + 1) % ids.len() }
-                                        else { (index + ids.len() - 1) % ids.len() };
-                                    cx.editor.switch(ids[next], helix_view::editor::Action::Replace);
-                                }
+                // Terminal Normal Mode shares the editor's buffer navigation.
+                // Terminals may report shifted letters with a SHIFT modifier.
+                if self.close_sequence == 0
+                    && (key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT)
+                    && matches!(key.code, KeyCode::Char('H') | KeyCode::Char('L'))
+                {
+                    let forward = key.code == KeyCode::Char('L');
+                    return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+                        let current = cx.editor.tree.get(cx.editor.tree.focus).doc;
+                        let ids: Vec<_> = cx.editor.documents.keys().copied().collect();
+                        if let Some(index) = ids.iter().position(|id| *id == current) {
+                            if ids.len() > 1 {
+                                let next = if forward {
+                                    (index + 1) % ids.len()
+                                } else {
+                                    (index + ids.len() - 1) % ids.len()
+                                };
+                                cx.editor
+                                    .switch(ids[next], helix_view::editor::Action::Replace);
                             }
-                            compositor.sync_terminal_document(cx.editor);
-                        })));
-                    }
+                        }
+                        compositor.sync_terminal_document(cx.editor);
+                    })));
+                }
                 if key.modifiers.is_empty() {
                     if self.confirm_close {
                         self.confirm_close = false;
@@ -116,9 +120,12 @@ impl Component for TerminalView {
                                 // Restore the home screen when there is no real file to show.
                                 // Do not discard existing named editing buffers.
                                 if !cx.editor.documents().any(|doc| doc.path().is_some())
-                                    && compositor.find::<crate::ui::dashboard::Dashboard>().is_none()
+                                    && compositor
+                                        .find::<crate::ui::dashboard::Dashboard>()
+                                        .is_none()
                                 {
-                                    compositor.push(Box::new(crate::ui::dashboard::Dashboard::new()));
+                                    compositor
+                                        .push(Box::new(crate::ui::dashboard::Dashboard::new()));
                                 }
                             })));
                         }
@@ -147,7 +154,9 @@ impl Component for TerminalView {
                             return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
                                 if let Some(view) = compositor.find::<crate::ui::EditorView>() {
                                     let keymaps = view.keymaps.map();
-                                    if let Some(KeyTrie::Node(node)) = keymaps[&Mode::Normal].search(&keys) {
+                                    if let Some(KeyTrie::Node(node)) =
+                                        keymaps[&Mode::Normal].search(&keys)
+                                    {
                                         cx.editor.autoinfo = Some(node.infobox());
                                     }
                                 }
@@ -167,7 +176,9 @@ impl Component for TerminalView {
                             return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
                                 if let Some(view) = compositor.find::<crate::ui::EditorView>() {
                                     let keymaps = view.keymaps.map();
-                                    if let Some(KeyTrie::Node(node)) = keymaps[&Mode::Normal].search(&keys) {
+                                    if let Some(KeyTrie::Node(node)) =
+                                        keymaps[&Mode::Normal].search(&keys)
+                                    {
                                         cx.editor.autoinfo = Some(node.infobox());
                                     } else {
                                         cx.editor.autoinfo = None;
@@ -186,8 +197,8 @@ impl Component for TerminalView {
                             // Keep the sequence alive while traversing a nested
                             // family. Only a completed or invalid binding resets it.
                             return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
-                                let result = compositor.find::<crate::ui::EditorView>()
-                                    .and_then(|view| {
+                                let result =
+                                    compositor.find::<crate::ui::EditorView>().and_then(|view| {
                                         let keymaps = view.keymaps.map();
                                         keymaps[&Mode::Normal].search(&keys).cloned()
                                     });
@@ -206,18 +217,34 @@ impl Component for TerminalView {
                                         // reveal the editor's currently selected buffer.
                                         // The PTY remains parked and can be resumed
                                         // with :terminal.
-                                        if matches!(command.name(),
-                                            "primer_buffer_next" | "primer_buffer_previous"
-                                            | "buffer_next" | "buffer_previous"
+                                        if matches!(
+                                            command.name(),
+                                            "primer_buffer_next"
+                                                | "primer_buffer_previous"
+                                                | "buffer_next"
+                                                | "buffer_previous"
                                         ) {
-                                            let current = cx.editor.tree.get(cx.editor.tree.focus).doc;
-                                            let ids: Vec<_> = cx.editor.documents.keys().copied().collect();
-                                            if let Some(index) = ids.iter().position(|id| *id == current) {
+                                            let current =
+                                                cx.editor.tree.get(cx.editor.tree.focus).doc;
+                                            let ids: Vec<_> =
+                                                cx.editor.documents.keys().copied().collect();
+                                            if let Some(index) =
+                                                ids.iter().position(|id| *id == current)
+                                            {
                                                 if ids.len() > 1 {
-                                                    let forward = matches!(command.name(), "primer_buffer_next" | "buffer_next");
-                                                    let next = if forward { (index + 1) % ids.len() }
-                                                        else { (index + ids.len() - 1) % ids.len() };
-                                                    cx.editor.switch(ids[next], helix_view::editor::Action::Replace);
+                                                    let forward = matches!(
+                                                        command.name(),
+                                                        "primer_buffer_next" | "buffer_next"
+                                                    );
+                                                    let next = if forward {
+                                                        (index + 1) % ids.len()
+                                                    } else {
+                                                        (index + ids.len() - 1) % ids.len()
+                                                    };
+                                                    cx.editor.switch(
+                                                        ids[next],
+                                                        helix_view::editor::Action::Replace,
+                                                    );
                                                 }
                                             }
                                             compositor.sync_terminal_document(cx.editor);
@@ -225,11 +252,16 @@ impl Component for TerminalView {
                                         }
                                         // Only editor-wide UI actions are safe until
                                         // terminal sessions become real editor buffers.
-                                        if matches!(command.name(),
-                                            "file_picker" | "file_picker_in_current_directory"
-                                            | "file_explorer" | "file_explorer_in_current_buffer_directory"
-                                            | "global_search" | "command_palette"
-                                            | "buffer_picker" | "primer_agenda"
+                                        if matches!(
+                                            command.name(),
+                                            "file_picker"
+                                                | "file_picker_in_current_directory"
+                                                | "file_explorer"
+                                                | "file_explorer_in_current_buffer_directory"
+                                                | "global_search"
+                                                | "command_palette"
+                                                | "buffer_picker"
+                                                | "primer_agenda"
                                         ) {
                                             let mut command_cx = crate::commands::Context {
                                                 editor: cx.editor,
@@ -240,7 +272,8 @@ impl Component for TerminalView {
                                                 jobs: cx.jobs,
                                             };
                                             command.execute(&mut command_cx);
-                                            let callbacks = std::mem::take(&mut command_cx.callback);
+                                            let callbacks =
+                                                std::mem::take(&mut command_cx.callback);
                                             drop(command_cx);
                                             for callback in callbacks {
                                                 callback(compositor, cx);
@@ -248,10 +281,13 @@ impl Component for TerminalView {
                                             // Pickers operate on editor documents. Put the
                                             // persistent PTY behind EditorView so a selected
                                             // file/buffer becomes visible immediately.
-                                            if matches!(command.name(),
-                                                "file_picker" | "file_picker_in_current_directory"
-                                                | "file_explorer" | "file_explorer_in_current_buffer_directory"
-                                                | "buffer_picker"
+                                            if matches!(
+                                                command.name(),
+                                                "file_picker"
+                                                    | "file_picker_in_current_directory"
+                                                    | "file_explorer"
+                                                    | "file_explorer_in_current_buffer_directory"
+                                                    | "buffer_picker"
                                             ) {
                                                 compositor.park_below_editor::<TerminalView>();
                                             }
@@ -275,7 +311,7 @@ impl Component for TerminalView {
                         _ => {
                             self.close_sequence = 0;
                             ctx.editor.autoinfo = None;
-                        },
+                        }
                     }
                 } else {
                     self.close_sequence = 0;
@@ -340,7 +376,13 @@ impl Component for TerminalView {
         if col >= pane.width || row >= pane.height {
             return (None, CursorKind::Hidden);
         }
-        (Some(Position::new((pane.y + row) as usize, (pane.x + col) as usize)), CursorKind::Bar)
+        (
+            Some(Position::new(
+                (pane.y + row) as usize,
+                (pane.x + col) as usize,
+            )),
+            CursorKind::Bar,
+        )
     }
 
     fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
@@ -359,7 +401,12 @@ impl Component for TerminalView {
             self.error = Some(err.to_string());
         }
 
-        render_terminal(self.terminal.screen(), pane, surface, cx.editor.theme.get("ui.text").fg(Color::LightGray));
+        render_terminal(
+            self.terminal.screen(),
+            pane,
+            surface,
+            cx.editor.theme.get("ui.text").fg(Color::LightGray),
+        );
 
         if area.height >= 3 {
             // The terminal uses the same document bufferline as text buffers.
@@ -370,35 +417,77 @@ impl Component for TerminalView {
             );
             let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".into());
             let name = std::path::Path::new(&shell)
-                .file_name().and_then(|name| name.to_str()).unwrap_or("terminal");
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("terminal");
 
             let status = Rect::new(area.x, area.y + area.height - 2, area.width, 1);
             let mut base = cx.editor.theme.get("ui.statusline");
             base.bg = Some(Color::Reset);
             surface.set_style(status, base);
-            surface.set_stringn(status.x, status.y, &" ".repeat(status.width as usize), status.width as usize, base);
+            surface.set_stringn(
+                status.x,
+                status.y,
+                &" ".repeat(status.width as usize),
+                status.width as usize,
+                base,
+            );
 
             let terminal_mode = self.input_mode == TerminalInputMode::Terminal;
             let mode_name = if terminal_mode { "TERMINAL" } else { "NORMAL" };
-            let mode_style = cx.editor.theme.try_get(if terminal_mode {
-                "ui.statusline.insert"
-            } else {
-                "ui.statusline.normal"
-            }).unwrap_or_else(|| cx.editor.theme.get("ui.statusline.active"))
-              .add_modifier(Modifier::BOLD);
+            let mode_style = cx
+                .editor
+                .theme
+                .try_get(if terminal_mode {
+                    "ui.statusline.insert"
+                } else {
+                    "ui.statusline.normal"
+                })
+                .unwrap_or_else(|| cx.editor.theme.get("ui.statusline.active"))
+                .add_modifier(Modifier::BOLD);
             let configured_mode = &cx.editor.config().statusline.mode.normal;
-            let mode_label = if terminal_mode { mode_name } else { configured_mode.as_str() };
+            let mode_label = if terminal_mode {
+                mode_name
+            } else {
+                configured_mode.as_str()
+            };
             let mode_text = format!("   {mode_label}  ");
             let mode_bg = mode_style.bg.unwrap_or(Color::Rgb(183, 156, 222));
             let mut mode_x = status.x;
-            mode_x = surface.set_stringn(mode_x, status.y, "", status.width as usize, base.fg(mode_bg)).0;
-            mode_x = surface.set_stringn(mode_x, status.y, &mode_text, status.right().saturating_sub(mode_x) as usize, mode_style).0;
-            surface.set_stringn(mode_x, status.y, "", status.right().saturating_sub(mode_x) as usize, base.fg(mode_bg));
+            mode_x = surface
+                .set_stringn(
+                    mode_x,
+                    status.y,
+                    "",
+                    status.width as usize,
+                    base.fg(mode_bg),
+                )
+                .0;
+            mode_x = surface
+                .set_stringn(
+                    mode_x,
+                    status.y,
+                    &mode_text,
+                    status.right().saturating_sub(mode_x) as usize,
+                    mode_style,
+                )
+                .0;
+            surface.set_stringn(
+                mode_x,
+                status.y,
+                "",
+                status.right().saturating_sub(mode_x) as usize,
+                base.fg(mode_bg),
+            );
 
             let (columns, rows) = self.terminal.screen().size();
             let dimensions = format!(" {columns}×{rows} ");
             let shell_text = format!("  {name} ");
-            let shell_style = cx.editor.theme.get("ui.statusline.normal").add_modifier(Modifier::BOLD);
+            let shell_style = cx
+                .editor
+                .theme
+                .get("ui.statusline.normal")
+                .add_modifier(Modifier::BOLD);
             let shell_width = shell_text.chars().count() as u16 + 2;
             let dim_width = dimensions.chars().count() as u16;
             if status.width > shell_width + dim_width + mode_text.chars().count() as u16 {
@@ -407,14 +496,26 @@ impl Component for TerminalView {
                 surface.set_stringn(dim_x, status.y, &dimensions, dim_width as usize, base);
                 let shell_bg = shell_style.bg.unwrap_or(Color::Rgb(183, 156, 222));
                 surface.set_stringn(shell_x, status.y, "", 1, base.fg(shell_bg));
-                surface.set_stringn(shell_x + 1, status.y, &shell_text, shell_text.chars().count(), shell_style);
+                surface.set_stringn(
+                    shell_x + 1,
+                    status.y,
+                    &shell_text,
+                    shell_text.chars().count(),
+                    shell_style,
+                );
                 surface.set_stringn(status.right() - 1, status.y, "", 1, base.fg(shell_bg));
             }
 
             let command = Rect::new(area.x, area.y + area.height - 1, area.width, 1);
             let command_style = cx.editor.theme.get("ui.text");
             surface.set_style(command, cx.editor.theme.get("ui.background"));
-            surface.set_stringn(command.x, command.y, &" ".repeat(command.width as usize), command.width as usize, command_style);
+            surface.set_stringn(
+                command.x,
+                command.y,
+                &" ".repeat(command.width as usize),
+                command.width as usize,
+                command_style,
+            );
             let message = if self.confirm_close {
                 "Kill terminal and running processes? [y/N]"
             } else if self.input_mode == TerminalInputMode::Terminal {
@@ -422,7 +523,13 @@ impl Component for TerminalView {
             } else {
                 ""
             };
-            surface.set_stringn(command.x, command.y, message, command.width as usize, command_style);
+            surface.set_stringn(
+                command.x,
+                command.y,
+                message,
+                command.width as usize,
+                command_style,
+            );
         }
 
         // EditorView renders autoinfo before this compositor layer, so its
