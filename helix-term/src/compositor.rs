@@ -171,7 +171,38 @@ impl Compositor {
         self.layers
             .retain(|component| component.type_name() != type_name);
     }
+    /// The focused editor document is the source of truth for whether the
+    /// persistent terminal session or the text editor is the active view.
+    /// Reorder only these two layers; picker/prompt overlays remain on top.
+    pub fn sync_terminal_document(&mut self, editor: &Editor) {
+        let Some(active) = editor.tree.try_get(editor.tree.focus).map(|view| view.doc) else {
+            return;
+        };
+        let terminal_kind = std::any::type_name::<crate::ui::terminal::TerminalView>();
+        let editor_kind = std::any::type_name::<crate::ui::EditorView>();
+        let Some(terminal_index) = self.layers.iter().position(|layer| layer.type_name() == terminal_kind) else {
+            return;
+        };
+        let terminal_id = self.layers[terminal_index].as_any()
+            .downcast_ref::<crate::ui::terminal::TerminalView>()
+            .map(|terminal| terminal.document_id());
+        let Some(terminal_id) = terminal_id else { return };
+        let Some(editor_index) = self.layers.iter().position(|layer| layer.type_name() == editor_kind) else {
+            return;
+        };
+        let terminal_should_be_front = active == terminal_id;
+        let already_front = terminal_index > editor_index;
+        if terminal_should_be_front == already_front {
+            return;
+        }
+        let component = self.layers.remove(terminal_index);
+        let editor_index = self.layers.iter().position(|layer| layer.type_name() == editor_kind).unwrap();
+        self.layers.insert(if terminal_should_be_front { editor_index + 1 } else { editor_index }, component);
+        self.need_full_redraw();
+    }
+
     pub fn handle_event(&mut self, event: &Event, cx: &mut Context) -> bool {
+        self.sync_terminal_document(cx.editor);
         // If it is a key event, a macro is being recorded, and a macro isn't being replayed,
         // push the key event to the recording.
         if let (Event::Key(key), Some((_, keys))) = (event, &mut cx.editor.macro_recording) {
@@ -207,6 +238,7 @@ impl Compositor {
         for callback in callbacks {
             callback(self, cx)
         }
+        self.sync_terminal_document(cx.editor);
 
         // The dashboard remains underneath dashboard-launched pickers so Esc
         // returns home. Once a real file is opened, dismiss that home layer.
@@ -221,6 +253,7 @@ impl Compositor {
     }
 
     pub fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+        self.sync_terminal_document(cx.editor);
         // A parked terminal is a live session, not a background image.
         // Rendering it behind transparent editor buffers leaks its old
         // contents through scratch buffers and creates overlapping chrome.
