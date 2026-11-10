@@ -286,6 +286,16 @@ impl Component for TerminalView {
             };
             surface.set_stringn(command.x, command.y, message, command.width as usize, command_style);
         }
+
+        // EditorView renders autoinfo before this compositor layer, so its
+        // Which-Key panel is otherwise painted over by the terminal surface.
+        // Draw the shared popup last while terminal Normal Mode is active.
+        if self.input_mode == TerminalInputMode::Normal && self.close_sequence > 0 {
+            if let Some(mut info) = cx.editor.autoinfo.take() {
+                info.render(area, surface, cx);
+                cx.editor.autoinfo = Some(info);
+            }
+        }
     }
 }
 
