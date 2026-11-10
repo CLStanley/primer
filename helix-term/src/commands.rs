@@ -4981,17 +4981,25 @@ fn git_branch_picker(cx: &mut Context) {
         })
         .collect();
     let columns = [
-        PickerColumn::new("", |branch: &(bool, String), _| {
-            if branch.0 { "*".into() } else { "".into() }
-        }),
-        PickerColumn::new("", |branch: &(bool, String), _| {
-            branch.1.clone().into()
+        PickerColumn::new("Git Branches", |branch: &(bool, String), _| {
+            format!("{} {}", if branch.0 { "*" } else { " " }, branch.1).into()
         }),
     ];
     let picker = Picker::new(columns, 1, branches, (), |cx, branch: &(bool, String), _| {
         cx.editor.set_status(format!("Branch: {}{}", branch.1, if branch.0 { " (current)" } else { "" }));
     });
-    cx.push_layer(Box::new(overlaid(picker)));
+    let mut overlay = overlaid(picker);
+    overlay.calc_child_size = Box::new(|area| {
+        let width = area.width.min(72).max(1);
+        let height = area.height.min(18).max(1);
+        helix_view::graphics::Rect::new(
+            area.x + area.width.saturating_sub(width) / 2,
+            area.y + area.height.saturating_sub(height) / 2,
+            width,
+            height,
+        )
+    });
+    cx.push_layer(Box::new(overlay));
 }
 
 /// Create a local branch from HEAD without switching away from the current branch.
