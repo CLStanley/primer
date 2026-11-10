@@ -465,7 +465,7 @@ where
     // Use the theme's normal-mode accent for the pill, and its informational
     // foreground (typically blue) for the language label.
     let mut style = context.editor.theme.get("ui.statusline.normal");
-    style.fg = context.editor.theme.get("info").fg.or(style.fg);
+    style.fg = context.editor.theme.get("ui.text").fg.or(style.fg);
     if context.editor.config().statusline_powerline {
         if let Some(background) = style.bg {
             write(context, Span::from(" "));
