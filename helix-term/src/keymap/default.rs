@@ -334,6 +334,8 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "b" => git_blame_line,
                 "i" => git_toggle_inline_blame,
                 "s" => git_stage_hunk,
+                "S" => git_stage_all,
+                "U" => git_unstage_all,
                 "u" => git_unstage_hunk,
                 "r" => git_revert_hunk,
             },
