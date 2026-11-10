@@ -43,6 +43,26 @@ impl TerminalView {
         }
     }
 
+    /// Advance through editor documents, including terminal-backed buffers.
+    fn switch_buffer(
+        editor: &mut helix_view::Editor,
+        forward: bool,
+    ) {
+        let current = editor.tree.get(editor.tree.focus).doc;
+        let ids: Vec<_> = editor.documents.keys().copied().collect();
+        if ids.len() < 2 {
+            return;
+        }
+        if let Some(index) = ids.iter().position(|id| *id == current) {
+            let next = if forward {
+                (index + 1) % ids.len()
+            } else {
+                (index + ids.len() - 1) % ids.len()
+            };
+            editor.switch(ids[next], helix_view::editor::Action::Replace);
+        }
+    }
+
     pub fn document_id(&self) -> helix_view::DocumentId {
         self.document_id
     }
@@ -83,19 +103,7 @@ impl Component for TerminalView {
                 {
                     let forward = key.code == KeyCode::Char('L');
                     return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
-                        let current = cx.editor.tree.get(cx.editor.tree.focus).doc;
-                        let ids: Vec<_> = cx.editor.documents.keys().copied().collect();
-                        if let Some(index) = ids.iter().position(|id| *id == current) {
-                            if ids.len() > 1 {
-                                let next = if forward {
-                                    (index + 1) % ids.len()
-                                } else {
-                                    (index + ids.len() - 1) % ids.len()
-                                };
-                                cx.editor
-                                    .switch(ids[next], helix_view::editor::Action::Replace);
-                            }
-                        }
+                        TerminalView::switch_buffer(cx.editor, forward);
                         compositor.sync_terminal_document(cx.editor);
                     })));
                 }
@@ -220,29 +228,11 @@ impl Component for TerminalView {
                                                 | "buffer_next"
                                                 | "buffer_previous"
                                         ) {
-                                            let current =
-                                                cx.editor.tree.get(cx.editor.tree.focus).doc;
-                                            let ids: Vec<_> =
-                                                cx.editor.documents.keys().copied().collect();
-                                            if let Some(index) =
-                                                ids.iter().position(|id| *id == current)
-                                            {
-                                                if ids.len() > 1 {
-                                                    let forward = matches!(
-                                                        command.name(),
-                                                        "primer_buffer_next" | "buffer_next"
-                                                    );
-                                                    let next = if forward {
-                                                        (index + 1) % ids.len()
-                                                    } else {
-                                                        (index + ids.len() - 1) % ids.len()
-                                                    };
-                                                    cx.editor.switch(
-                                                        ids[next],
-                                                        helix_view::editor::Action::Replace,
-                                                    );
-                                                }
-                                            }
+                                            let forward = matches!(
+                                                command.name(),
+                                                "primer_buffer_next" | "buffer_next"
+                                            );
+                                            TerminalView::switch_buffer(cx.editor, forward);
                                             compositor.sync_terminal_document(cx.editor);
                                             return;
                                         }
