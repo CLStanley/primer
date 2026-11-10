@@ -83,6 +83,10 @@ impl Component for TerminalView {
         }
         match event {
             Event::Key(key) => {
+                if key.code == KeyCode::Esc && key.modifiers.is_empty() {
+                    self.set_input_mode(TerminalInputMode::Normal);
+                    return EventResult::Consumed(None);
+                }
                 let prefix = key.code == KeyCode::Char('\\')
                     && key.modifiers.contains(KeyModifiers::CONTROL);
                 if self.escape_pending {
