@@ -4,6 +4,7 @@
 //! document. A later PTY-backed session manager will own process I/O and
 //! terminal screen state; editor tabs will hold `TerminalSessionId` handles.
 
+pub mod input;
 pub mod pty;
 pub mod render;
 pub mod runtime;
