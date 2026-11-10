@@ -3003,7 +3003,36 @@ const WRITE_NO_CODE_ACTIONS_FLAG: Flag = Flag {
     ..Flag::DEFAULT
 };
 
+/// Open an interactive PTY terminal as a compositor layer (tab integration follows).
+fn open_terminal(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+
+    let directory = current_workspace(cx);
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".to_owned());
+    let terminal = crate::terminal::runtime::RunningTerminal::spawn(
+        &shell, &[], &directory, 80, 24, 1000,
+    )?;
+    cx.jobs.callback(async move {
+        Ok(job::Callback::EditorCompositor(Box::new(
+            move |_editor: &mut Editor, compositor: &mut Compositor| {
+                compositor.push(Box::new(crate::ui::terminal::TerminalView::new(terminal)));
+            },
+        )))
+    });
+    Ok(())
+}
+
 pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
+    TypableCommand {
+        name: "terminal",
+        aliases: &["term"],
+        doc: "Open an interactive terminal (temporary compositor view).",
+        fun: open_terminal,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
     TypableCommand {
         name: "exit",
         aliases: &["x", "xit"],
