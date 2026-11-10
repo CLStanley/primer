@@ -3004,7 +3004,24 @@ const WRITE_NO_CODE_ACTIONS_FLAG: Flag = Flag {
 };
 
 /// Create a PTY-backed editor document with its own terminal session.
-fn open_terminal(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow::Result<()> {
+fn open_terminal(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    open_terminal_with_action(cx, args, event, Action::Replace)
+}
+
+fn open_terminal_vsplit(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    open_terminal_with_action(cx, args, event, Action::VerticalSplit)
+}
+
+fn open_terminal_hsplit(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    open_terminal_with_action(cx, args, event, Action::HorizontalSplit)
+}
+
+fn open_terminal_with_action(
+    cx: &mut compositor::Context,
+    _args: Args,
+    event: PromptEvent,
+    action: Action,
+) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {
         return Ok(());
     }
@@ -3018,7 +3035,7 @@ fn open_terminal(cx: &mut compositor::Context, _args: Args, event: PromptEvent) 
                     &shell, &[], &directory, 80, 24, 1000,
                 ) {
                     Ok(terminal) => {
-                        let id = editor.new_file(helix_view::editor::Action::Replace);
+                        let id = editor.new_file(action);
                         editor.terminal_documents.insert(id);
                         let shell_name = std::path::Path::new(&shell).file_name().and_then(|name| name.to_str()).unwrap_or("terminal");
                         let number = editor.terminal_names.len() + 1;
@@ -3039,6 +3056,22 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         aliases: &["term"],
         doc: "Create a new interactive terminal buffer.",
         fun: open_terminal,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "terminal-vsplit",
+        aliases: &[],
+        doc: "Open a new terminal in a vertical editor split.",
+        fun: open_terminal_vsplit,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "terminal-hsplit",
+        aliases: &[],
+        doc: "Open a new terminal in a horizontal editor split.",
+        fun: open_terminal_hsplit,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
     },
