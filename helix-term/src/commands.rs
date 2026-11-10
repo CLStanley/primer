@@ -422,6 +422,8 @@ impl MappableCommand {
         git_unstage_hunk, "Unstage Git hunk at cursor",
         git_revert_hunk, "Revert unstaged Git hunk with confirmation",
         git_repository_status, "Show Git repository status",
+        git_branch_picker, "Browse local Git branches",
+        git_create_branch, "Create local Git branch from HEAD",
         git_commit_staged, "Commit staged Git changes",
         select_references_to_symbol_under_cursor, "Select symbol references",
         workspace_symbol_picker, "Open workspace symbol picker",
@@ -4932,6 +4934,102 @@ fn git_revert_hunk(cx: &mut Context) {
         },
     );
     prompt.doc_fn = Box::new(|_| Some("Discard the unstaged change under your cursor. This cannot be undone through Git.\nType REVERT (uppercase) and press Enter to confirm, or Esc to cancel.\nStaged changes will be preserved.".into()));
+    prompt.recalculate_completion(cx.editor);
+    cx.push_layer(Box::new(prompt));
+}
+
+/// Resolve the Git root for the focused buffer without changing the process cwd.
+fn active_git_root(cx: &mut Context) -> Option<PathBuf> {
+    let dir = active_buffer_directory(cx.editor);
+    let output = std::process::Command::new("git")
+        .arg("-C").arg(&dir).args(["rev-parse", "--show-toplevel"]).output();
+    match output {
+        Ok(output) if output.status.success() => {
+            Some(PathBuf::from(String::from_utf8_lossy(&output.stdout).trim()))
+        }
+        _ => {
+            cx.editor.set_error("Active buffer is not inside a Git repository");
+            None
+        }
+    }
+}
+
+/// Browse local branches. Selecting one reports its name; switching is a separate,
+/// guarded operation to be introduced after buffer refresh support.
+fn git_branch_picker(cx: &mut Context) {
+    let Some(root) = active_git_root(cx) else { return };
+    let output = std::process::Command::new("git")
+        .arg("-C").arg(&root)
+        .args(["branch", "--list", "--format=%(HEAD)|%(refname:short)"])
+        .output();
+    let output = match output {
+        Ok(output) if output.status.success() => output,
+        Ok(output) => {
+            cx.editor.set_error(format!("Could not list Git branches: {}", String::from_utf8_lossy(&output.stderr)));
+            return;
+        }
+        Err(error) => {
+            cx.editor.set_error(format!("Could not list Git branches: {error}"));
+            return;
+        }
+    };
+    let branches: Vec<(bool, String)> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            let (marker, name) = line.split_once('|')?;
+            Some((marker.trim() == "*", name.to_owned()))
+        })
+        .collect();
+    let columns = [
+        PickerColumn::new("current", |branch: &(bool, String), _| {
+            if branch.0 { "*".into() } else { "".into() }
+        }),
+        PickerColumn::new("branch", |branch: &(bool, String), _| {
+            branch.1.clone().into()
+        }),
+    ];
+    let picker = Picker::new(columns, 1, branches, (), |cx, branch: &(bool, String), _| {
+        cx.editor.set_status(format!("Branch: {}{}", branch.1, if branch.0 { " (current)" } else { "" }));
+    });
+    cx.push_layer(Box::new(overlaid(picker)));
+}
+
+/// Create a local branch from HEAD without switching away from the current branch.
+fn git_create_branch(cx: &mut Context) {
+    let Some(root) = active_git_root(cx) else { return };
+    let mut prompt = Prompt::new(
+        "New Git branch name: ".into(),
+        None,
+        ui::completers::none,
+        move |cx, input, event| {
+            if event != PromptEvent::Validate { return; }
+            let name = input.trim();
+            if name.is_empty() {
+                cx.editor.set_error("Branch name cannot be empty");
+                return;
+            }
+            let name = name.to_owned();
+            let root = root.clone();
+            cx.editor.set_status("Creating Git branch…");
+            cx.jobs.callback(async move {
+                let output = tokio::process::Command::new("git")
+                    .arg("-C").arg(&root).args(["branch", "--"]).arg(&name)
+                    .output().await?;
+                let result = if output.status.success() {
+                    Ok(format!("Created branch {name} (not switched)"))
+                } else {
+                    Err(format!("Git branch creation failed: {}", String::from_utf8_lossy(&output.stderr).trim()))
+                };
+                Ok(Callback::EditorCompositor(Box::new(move |editor, _| {
+                    match result {
+                        Ok(message) => editor.set_status(message),
+                        Err(message) => editor.set_error(message),
+                    }
+                })))
+            });
+        },
+    );
+    prompt.doc_fn = Box::new(|_| Some("Creates a new local branch from the current HEAD without switching branches.\nPress Enter to create, or Esc to cancel.".into()));
     prompt.recalculate_completion(cx.editor);
     cx.push_layer(Box::new(prompt));
 }
