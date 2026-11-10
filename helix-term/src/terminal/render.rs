@@ -4,7 +4,7 @@
 //! It clips all output to the assigned pane and leaves editor focus handling
 //! to the future terminal view integration.
 
-use helix_view::graphics::{Rect, Style};
+use helix_view::graphics::{Color, Modifier, Rect, Style};
 use tui::buffer::Buffer;
 
 use super::screen::TerminalScreen;
@@ -43,8 +43,37 @@ pub fn render_terminal(
                 continue;
             }
             let remaining = (width - col) as usize;
-            surface.set_stringn(area.x + col, area.y + row, &contents, remaining, style);
+            let mut cell_style = style;
+            if let Some(fg) = vt_color(cell.fgcolor()) {
+                cell_style = cell_style.fg(fg);
+            }
+            if let Some(bg) = vt_color(cell.bgcolor()) {
+                cell_style = cell_style.bg(bg);
+            }
+            if cell.bold() {
+                cell_style = cell_style.add_modifier(Modifier::BOLD);
+            }
+            if cell.italic() {
+                cell_style = cell_style.add_modifier(Modifier::ITALIC);
+            }
+            if cell.underline() {
+                cell_style = cell_style.add_modifier(Modifier::UNDERLINED);
+            }
+            if cell.inverse() {
+                let fg = cell_style.fg;
+                cell_style.fg = cell_style.bg;
+                cell_style.bg = fg;
+            }
+            surface.set_stringn(area.x + col, area.y + row, &contents, remaining, cell_style);
         }
+    }
+}
+
+fn vt_color(color: vt100::Color) -> Option<Color> {
+    match color {
+        vt100::Color::Default => None,
+        vt100::Color::Idx(index) => Some(Color::Indexed(index)),
+        vt100::Color::Rgb(r, g, b) => Some(Color::Rgb(r, g, b)),
     }
 }
 
