@@ -690,13 +690,15 @@ impl EditorView {
             .unwrap_or_else(|| editor.theme.get("ui.statusline"));
 
         for doc in editor.documents() {
-            let fname = doc
-                .path()
-                .unwrap_or(&scratch)
-                .file_name()
-                .unwrap_or_default()
-                .to_str()
-                .unwrap_or_default();
+            let fname = if editor.terminal_documents.contains(&doc.id()) {
+                std::env::var("SHELL").ok()
+                    .and_then(|shell| PathBuf::from(shell).file_name().map(|name| name.to_string_lossy().into_owned()))
+                    .unwrap_or_else(|| "terminal".to_owned())
+            } else {
+                doc.path().unwrap_or(&scratch)
+                    .file_name().unwrap_or_default()
+                    .to_string_lossy().into_owned()
+            };
 
             let active = current_doc == doc.id();
             // Buffer tabs use color and weight for selection, not underlining.
