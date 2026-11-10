@@ -9,7 +9,7 @@ use crate::terminal::input::encode_key;
 use crate::terminal::TerminalInputMode;
 use helix_view::keyboard::{KeyCode, KeyModifiers};
 use crate::terminal::{render::render_terminal, runtime::RunningTerminal};
-use helix_view::graphics::{Rect, CursorKind, Color, Modifier};
+use helix_view::graphics::{Rect, CursorKind, Color, Modifier, UnderlineStyle};
 use helix_core::Position;
 use tui::buffer::Buffer;
 
@@ -190,7 +190,8 @@ impl Component for TerminalView {
                 .unwrap_or_else(|| cx.editor.theme.get("ui.statusline.active"))
                 .bg(cx.editor.theme.get("ui.statusline.normal").bg.unwrap_or(Color::Rgb(183, 156, 222)))
                 .fg(cx.editor.theme.get("ui.statusline.normal").fg.unwrap_or(Color::Rgb(29, 22, 43)))
-                .add_modifier(Modifier::BOLD);
+                .add_modifier(Modifier::BOLD)
+                .underline_style(UnderlineStyle::Reset);
             surface.set_style(tab, background);
             let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".into());
             let name = std::path::Path::new(&shell)
@@ -224,19 +225,26 @@ impl Component for TerminalView {
             }).unwrap_or_else(|| cx.editor.theme.get("ui.statusline.active"))
               .add_modifier(Modifier::BOLD);
             let mode_text = format!("   {mode_name}  ");
-            surface.set_stringn(status.x, status.y, &mode_text, status.width as usize, mode_style);
+            let mode_bg = mode_style.bg.unwrap_or(Color::Rgb(183, 156, 222));
+            let mut mode_x = status.x;
+            mode_x = surface.set_stringn(mode_x, status.y, "", status.width as usize, base.fg(mode_bg)).0;
+            mode_x = surface.set_stringn(mode_x, status.y, &mode_text, status.right().saturating_sub(mode_x) as usize, mode_style).0;
+            surface.set_stringn(mode_x, status.y, "", status.right().saturating_sub(mode_x) as usize, base.fg(mode_bg));
 
             let (columns, rows) = self.terminal.screen().size();
             let dimensions = format!(" {columns}×{rows} ");
             let shell_text = format!("  {name} ");
-            let shell_style = cx.editor.theme.get("ui.statusline.active").add_modifier(Modifier::BOLD);
-            let shell_width = shell_text.chars().count() as u16;
+            let shell_style = cx.editor.theme.get("ui.statusline.normal").add_modifier(Modifier::BOLD);
+            let shell_width = shell_text.chars().count() as u16 + 2;
             let dim_width = dimensions.chars().count() as u16;
             if status.width > shell_width + dim_width + mode_text.chars().count() as u16 {
                 let shell_x = status.right() - shell_width;
                 let dim_x = shell_x - dim_width;
                 surface.set_stringn(dim_x, status.y, &dimensions, dim_width as usize, base);
-                surface.set_stringn(shell_x, status.y, &shell_text, shell_width as usize, shell_style);
+                let shell_bg = shell_style.bg.unwrap_or(Color::Rgb(183, 156, 222));
+                surface.set_stringn(shell_x, status.y, "", 1, base.fg(shell_bg));
+                surface.set_stringn(shell_x + 1, status.y, &shell_text, shell_text.chars().count(), shell_style);
+                surface.set_stringn(status.right() - 1, status.y, "", 1, base.fg(shell_bg));
             }
 
             let command = Rect::new(area.x, area.y + area.height - 1, area.width, 1);
