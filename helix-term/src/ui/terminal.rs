@@ -79,6 +79,26 @@ impl Component for TerminalView {
     fn handle_event(&mut self, event: &Event, ctx: &mut Context) -> EventResult {
         if self.input_mode == TerminalInputMode::Normal {
             if let Event::Key(key) = event {
+                    // Terminal Normal Mode shares the editor's buffer navigation.
+                    // Terminals may report shifted letters with a SHIFT modifier.
+                    if self.close_sequence == 0
+                        && (key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT)
+                        && matches!(key.code, KeyCode::Char('H') | KeyCode::Char('L'))
+                    {
+                        let forward = key.code == KeyCode::Char('L');
+                        return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+                            let current = cx.editor.tree.get(cx.editor.tree.focus).doc;
+                            let ids: Vec<_> = cx.editor.documents.keys().copied().collect();
+                            if let Some(index) = ids.iter().position(|id| *id == current) {
+                                if ids.len() > 1 {
+                                    let next = if forward { (index + 1) % ids.len() }
+                                        else { (index + ids.len() - 1) % ids.len() };
+                                    cx.editor.switch(ids[next], helix_view::editor::Action::Replace);
+                                }
+                            }
+                            compositor.sync_terminal_document(cx.editor);
+                        })));
+                    }
                 if key.modifiers.is_empty() {
                     if self.confirm_close {
                         self.confirm_close = false;
@@ -103,26 +123,6 @@ impl Component for TerminalView {
                             })));
                         }
                         return EventResult::Consumed(None);
-                    }
-                    // Terminal Normal Mode shares the editor's buffer navigation
-                    // shortcuts. Reveal the editor when moving away from the PTY;
-                    // the terminal session remains alive for a later return.
-                    if self.close_sequence == 0
-                        && matches!(key.code, KeyCode::Char('H') | KeyCode::Char('L'))
-                    {
-                        let forward = key.code == KeyCode::Char('L');
-                        return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
-                            let current = cx.editor.tree.get(cx.editor.tree.focus).doc;
-                            let ids: Vec<_> = cx.editor.documents.keys().copied().collect();
-                            if let Some(index) = ids.iter().position(|id| *id == current) {
-                                if ids.len() > 1 {
-                                    let next = if forward { (index + 1) % ids.len() }
-                                        else { (index + ids.len() - 1) % ids.len() };
-                                    cx.editor.switch(ids[next], helix_view::editor::Action::Replace);
-                                }
-                            }
-                            compositor.sync_terminal_document(cx.editor);
-                        })));
                     }
                     // Let Primer's real editor command-line keymap open the
                     // prompt. The prompt becomes the top compositor layer, so
