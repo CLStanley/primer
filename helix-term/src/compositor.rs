@@ -221,7 +221,16 @@ impl Compositor {
     }
 
     pub fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
-        for layer in &mut self.layers {
+        // A parked terminal is a live session, not a background image.
+        // Rendering it behind transparent editor buffers leaks its old
+        // contents through scratch buffers and creates overlapping chrome.
+        let editor_kind = std::any::type_name::<crate::ui::EditorView>();
+        let terminal_kind = std::any::type_name::<crate::ui::terminal::TerminalView>();
+        let editor_index = self.layers.iter().position(|layer| layer.type_name() == editor_kind);
+        for (index, layer) in self.layers.iter_mut().enumerate() {
+            if layer.type_name() == terminal_kind && editor_index.is_some_and(|editor| index < editor) {
+                continue;
+            }
             layer.render(area, surface, cx);
         }
     }
