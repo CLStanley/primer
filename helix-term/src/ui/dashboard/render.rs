@@ -147,7 +147,7 @@ pub fn render_dashboard(
         draw_line("PRIMER", x, top, 6, logo_style);
     }
 
-    let motto = "A sound soul dwells within a sound mind and a sound body...";
+    let motto = "A  soul dwells within a sound mind and a sound body...";
     if area.width >= motto.len() as u16 {
         let motto_x = area.x + (area.width - motto.len() as u16) / 2;
         draw_line(
