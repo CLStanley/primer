@@ -462,7 +462,10 @@ where
 {
     let file_type = context.doc.language_name().unwrap_or(DEFAULT_LANGUAGE_NAME);
 
-    let style = context.editor.theme.get("ui.statusline.select");
+    // Use the theme's normal-mode accent for the pill, and its informational
+    // foreground (typically blue) for the language label.
+    let mut style = context.editor.theme.get("ui.statusline.normal");
+    style.fg = context.editor.theme.get("info").fg.or(style.fg);
     if context.editor.config().statusline_powerline {
         if let Some(background) = style.bg {
             write(context, Span::from(" "));
@@ -576,7 +579,7 @@ where
         .to_string();
 
     if !head.is_empty() {
-        let style = context.editor.theme.get("ui.statusline.select");
+        let style = context.editor.theme.get("ui.statusline.normal");
         if context.editor.config().statusline_powerline {
             if let Some(background) = style.bg {
                 write(context, Span::from(" "));
