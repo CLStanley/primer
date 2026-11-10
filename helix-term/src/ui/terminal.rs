@@ -249,6 +249,19 @@ impl Component for TerminalView {
                                             compositor.sync_terminal_document(cx.editor);
                                             return;
                                         }
+                                        // Closing a split is different from killing
+                                        // its PTY-backed buffer. Keep the session alive
+                                        // so it remains available in the bufferline.
+                                        if command.name() == "wclose" {
+                                            let view_id = cx.editor.tree.focus;
+                                            if cx.editor.tree.views().count() > 1 {
+                                                cx.editor.close(view_id);
+                                                compositor.sync_terminal_document(cx.editor);
+                                            } else {
+                                                cx.editor.set_status("Cannot close the last pane");
+                                            }
+                                            return;
+                                        }
                                         // Editor-wide commands, including creating a
                                         // new PTY, work from terminal Normal Mode.
                                         if matches!(
