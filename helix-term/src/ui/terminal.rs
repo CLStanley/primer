@@ -170,6 +170,17 @@ impl Component for TerminalView {
                                             terminal.close_sequence = 0;
                                         }
                                         cx.editor.autoinfo = None;
+                                        // Switching away from the terminal should
+                                        // reveal the editor's currently selected buffer.
+                                        // The PTY remains parked and can be resumed
+                                        // with :terminal.
+                                        if matches!(command.name(),
+                                            "primer_buffer_next" | "primer_buffer_previous"
+                                            | "buffer_next" | "buffer_previous"
+                                        ) {
+                                            compositor.park_below_editor::<TerminalView>();
+                                            return;
+                                        }
                                         // Only editor-wide UI actions are safe until
                                         // terminal sessions become real editor buffers.
                                         if matches!(command.name(),
