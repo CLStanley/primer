@@ -1,27 +1,35 @@
-# Primer embedded terminal integration
+# Primer terminal buffers and terminal mode
 
 ## Goal
-Provide a reusable terminal workflow inside Primer, starting with Lazygit, without reimplementing advanced Git features.
+Make interactive PTY sessions first-class Primer tabs and split panes, starting with a shell and Lazygit. Floating terminals are an optional presentation added later.
 
-## Design principles
-- Preserve Helix/Primer editing behavior and keybindings outside terminal focus.
-- Use a real pseudo-terminal (PTY) for interactive TUI programs.
-- Keep terminal process lifecycle, resize handling, and input routing explicit.
-- Preserve the existing theme and popup conventions.
-- Support launching tools in the active repository or buffer directory.
-- Never silently lose terminal sessions or editor buffer changes.
+## Architecture decisions
+- **Terminal session:** owns a PTY master, child process, terminal emulator screen, and lifecycle. Use a proven VT parser/emulator rather than interpreting escape sequences ourselves.
+- **Terminal buffer identity:** a terminal tab references a session ID; it is not a text Document or a saveable file. Avoid forcing PTY output through Rope or the LSP/document pipeline.
+- **View integration:** render terminal screen cells in the existing editor surface; support resize from the pane dimensions, redraw on output, and preserve sessions when switching tabs.
+- **Input modes:** focused terminal starts in Terminal Mode, forwarding keys (including Escape) to the PTY. A dedicated escape chord returns to Primer navigation. Normal mode retains buffer/tab/split commands.
+- **Safety:** closing a running session asks before terminating it; never auto-save file buffers or kill background sessions when changing focus.
+- **Working directory:** new terminals start in the active buffer's repository root or parent directory, with a fallback to the editor launch directory.
+- **Lazygit:** launch in a terminal session, not through a separate custom Git UI.
 
-## Implementation phases
-1. Audit existing terminal/compositor support and choose a PTY library or reusable subsystem.
-2. Implement one managed terminal session with process spawning, input, output, resizing, and cleanup.
-3. Render a floating terminal popup with keyboard focus and reliable escape/close behavior.
-4. Add a command to launch Lazygit in the active repository.
-5. Test alternate screen, colors, mouse input, Unicode, shell exit, and terminal resize.
-6. Consider bottom splits, multiple persistent sessions, and other TUIs only after the first implementation is stable.
+## Implementation milestones
+1. **Foundation:** define terminal session and buffer/view ownership boundaries; choose PTY and VT emulator dependencies; add focused tests for lifecycle.
+2. **First interactive shell:** create PTY, spawn shell, forward keyboard input, render output, handle resize and exit.
+3. **Terminal Mode:** distinguish editor navigation from PTY input; implement a documented escape chord and mode indicator.
+4. **Tabs and splits:** integrate terminal session handles with view focus, close, and tab navigation.
+5. **Lazygit command:** open Lazygit in the active repository, return to editor without losing other sessions.
+6. **Hardening:** alternate screen, mouse, Unicode, colors, scrollback, shell exit, resize, and editor Git refresh.
+7. **Optional:** floating terminal presentation and multiple reusable terminal sessions.
 
-## Initial acceptance criteria
-- Open Lazygit from Primer without leaving the editor.
-- Navigate Lazygit normally, then return to the original editor buffer.
-- Git working tree changes become visible when returning to Primer.
-- Terminal failures show useful errors without crashing the editor.
-- Build and interactive tests pass before merging.
+## Acceptance criteria for first usable release
+- Open an interactive shell as a Primer tab.
+- Enter Terminal Mode automatically when focused; return to editor navigation with Ctrl-\\ followed by Ctrl-n.
+- Switch to another file tab and back without killing the shell.
+- Launch Lazygit in a terminal tab, navigate it, and exit safely.
+- Handle terminal process exit and resize without crashing.
+- Build and test on Linux before expanding platform support.
+
+## Out of scope for the first iteration
+- Replacing Primer's existing text buffer implementation with terminal output.
+- Reimplementing Lazygit operations.
+- Terminal multiplexing, detachable sessions, and floating overlays.
