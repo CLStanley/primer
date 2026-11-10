@@ -5000,9 +5000,15 @@ fn git_branch_picker(cx: &mut Context) {
             .output();
         match output {
             Ok(output) if output.status.success() => {
-                cx.editor.set_status(format!(
-                    "Switched to {name}. Reload open file buffers to see branch contents."
-                ));
+                let command = typed::TYPABLE_COMMAND_MAP
+                    .get("reload-all")
+                    .expect("reload-all command exists");
+                match typed::execute_command(cx, command, "", PromptEvent::Validate) {
+                    Ok(()) => cx.editor.set_status(format!("Switched to {name}; buffers refreshed")),
+                    Err(error) => cx.editor.set_error(format!(
+                        "Switched to {name}, but buffer refresh failed: {error}"
+                    )),
+                }
             }
             Ok(output) => cx.editor.set_error(format!(
                 "Could not switch to {name}: {}",
