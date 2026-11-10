@@ -4,6 +4,7 @@
 //! must call `drain_output` to apply queued bytes to the screen; the reader
 //! never mutates UI state. Rendering and editor wakeups are separate work.
 
+use std::io::Read;
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::thread;
@@ -58,6 +59,12 @@ impl RunningTerminal {
                             }
                         }
                         Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                        // Linux PTY masters commonly report EIO after the slave exits.
+                        #[cfg(unix)]
+                        Err(error) if error.raw_os_error() == Some(libc::EIO) => {
+                            let _ = sender.send(OutputEvent::Closed);
+                            break;
+                        },
                         Err(error) => {
                             let _ = sender.send(OutputEvent::Error(error.to_string()));
                             break;
