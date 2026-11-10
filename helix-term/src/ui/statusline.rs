@@ -4,7 +4,7 @@ use helix_lsp::lsp::DiagnosticSeverity;
 use helix_view::document::DEFAULT_LANGUAGE_NAME;
 use helix_view::{
     document::{Mode, SCRATCH_BUFFER_NAME},
-    graphics::Rect,
+    graphics::{Color, Rect},
     theme::Style,
     Document, Editor, View,
 };
@@ -51,11 +51,14 @@ pub struct RenderBuffer<'a> {
 }
 
 pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface) {
-    let base_style = if context.focused {
+    // Keep the statusline itself transparent. Individual pills provide their
+    // own backgrounds; Color::Reset clears any previously painted row color.
+    let mut base_style = if context.focused {
         context.editor.theme.get("ui.statusline")
     } else {
         context.editor.theme.get("ui.statusline.inactive")
     };
+    base_style.bg = Some(Color::Reset);
 
     surface.set_style(viewport.with_height(1), base_style);
 
@@ -67,6 +70,17 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
         let render = get_render_function(*element_id);
         (render)(context, |context, span| {
             append(&mut context.parts.left, span, base_style)
+        });
+    }
+
+    // Preserve branch visibility for existing user statusline layouts that
+    // override the default and omit the version-control element.
+    if !config.statusline.left.contains(&StatusLineElementID::VersionControl)
+        && !config.statusline.center.contains(&StatusLineElementID::VersionControl)
+        && !config.statusline.right.contains(&StatusLineElementID::VersionControl)
+    {
+        render_version_control(context, |context, span| {
+            append(&mut context.parts.right, span, base_style)
         });
     }
 
@@ -451,7 +465,20 @@ where
 {
     let file_type = context.doc.language_name().unwrap_or(DEFAULT_LANGUAGE_NAME);
 
-    write(context, format!(" {} ", file_type).into());
+    // Use the theme's normal-mode accent for the pill, and its informational
+    // foreground (typically blue) for the language label.
+    let mut style = context.editor.theme.get("ui.statusline.normal");
+    style.fg = context.editor.theme.get("ui.statusline.normal").fg.or(style.fg);
+    if context.editor.config().statusline_powerline {
+        if let Some(background) = style.bg {
+            write(context, Span::from(" "));
+            write(context, Span::styled("", Style::default().fg(background)));
+            write(context, Span::styled(format!(" {file_type} "), style));
+            write(context, Span::styled("", Style::default().fg(background)));
+            return;
+        }
+    }
+    write(context, Span::styled(format!(" {file_type} "), style));
 }
 
 fn render_file_name<'a, F>(context: &mut RenderContext<'a>, write: F)
@@ -554,7 +581,19 @@ where
         .unwrap_or_default()
         .to_string();
 
-    write(context, head.into());
+    if !head.is_empty() {
+        let style = context.editor.theme.get("ui.statusline.normal");
+        if context.editor.config().statusline_powerline {
+            if let Some(background) = style.bg {
+                write(context, Span::from(" "));
+                write(context, Span::styled("", Style::default().fg(background)));
+                write(context, Span::styled(format!("  {head} "), style));
+                write(context, Span::styled("", Style::default().fg(background)));
+                return;
+            }
+        }
+        write(context, Span::styled(format!("   {head} "), style));
+    }
 }
 
 fn render_register<'a, F>(context: &mut RenderContext<'a>, write: F)

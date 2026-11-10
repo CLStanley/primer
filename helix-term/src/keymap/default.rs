@@ -291,6 +291,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "n" => primer_buffer_next,
                 "N" => primer_buffer_new,
                 "q" => primer_buffer_close,
+                "r" => primer_buffer_reload,
             },
             "n" => { "Notes"
                 "a" => primer_agenda,
@@ -327,6 +328,18 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "D" => workspace_diagnostics_picker,
             "g" => { "Git"
                 "c" => changed_file_picker,
+                "t" => git_repository_status,
+                "B" => git_branch_picker,
+                "n" => git_create_branch,
+                "m" => git_commit_staged,
+                "p" => git_preview_change,
+                "b" => git_blame_line,
+                "i" => git_toggle_inline_blame,
+                "s" => git_stage_hunk,
+                "S" => git_stage_all,
+                "U" => git_unstage_all,
+                "u" => git_unstage_hunk,
+                "r" => git_revert_hunk,
             },
             "a" => code_action,
             "l" => { "Language"

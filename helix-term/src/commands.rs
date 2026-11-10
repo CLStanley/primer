@@ -413,6 +413,18 @@ impl MappableCommand {
         syntax_symbol_picker, "Open symbol picker from syntax information",
         lsp_or_syntax_symbol_picker, "Open symbol picker from LSP or syntax information",
         changed_file_picker, "Open changed file picker",
+        git_preview_change, "Preview previous Git change at cursor",
+        git_blame_line, "Show Git blame for current line",
+        git_toggle_inline_blame, "Toggle inline Git blame",
+        git_stage_hunk, "Stage Git hunk at cursor",
+        git_stage_all, "Stage all changes in active Git repository",
+        git_unstage_all, "Unstage all changes in active Git repository",
+        git_unstage_hunk, "Unstage Git hunk at cursor",
+        git_revert_hunk, "Revert unstaged Git hunk with confirmation",
+        git_repository_status, "Show Git repository status",
+        git_branch_picker, "Browse local Git branches",
+        git_create_branch, "Create local Git branch from HEAD",
+        git_commit_staged, "Commit staged Git changes",
         select_references_to_symbol_under_cursor, "Select symbol references",
         workspace_symbol_picker, "Open workspace symbol picker",
         syntax_workspace_symbol_picker, "Open workspace symbol picker from syntax information",
@@ -448,6 +460,7 @@ impl MappableCommand {
         primer_buffer_next, "Next buffer",
         primer_buffer_new, "New empty buffer",
         primer_buffer_close, "Close current buffer",
+        primer_buffer_reload, "Reload current buffer from disk",
         primer_notes_find, "Search all notes in your notebook by filename",
         primer_agenda, "Browse open todos, events, and reminders by date",
         primer_agenda_new_todo, "Create a todo with an optional due date",
@@ -3580,7 +3593,7 @@ fn file_picker_in_current_buffer_directory(cx: &mut Context) {
 }
 
 fn file_picker_in_current_directory(cx: &mut Context) {
-    let cwd = helix_stdx::env::current_working_dir();
+    let cwd = active_buffer_directory(cx.editor);
     if !cwd.exists() {
         cx.editor
             .set_error("Current working directory does not exist");
@@ -3855,6 +3868,15 @@ fn jumplist_picker(cx: &mut Context) {
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
+/// Directory context follows the focused file; unnamed buffers inherit the launch directory.
+fn active_buffer_directory(editor: &mut Editor) -> PathBuf {
+    let (view, doc) = current!(editor);
+    let _ = view;
+    doc.path()
+        .and_then(|path| path.parent().map(ToOwned::to_owned))
+        .unwrap_or_else(helix_stdx::env::current_working_dir)
+}
+
 fn changed_file_picker(cx: &mut Context) {
     pub struct FileChangeData {
         cwd: PathBuf,
@@ -3865,7 +3887,17 @@ fn changed_file_picker(cx: &mut Context) {
         style_renamed: Style,
     }
 
-    let cwd = helix_stdx::env::current_working_dir();
+    let active_dir = active_buffer_directory(cx.editor);
+    let cwd = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&active_dir)
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|root| PathBuf::from(root.trim()))
+        .unwrap_or(active_dir);
     if !cwd.exists() {
         cx.editor
             .set_error("Current working directory does not exist");
@@ -4467,6 +4499,44 @@ fn primer_buffer_new(cx: &mut Context) {
     cx.editor.new_file(Action::Replace);
 }
 
+/// Reload the current buffer from disk. Ask before discarding unsaved edits.
+fn primer_buffer_reload(cx: &mut Context) {
+    let modified = {
+        let (_, doc) = current!(cx.editor);
+        if doc.path().is_none() {
+            cx.editor.set_status("This buffer has no file to reload");
+            return;
+        }
+        doc.is_modified()
+    };
+    if !modified {
+        MappableCommand::Typable {
+            name: "reload".to_owned(),
+            args: String::new(),
+            doc: "Reload current buffer from disk".to_owned(),
+        }.execute(cx);
+        return;
+    }
+    let mut prompt = Prompt::new(
+        "Reload buffer? Type RELOAD to discard unsaved changes: ".into(),
+        None,
+        ui::completers::none,
+        move |cx, input, event| {
+            if event != PromptEvent::Validate { return; }
+            if input.trim() != "RELOAD" {
+                cx.editor.set_status("Buffer reload cancelled");
+                return;
+            }
+            let command = typed::TYPABLE_COMMAND_MAP.get("reload").expect("reload command exists");
+            if let Err(err) = typed::execute_command(cx, command, "", PromptEvent::Validate) {
+                cx.editor.set_error(format!("Buffer reload failed: {err}"));
+            }
+        },
+    );
+    prompt.doc_fn = Box::new(|_| Some("This buffer has unsaved edits. Reloading will discard them.\nType RELOAD and press Enter to confirm, or Esc to cancel.".into()));
+    cx.push_layer(Box::new(prompt));
+}
+
 fn primer_buffer_close(cx: &mut Context) {
     let id = view!(cx.editor).doc;
     let last_buffer = cx.editor.documents().count() == 1;
@@ -4661,6 +4731,889 @@ fn goto_first_change_impl(cx: &mut Context, reverse: bool) {
             doc.set_selection(view.id, Selection::single(range.anchor, range.head));
         }
     }
+}
+
+/// Show the original Git content of the change under the cursor without editing the buffer.
+/// Split an original line into unchanged prefix, removed/replaced text, and unchanged suffix.
+/// Operates on Unicode scalar values to avoid splitting UTF-8 code points.
+fn git_change_segments(original: &str, current: &str) -> (String, String, String) {
+    let old: Vec<char> = original.chars().collect();
+    let new: Vec<char> = current.chars().collect();
+    let prefix = old.iter().zip(new.iter()).take_while(|(a, b)| a == b).count();
+    let suffix = old[prefix..]
+        .iter()
+        .rev()
+        .zip(new[prefix..].iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    (
+        old[..prefix].iter().collect(),
+        old[prefix..old.len() - suffix].iter().collect(),
+        old[old.len() - suffix..].iter().collect(),
+    )
+}
+
+/// Show the last committed change for the cursor line.
+/// Git blame refers to the saved file, so unsaved edits are not included.
+/// Toggle cached inline blame for the current file. One asynchronous Git invocation
+/// retrieves the whole file, so cursor movement only selects a cached annotation.
+/// Parse a unified diff and isolate the hunk covering a one-based cursor line.
+/// Git's context may combine adjacent edits into one hunk.
+fn git_patch_for_line(diff: &str, line: usize) -> anyhow::Result<String> {
+    let mut header = String::new();
+    let mut hunks: Vec<(usize, usize, String)> = Vec::new();
+    let mut current: Option<(usize, usize, String)> = None;
+    for row in diff.split_inclusive('\n') {
+        if row.starts_with("@@ ") {
+            if let Some(hunk) = current.take() {
+                hunks.push(hunk);
+            }
+            let new_range = row.split_whitespace().nth(2).context("Malformed Git hunk")?;
+            let range = new_range.strip_prefix('+').context("Missing new range")?;
+            let (start, count) = range.split_once(',').unwrap_or((range, "1"));
+            current = Some((start.parse()?, count.parse()?, row.to_owned()));
+        } else if let Some((_, _, body)) = current.as_mut() {
+            body.push_str(row);
+        } else {
+            header.push_str(row);
+        }
+    }
+    if let Some(hunk) = current {
+        hunks.push(hunk);
+    }
+    let selected = hunks.into_iter().find(|(start, count, _)| {
+        if *count == 0 {
+            line == *start || line == start.saturating_add(1)
+        } else {
+            line >= *start && line < start.saturating_add(*count)
+        }
+    }).context("No Git hunk at cursor (the change may be unstaged or already staged)")?;
+    Ok(format!("{header}{}", selected.2))
+}
+
+/// Apply one Git-generated patch hunk to the index. Never changes the worktree.
+fn git_index_hunk(path: std::path::PathBuf, line: usize, unstage: bool) -> anyhow::Result<()> {
+    use std::io::Write;
+    let directory = path.parent().context("File has no parent directory")?;
+    let mut diff_cmd = std::process::Command::new("git");
+    diff_cmd.arg("-C").arg(directory).args(["diff", "--no-ext-diff", "--no-color", "--unified=3"]);
+    if unstage {
+        diff_cmd.arg("--cached");
+    }
+    let diff = diff_cmd.arg("--").arg(&path).output()?;
+    ensure!(diff.status.success(), "Git diff failed: {}", String::from_utf8_lossy(&diff.stderr));
+    let patch = git_patch_for_line(&String::from_utf8(diff.stdout)?, line)?;
+    let mut apply = std::process::Command::new("git");
+    apply.arg("-C").arg(directory).args(["apply", "--cached"]);
+    if unstage {
+        apply.arg("--reverse");
+    }
+    let mut child = apply
+        .arg("--")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    child.stdin.take().context("Unable to open git apply stdin")?.write_all(patch.as_bytes())?;
+    let output = child.wait_with_output()?;
+    ensure!(output.status.success(), "Git apply failed: {}", String::from_utf8_lossy(&output.stderr));
+    Ok(())
+}
+
+/// Discard only the unstaged Git hunk at the cursor, leaving the index unchanged.
+/// This is destructive; callers must obtain explicit confirmation first.
+fn git_revert_worktree_hunk(path: std::path::PathBuf, line: usize) -> anyhow::Result<()> {
+    use std::io::Write;
+    let directory = path.parent().context("File has no parent directory")?;
+    let diff = std::process::Command::new("git")
+        .arg("-C").arg(directory)
+        .args(["diff", "--no-ext-diff", "--no-color", "--unified=3", "--"])
+        .arg(&path).output()?;
+    ensure!(diff.status.success(), "Git diff failed: {}", String::from_utf8_lossy(&diff.stderr));
+    let patch = git_patch_for_line(&String::from_utf8(diff.stdout)?, line)?;
+    let mut apply = std::process::Command::new("git")
+        .arg("-C").arg(directory)
+        .args(["apply", "--reverse", "--"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    apply.stdin.take().context("Unable to write Git patch")?.write_all(patch.as_bytes())?;
+    let output = apply.wait_with_output()?;
+    ensure!(output.status.success(), "Git revert failed: {}", String::from_utf8_lossy(&output.stderr));
+    Ok(())
+}
+
+fn git_revert_hunk(cx: &mut Context) {
+    let (path, line, version) = {
+        let (view, doc) = current!(cx.editor);
+        let Some(path) = doc.path() else {
+            cx.editor.set_error("Reverting a Git hunk requires a tracked file");
+            return;
+        };
+        if doc.is_modified() {
+            cx.editor.set_error("Save your file before reverting a hunk");
+            return;
+        }
+        (path.to_path_buf(), doc.selection(view.id).primary().cursor_line(doc.text().slice(..)) + 1, doc.version())
+    };
+    // Capture the on-disk file before showing the destructive confirmation.
+    // If an external process edits it while the prompt is open, abort instead
+    // of selecting a potentially different hunk at the same line.
+    let original_bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            cx.editor.set_error(format!("Cannot read file before revert: {err}"));
+            return;
+        }
+    };
+    let options: Vec<(&'static str, &'static str)> = vec![
+        ("Revert Hunk", "Permanently discard the unstaged change under the cursor; staged changes stay intact"),
+        ("Cancel", "Keep the file and all Git changes unchanged"),
+    ];
+    let picker = Picker::new(
+        [PickerColumn::new("Choice", |option: &(&'static str, &'static str), _| {
+            format!("{} — {}", option.0, option.1).into()
+        })],
+        0, options, (),
+        move |cx, option: &(&'static str, &'static str), _| {
+            if option.0 != "Revert Hunk" {
+                cx.editor.set_status("Git hunk revert cancelled");
+                return;
+            }
+            // Reject if the file was edited while the confirmation prompt was open.
+            if let Some(doc) = cx.editor.document_by_path_mut(&path) {
+                if doc.is_modified() || doc.version() != version {
+                    cx.editor.set_error("File changed since revert was requested; cancel and retry");
+                    return;
+                }
+            } else {
+                cx.editor.set_error("Original file is no longer open");
+                return;
+            }
+            let path = path.clone();
+            cx.editor.set_status("Reverting unstaged Git hunk…");
+            let expected_bytes = original_bytes.clone();
+            cx.jobs.callback(async move {
+                let work_path = path.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    ensure!(std::fs::read(&work_path)? == expected_bytes, "File changed on disk since revert was requested; retry");
+                    git_revert_worktree_hunk(work_path, line)
+                }).await;
+                let outcome = match result {
+                    Ok(value) => value.map_err(|err| err.to_string()),
+                    Err(err) => Err(err.to_string()),
+                };
+                Ok(Callback::EditorCompositor(Box::new(move |editor, _| {
+                    if let Err(message) = outcome {
+                        editor.set_error(message);
+                        return;
+                    }
+                    let Some(doc) = editor.document_by_path(&path) else {
+                        editor.set_status("Git hunk reverted on disk; buffer was closed");
+                        return;
+                    };
+                    if doc.is_modified() || doc.version() != version {
+                        editor.set_status("Git hunk reverted on disk; newer buffer edits preserved. Reload manually when ready.");
+                        return;
+                    }
+                    let active_path = {
+                        let (_, current_doc) = current_ref!(editor);
+                        current_doc.path().map(|p| p.to_path_buf())
+                    };
+                    if active_path.as_deref() != Some(path.as_path()) {
+                        editor.set_status("Git hunk reverted on disk; reload when you return to the file");
+                        return;
+                    }
+                    let command = typed::TYPABLE_COMMAND_MAP.get("reload").expect("reload command exists");
+                    let mut jobs = crate::job::Jobs::new();
+                    let mut context = compositor::Context { editor, jobs: &mut jobs, scroll: None };
+                    if let Err(err) = typed::execute_command(&mut context, command, "", PromptEvent::Validate) {
+                        context.editor.set_error(format!("Git hunk reverted, but buffer reload failed: {err}"));
+                    } else {
+                        context.editor.set_status("Git hunk reverted and buffer refreshed");
+                    }
+                })))
+            });
+        },
+    );
+    let mut overlay = overlaid(picker.selection_only().with_title("Revert Unstaged Git Hunk"));
+    overlay.calc_child_size = Box::new(|area| {
+        let width = area.width.min(110).max(1);
+        let height = area.height.min(8).max(1);
+        helix_view::graphics::Rect::new(
+            area.x + area.width.saturating_sub(width) / 2,
+            area.y + area.height.saturating_sub(height) / 2,
+            width, height,
+        )
+    });
+    cx.push_layer(Box::new(overlay));
+}
+
+/// Resolve the Git root for the focused buffer without changing the process cwd.
+fn active_git_root(cx: &mut Context) -> Option<PathBuf> {
+    let dir = active_buffer_directory(cx.editor);
+    let output = std::process::Command::new("git")
+        .arg("-C").arg(&dir).args(["rev-parse", "--show-toplevel"]).output();
+    match output {
+        Ok(output) if output.status.success() => {
+            Some(PathBuf::from(String::from_utf8_lossy(&output.stdout).trim()))
+        }
+        _ => {
+            cx.editor.set_error("Active buffer is not inside a Git repository");
+            None
+        }
+    }
+}
+
+// Only Primer-created stashes are eligible for automatic restoration.
+const PRIMER_STASH_PREFIX: &str = "primer-branch:";
+
+fn primer_git(root: &Path, args: &[&str]) -> Result<String, String> {
+    let output = std::process::Command::new("git").arg("-C").arg(root)
+        .args(args).output().map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+fn primer_branch_stash(root: &Path, branch: &str) -> Result<Option<String>, String> {
+    let list = primer_git(root, &["stash", "list", "--format=%gd%x09%s"])?;
+    let marker = format!("{PRIMER_STASH_PREFIX}{branch}");
+    Ok(list.lines().filter_map(|line| line.split_once('\t'))
+        .find(|(_, message)| message.ends_with(&marker))
+        .map(|(reference, _)| reference.to_owned()))
+}
+
+fn primer_finish_branch_switch(cx: &mut compositor::Context, root: &Path, name: &str, restore_stash: bool) {
+    if let Err(error) = primer_git(root, &["switch", "--", name]) {
+        cx.editor.set_error(format!("Could not switch to {name}: {error}"));
+        return;
+    }
+    let restore = if !restore_stash { Ok(None) } else { primer_branch_stash(root, name) };
+    let restore = match restore {
+        Ok(Some(reference)) => {
+            match primer_git(root, &["stash", "pop", "--index", &reference]) {
+                Ok(_) => format!("; restored saved changes for {name}"),
+                Err(error) => {
+                    cx.editor.set_error(format!(
+                        "Switched to {name}, but stash restoration failed: {error}. Stash retained; resolve manually."
+                    ));
+                    return;
+                }
+            }
+        }
+        Ok(None) => String::new(),
+        Err(error) => {
+            cx.editor.set_error(format!("Switched to {name}; could not inspect stashes: {error}"));
+            return;
+        }
+    };
+    let command = typed::TYPABLE_COMMAND_MAP.get("reload-all").expect("reload-all command exists");
+    match typed::execute_command(cx, command, "", PromptEvent::Validate) {
+        Ok(()) => cx.editor.set_status(format!("Switched to {name}{restore}; buffers refreshed")),
+        Err(error) => cx.editor.set_error(format!("Switched to {name}; reload failed: {error}")),
+    }
+}
+
+/// Browse local branches, asking how to handle working-tree changes.
+fn git_branch_picker(cx: &mut Context) {
+    let Some(root) = active_git_root(cx) else { return };
+    let output = match primer_git(&root, &["branch", "--list", "--format=%(HEAD)|%(refname:short)"]) {
+        Ok(output) => output,
+        Err(error) => {
+            cx.editor.set_error(format!("Could not list Git branches: {error}"));
+            return;
+        }
+    };
+    let branches: Vec<(bool, String)> = output.lines().filter_map(|line| {
+        let (marker, name) = line.split_once('|')?;
+        Some((marker.trim() == "*", name.to_owned()))
+    }).collect();
+    let columns = [PickerColumn::new("Git Branches", |branch: &(bool, String), _| {
+        format!("{} {}", if branch.0 { "*" } else { " " }, branch.1).into()
+    })];
+    let picker = Picker::new(columns, 0, branches, (), move |cx, branch: &(bool, String), _| {
+        if branch.0 {
+            cx.editor.set_status(format!("Already on branch {}", branch.1));
+            return;
+        }
+        if cx.editor.documents().any(|doc| doc.is_modified()) {
+            cx.editor.set_error("Save or discard unsaved buffers before switching branches");
+            return;
+        }
+        let name = branch.1.clone();
+        let status = match primer_git(&root, &["status", "--porcelain=v1", "--untracked-files=all"]) {
+            Ok(status) => status,
+            Err(error) => {
+                cx.editor.set_error(format!("Could not check working tree: {error}"));
+                return;
+            }
+        };
+        if status.is_empty() {
+            primer_finish_branch_switch(cx, &root, &name, false);
+            return;
+        }
+        let source = match primer_git(&root, &["branch", "--show-current"]) {
+            Ok(source) if !source.is_empty() => source,
+            _ => {
+                cx.editor.set_error("Cannot stash branch changes from a detached HEAD");
+                return;
+            }
+        };
+        let choice_root = root.clone();
+        cx.jobs.callback(async move {
+            Ok(Callback::EditorCompositor(Box::new(move |_, compositor| {
+                let options: Vec<(&'static str, &'static str)> = vec![
+                    ("Stash & Switch", "Save this branch's changes, then switch and restore destination changes"),
+                    ("Switch Normally", "Use standard Git behavior; uncommitted changes may follow you"),
+                    ("Cancel", "Keep the current branch and all changes untouched"),
+                ];
+                let choice = Picker::new(
+                    [PickerColumn::new("Choice", |option: &(&'static str, &'static str), _| {
+                        format!("{} — {}", option.0, option.1).into()
+                    })],
+                    0, options, (),
+                    move |cx, option: &(&'static str, &'static str), _| {
+                        if option.0 == "Cancel" {
+                            cx.editor.set_status("Branch switch cancelled");
+                            return;
+                        }
+                        if cx.editor.documents().any(|doc| doc.is_modified()) {
+                            cx.editor.set_error("Save unsaved editor buffers before switching");
+                            return;
+                        }
+                        if primer_git(&choice_root, &["branch", "--show-current"]).ok().as_deref() != Some(source.as_str()) {
+                            cx.editor.set_error("Active branch changed; reopen the picker");
+                            return;
+                        }
+                        if primer_git(&choice_root, &["status", "--porcelain=v1", "--untracked-files=all"]).as_ref().ok() != Some(&status) {
+                            cx.editor.set_error("Working tree changed; reopen the picker");
+                            return;
+                        }
+                        if option.0 == "Switch Normally" {
+                            primer_finish_branch_switch(cx, &choice_root, &name, false);
+                            return;
+                        }
+                        match primer_branch_stash(&choice_root, &source) {
+                            Ok(Some(_)) => {
+                                cx.editor.set_error("This branch already has a saved Primer stash; restore it manually first");
+                                return;
+                            }
+                            Err(error) => {
+                                cx.editor.set_error(format!("Cannot inspect stashes: {error}"));
+                                return;
+                            }
+                            Ok(None) => {}
+                        }
+                        let marker = format!("{PRIMER_STASH_PREFIX}{source}");
+                        if let Err(error) = primer_git(&choice_root, &["stash", "push", "--include-untracked", "-m", &marker]) {
+                            cx.editor.set_error(format!("Could not stash changes; branch unchanged: {error}"));
+                            return;
+                        }
+                        if let Err(error) = primer_git(&choice_root, &["switch", "--", &name]) {
+                            cx.editor.set_error(format!(
+                                "Switch failed: {error}. Changes saved in stash for {source}; restore manually."
+                            ));
+                            return;
+                        }
+                        let restore = match primer_branch_stash(&choice_root, &name) {
+                            Ok(Some(reference)) => primer_git(&choice_root, &["stash", "pop", "--index", &reference])
+                                .map(|_| " (destination changes restored)".to_owned()),
+                            Ok(None) => Ok(String::new()),
+                            Err(error) => Err(error),
+                        };
+                        let suffix = match restore {
+                            Ok(suffix) => suffix,
+                            Err(error) => {
+                                cx.editor.set_error(format!(
+                                    "Switched to {name}, but restoring destination changes failed: {error}. Stash retained."
+                                ));
+                                return;
+                            }
+                        };
+                        let command = typed::TYPABLE_COMMAND_MAP.get("reload-all").expect("reload-all command exists");
+                        match typed::execute_command(cx, command, "", PromptEvent::Validate) {
+                            Ok(()) => cx.editor.set_status(format!("Switched to {name}{suffix}; buffers refreshed")),
+                            Err(error) => cx.editor.set_error(format!("Switched to {name}; reload failed: {error}")),
+                        }
+                    },
+                );
+                let mut overlay = overlaid(choice.selection_only().with_title("Uncommitted Changes — Switch Branch"));
+                overlay.calc_child_size = Box::new(|area| {
+                    let width = area.width.min(110).max(1);
+                    let height = area.height.min(9).max(1);
+                    helix_view::graphics::Rect::new(
+                        area.x + area.width.saturating_sub(width) / 2,
+                        area.y + area.height.saturating_sub(height) / 2,
+                        width, height,
+                    )
+                });
+                compositor.push(Box::new(overlay));
+            })))
+        });
+    });
+    let mut overlay = overlaid(picker.with_title("Git Branches"));
+    overlay.calc_child_size = Box::new(|area| {
+        let width = area.width.min(72).max(1);
+        let height = area.height.min(18).max(1);
+        helix_view::graphics::Rect::new(
+            area.x + area.width.saturating_sub(width) / 2,
+            area.y + area.height.saturating_sub(height) / 2,
+            width, height,
+        )
+    });
+    cx.push_layer(Box::new(overlay));
+}
+
+/// Create a local branch from HEAD without switching away from the current branch.
+fn git_create_branch(cx: &mut Context) {
+    let Some(root) = active_git_root(cx) else { return };
+    let mut prompt = Prompt::new(
+        "New Git branch name: ".into(),
+        None,
+        ui::completers::none,
+        move |cx, input, event| {
+            if event != PromptEvent::Validate { return; }
+            let name = input.trim();
+            if name.is_empty() {
+                cx.editor.set_error("Branch name cannot be empty");
+                return;
+            }
+            let name = name.to_owned();
+            let root = root.clone();
+            cx.editor.set_status("Creating Git branch…");
+            cx.jobs.callback(async move {
+                let output = tokio::process::Command::new("git")
+                    .arg("-C").arg(&root).args(["branch", "--"]).arg(&name)
+                    .output().await?;
+                let result = if output.status.success() {
+                    Ok(format!("Created branch {name} (not switched)"))
+                } else {
+                    Err(format!("Git branch creation failed: {}", String::from_utf8_lossy(&output.stderr).trim()))
+                };
+                Ok(Callback::EditorCompositor(Box::new(move |editor, _| {
+                    match result {
+                        Ok(message) => editor.set_status(message),
+                        Err(message) => editor.set_error(message),
+                    }
+                })))
+            });
+        },
+    );
+    prompt.doc_fn = Box::new(|_| Some("Creates a new local branch from the current HEAD without switching branches.\nPress Enter to create, or Esc to cancel.".into()));
+    prompt.recalculate_completion(cx.editor);
+    cx.push_layer(Box::new(prompt));
+}
+
+/// Commit only the already staged index of the active file's repository.
+fn git_commit_staged(cx: &mut Context) {
+    let cwd = active_buffer_directory(cx.editor);
+    let root_output = std::process::Command::new("git")
+        .arg("-C").arg(&cwd).args(["rev-parse", "--show-toplevel"]).output();
+    let root = match root_output {
+        Ok(output) if output.status.success() => {
+            PathBuf::from(String::from_utf8_lossy(&output.stdout).trim())
+        }
+        _ => {
+            cx.editor.set_error("Active buffer is not inside a Git repository");
+            return;
+        }
+    };
+    let staged = std::process::Command::new("git")
+        .arg("-C").arg(&root).args(["diff", "--cached", "--quiet", "--exit-code"]).status();
+    match staged {
+        Ok(status) if status.code() == Some(1) => {}
+        Ok(status) if status.success() => {
+            cx.editor.set_status("Nothing staged to commit; stage changes first");
+            return;
+        }
+        _ => {
+            cx.editor.set_error("Could not inspect staged Git changes");
+            return;
+        }
+    }
+    let mut prompt = Prompt::new(
+        "Commit staged changes (message): ".into(),
+        None,
+        ui::completers::none,
+        move |cx, input, event| {
+            if event != PromptEvent::Validate { return; }
+            let message = input.trim();
+            if message.is_empty() {
+                cx.editor.set_error("Commit message cannot be empty");
+                return;
+            }
+            let message = message.to_owned();
+            let root = root.clone();
+            cx.editor.set_status("Committing staged changes…");
+            cx.jobs.callback(async move {
+                let output = tokio::process::Command::new("git")
+                    .arg("-C").arg(&root)
+                    .args(["commit", "-m"]).arg(&message)
+                    .output().await?;
+                let result = if output.status.success() {
+                    Ok(String::from_utf8_lossy(&output.stdout)
+                        .lines().next().unwrap_or("Git commit created").to_owned())
+                } else {
+                    Err(format!("Git commit failed: {}", String::from_utf8_lossy(&output.stderr).trim()))
+                };
+                Ok(Callback::EditorCompositor(Box::new(move |editor, _| {
+                    match result {
+                        Ok(message) => editor.set_status(message),
+                        Err(message) => editor.set_error(message),
+                    }
+                })))
+            });
+        },
+    );
+    prompt.doc_fn = Box::new(|_| Some("Commits only changes already staged in the active repository.\nUnstaged changes remain untouched. Enter a message and press Enter, or Esc to cancel.".into()));
+    prompt.recalculate_completion(cx.editor);
+    cx.push_layer(Box::new(prompt));
+}
+
+/// Show repository status without leaving Primer.
+fn git_repository_status(cx: &mut Context) {
+    let cwd = active_buffer_directory(cx.editor);
+    cx.editor.set_status("Loading Git status…");
+    cx.jobs.callback(async move {
+        let output = tokio::process::Command::new("git")
+            .arg("-C").arg(&cwd)
+            .args(["status", "--short", "--branch", "--untracked-files=normal"])
+            .output().await?;
+        if !output.status.success() {
+            anyhow::bail!("Git status failed: {}", String::from_utf8_lossy(&output.stderr));
+        }
+        let content = String::from_utf8_lossy(&output.stdout);
+        let mut lines: Vec<(String, String, String, String)> = content
+            .lines()
+            .take(100)
+            .map(|line| {
+                let (prefix, rest) = if line.starts_with("##") {
+                    ("Branch".to_owned(), format!("  {}", line.trim_start_matches("##").trim()))
+                } else if line.len() >= 3 {
+                    (line[..2].to_owned(), format!("  {}", &line[3..]))
+                } else {
+                    (String::new(), line.to_owned())
+                };
+                (prefix, rest, String::new(), String::new())
+            })
+            .collect();
+        if lines.is_empty() {
+            lines.push((String::new(), "Working tree clean".to_owned(), String::new(), String::new()));
+        }
+        Ok(Callback::EditorCompositor(Box::new(move |_, compositor| {
+            let popup = Popup::new(
+                "git-repository-status",
+                ui::GitChangePreview::new("Git status · staged / unstaged / untracked".to_owned(), lines)
+                    .with_title("Repository status · Space g c opens changed files")
+                    .with_status_file_highlight(),
+            ).with_border();
+            compositor.replace_or_push("git-repository-status", popup);
+        })))
+    });
+}
+
+/// Stage or unstage the entire active repository, leaving working files intact.
+fn git_change_all(cx: &mut Context, unstage: bool) {
+    let cwd = active_buffer_directory(cx.editor);
+    cx.editor.set_status(if unstage { "Unstaging repository changes…" } else { "Staging repository changes…" });
+    cx.jobs.callback(async move {
+        let root = tokio::process::Command::new("git")
+            .arg("-C").arg(&cwd)
+            .args(["rev-parse", "--show-toplevel"])
+            .output().await?;
+        if !root.status.success() {
+            anyhow::bail!("Active buffer is not inside a Git repository");
+        }
+        let root = PathBuf::from(String::from_utf8_lossy(&root.stdout).trim());
+        let mut cmd = tokio::process::Command::new("git");
+        cmd.arg("-C").arg(&root);
+        if unstage {
+            cmd.args(["reset", "-q", "HEAD", "--", "."]);
+        } else {
+            cmd.args(["add", "-A", "--", "."]);
+        }
+        let output = cmd.output().await?;
+        let result = if output.status.success() {
+            Ok(if unstage { "All repository changes unstaged" } else { "All repository changes staged" })
+        } else {
+            Err(format!("Git {} all failed: {}", if unstage { "unstage" } else { "stage" },
+                String::from_utf8_lossy(&output.stderr).trim()))
+        };
+        Ok(Callback::EditorCompositor(Box::new(move |editor, _| {
+            match result {
+                Ok(message) => editor.set_status(message),
+                Err(message) => editor.set_error(message),
+            }
+        })))
+    });
+}
+
+fn git_stage_all(cx: &mut Context) {
+    git_change_all(cx, false);
+}
+
+fn git_unstage_all(cx: &mut Context) {
+    git_change_all(cx, true);
+}
+
+fn git_stage_hunk(cx: &mut Context) {
+    git_change_index_hunk(cx, false);
+}
+
+fn git_unstage_hunk(cx: &mut Context) {
+    git_change_index_hunk(cx, true);
+}
+
+fn git_change_index_hunk(cx: &mut Context, unstage: bool) {
+    let (path, line) = {
+        let (view, doc) = current!(cx.editor);
+        let Some(path) = doc.path() else {
+            cx.editor.set_status("Git hunk operations require a file on disk");
+            return;
+        };
+        if doc.is_modified() {
+            cx.editor.set_status("Save the file before staging or unstaging hunks");
+            return;
+        }
+        (path.to_path_buf(), doc.selection(view.id).primary().cursor_line(doc.text().slice(..)) + 1)
+    };
+    cx.editor.set_status(if unstage { "Unstaging Git hunk…" } else { "Staging Git hunk…" });
+    cx.jobs.callback(async move {
+        let result = tokio::task::spawn_blocking(move || git_index_hunk(path, line, unstage)).await;
+        let message = match result {
+            Ok(Ok(())) => Ok(if unstage { "Git hunk unstaged" } else { "Git hunk staged" }),
+            Ok(Err(error)) => Err(error.to_string()),
+            Err(error) => Err(error.to_string()),
+        };
+        Ok(Callback::EditorCompositor(Box::new(move |editor, _| {
+            match message {
+                Ok(message) => editor.set_status(message),
+                Err(message) => editor.set_error(message),
+            }
+        })))
+    });
+}
+
+fn git_toggle_inline_blame(cx: &mut Context) {
+    let (path, version, line_count) = {
+        let (_, doc) = current!(cx.editor);
+        if doc.git_inline_blame_enabled {
+            let path = doc.path().map(|path| path.to_path_buf());
+            if let Some(path) = path {
+                if let Some(doc) = cx.editor.document_by_path_mut(&path) {
+                    doc.git_inline_blame_enabled = false;
+                }
+            }
+            cx.editor.set_status("Inline Git blame disabled");
+            return;
+        }
+        let Some(path) = doc.path() else {
+            cx.editor.set_status("Inline blame requires a saved file");
+            return;
+        };
+        if doc.is_modified() {
+            cx.editor.set_status("Save the file before enabling inline blame");
+            return;
+        }
+        (path.to_path_buf(), doc.version(), doc.text().len_lines())
+    };
+    // Reuse previously retrieved blame if the document has not changed.
+    if let Some(doc) = cx.editor.document_by_path_mut(&path) {
+        if doc.git_blame_cached_version == Some(version) && doc.git_inline_blame.is_some() && !doc.git_blame_annotations.is_empty() {
+            doc.git_inline_blame_enabled = true;
+            cx.editor.set_status("Inline Git blame enabled (cached)");
+            return;
+        }
+    }
+    cx.editor.set_status("Loading inline Git blame…");
+    cx.jobs.callback(async move {
+        let output = tokio::process::Command::new("git")
+            .arg("-C")
+            .arg(path.parent().unwrap_or_else(|| std::path::Path::new(".")))
+            .args(["blame", "--line-porcelain", "--"])
+            .arg(&path)
+            .output()
+            .await;
+        let output = match output {
+            Ok(output) if output.status.success() => output,
+            Ok(output) => {
+                let message = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+                return Ok(Callback::EditorCompositor(Box::new(move |editor, _| {
+                    editor.set_error(format!("Git blame failed: {message}"));
+                })));
+            }
+            Err(err) => {
+                return Ok(Callback::EditorCompositor(Box::new(move |editor, _| {
+                    editor.set_error(format!("Git blame failed: {err}"));
+                })));
+            }
+        };
+        let mut author = String::new();
+        let mut summary = String::new();
+        let mut entries = Vec::new();
+        for row in String::from_utf8_lossy(&output.stdout).lines() {
+            if let Some(value) = row.strip_prefix("author ") {
+                author = value.to_owned();
+            } else if let Some(value) = row.strip_prefix("summary ") {
+                summary = value.to_owned();
+            } else if row.starts_with('\t') {
+                entries.push(format!("{} · {}", author, summary));
+            }
+        }
+        Ok(Callback::EditorCompositor(Box::new(move |editor, _| {
+            let Some(doc) = editor.document_by_path_mut(&path) else {
+                return;
+            };
+            // Discard results if the file was edited, reloaded, or replaced.
+            if doc.version() != version || doc.is_modified() || doc.text().len_lines() != line_count {
+                return;
+            }
+            if entries.len() != line_count && entries.len() + 1 != line_count {
+                editor.set_error("Git blame line count did not match the document");
+                return;
+            }
+            let text = doc.text();
+            let annotations = entries.iter().enumerate().map(|(line, message)| {
+                let start = text.line_to_char(line);
+                let end = start + text.line(line).len_chars();
+                let end = if line + 1 < text.len_lines() { end.saturating_sub(1) } else { end };
+                helix_core::text_annotations::InlineAnnotation::new(end, format!("  · {message}"))
+            }).collect();
+            doc.git_blame_annotations = annotations;
+            doc.git_inline_blame = Some(entries);
+            doc.git_blame_cached_version = Some(version);
+            doc.git_inline_blame_enabled = true;
+            editor.set_status("Inline Git blame enabled");
+        })))
+    });
+}
+
+fn git_blame_line(cx: &mut Context) {
+    let (path, line, modified) = {
+        let (view, doc) = current!(cx.editor);
+        let Some(path) = doc.path() else {
+            cx.editor.set_status("Git blame requires a file on disk");
+            return;
+        };
+        let line = doc.selection(view.id).primary().cursor_line(doc.text().slice(..)) + 1;
+        (path.to_path_buf(), line, doc.is_modified())
+    };
+    if modified {
+        cx.editor.set_status("Save the file before viewing Git blame");
+        return;
+    }
+    cx.editor.set_status("Loading Git blame…");
+    cx.jobs.callback(async move {
+        let output = tokio::process::Command::new("git")
+            .arg("-C")
+            .arg(path.parent().unwrap_or_else(|| std::path::Path::new(".")))
+            .args(["blame", "--line-porcelain", "-L"])
+            .arg(format!("{line},{line}"))
+            .arg("--")
+            .arg(&path)
+            .output()
+            .await;
+        let output = match output {
+            Ok(output) if output.status.success() => output,
+            Ok(output) => {
+                let reason = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+                return Ok(Callback::EditorCompositor(Box::new(move |editor, _| {
+                    editor.set_error(format!("Git blame failed: {reason}"));
+                })));
+            }
+            Err(err) => {
+                return Ok(Callback::EditorCompositor(Box::new(move |editor, _| {
+                    editor.set_error(format!("Unable to run git blame: {err}"));
+                })));
+            }
+        };
+        let porcelain = String::from_utf8_lossy(&output.stdout);
+        let commit = porcelain.split_whitespace().next().unwrap_or("unknown");
+        let mut author = "Unknown";
+        let mut summary = "No commit message";
+        let mut timestamp = None;
+        for row in porcelain.lines() {
+            if let Some(value) = row.strip_prefix("author ") {
+                author = value;
+            } else if let Some(value) = row.strip_prefix("summary ") {
+                summary = value;
+            } else if let Some(value) = row.strip_prefix("author-time ") {
+                timestamp = value.parse::<i64>().ok();
+            }
+        }
+        let short_commit = &commit[..commit.len().min(12)];
+        let date = timestamp
+            .and_then(|time| chrono::DateTime::from_timestamp(time, 0))
+            .map(|date| date.format("%Y-%m-%d").to_string())
+            .unwrap_or_else(|| "Unknown date".to_owned());
+        let lines = vec![
+            ("Line".to_owned(), line.to_string(), String::new(), String::new()),
+            ("Author".to_owned(), format!("  {author}"), String::new(), String::new()),
+            ("Date".to_owned(), format!("  {date}"), String::new(), String::new()),
+            ("Commit".to_owned(), format!("  {short_commit}"), String::new(), String::new()),
+            ("Message".to_owned(), format!("  {summary}"), String::new(), String::new()),
+        ];
+        Ok(Callback::EditorCompositor(Box::new(move |_, compositor| {
+            let popup = Popup::new(
+                "git-blame-line",
+                ui::GitChangePreview::new("Last committed change".to_owned(), lines)
+                    .with_title("Git blame"),
+            ).with_border();
+            compositor.replace_or_push("git-blame-line", popup);
+        })))
+    });
+}
+
+fn git_preview_change(cx: &mut Context) {
+    let preview = {
+        let (view, doc) = current!(cx.editor);
+        let Some(handle) = doc.diff_handle() else {
+            cx.editor.set_status("No Git diff available for this buffer");
+            return;
+        };
+        let line = doc.selection(view.id).primary().cursor_line(doc.text().slice(..)) as u32;
+        let diff = handle.load();
+        diff.hunk_at(line, false).map(|idx| {
+            let hunk = diff.nth_hunk(idx);
+            let base = diff.diff_base();
+            let current = doc.text();
+            let mut lines = Vec::new();
+            for (offset, i) in (hunk.before.start..hunk.before.end).enumerate() {
+                let original = base.line(i as usize).to_string();
+                let original = original.trim_end_matches(['\r', '\n']);
+                let counterpart = hunk.after.start as usize + offset;
+                let current_line = if counterpart < hunk.after.end as usize {
+                    current.line(counterpart).to_string()
+                } else {
+                    String::new()
+                };
+                let (before, changed, after) =
+                    git_change_segments(original, current_line.trim_end_matches(['\r', '\n']));
+                lines.push((format!("{:>4}  ", i + 1), before, changed, after));
+            }
+            let heading = if hunk.is_pure_insertion() {
+                "Added lines — no previous content"
+            } else if hunk.is_pure_removal() {
+                "Deleted lines — previous content"
+            } else {
+                "Modified lines — removed/replaced text highlighted"
+            };
+            if lines.is_empty() {
+                lines.push(("".into(), "(No previous content)".into(), "".into(), "".into()));
+            }
+            (heading.to_owned(), lines)
+        })
+    };
+    let Some((heading, lines)) = preview else {
+        cx.editor.set_status("Cursor is not on a changed line");
+        return;
+    };
+    let contents = ui::GitChangePreview::new(heading, lines);
+    let popup = Popup::new("git-change-preview", contents).with_border();
+    cx.replace_or_push_layer("git-change-preview", popup);
 }
 
 fn goto_next_change(cx: &mut Context) {

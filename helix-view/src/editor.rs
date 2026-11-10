@@ -710,6 +710,8 @@ impl Default for StatusLineConfig {
                 E::Selections,
                 E::Register,
                 E::Position,
+                E::VersionControl,
+                E::FileType,
                 E::FileEncoding,
             ],
             separator: String::from("│"),

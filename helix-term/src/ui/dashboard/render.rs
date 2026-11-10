@@ -28,7 +28,7 @@ impl DashboardAction {
             Self::NewNote => "New note",
             Self::DailyNote => "Daily note",
             Self::Agenda => "Agenda",
-            Self::RecentFiles => "Open buffers",
+            Self::FileExplorer => "File explorer",
             Self::OpenProject => "Browse workspace",
             Self::Help => "Keybind help",
             Self::NewFile => "New file",
@@ -44,7 +44,7 @@ impl DashboardAction {
             Self::NewNote => 'a',
             Self::DailyNote => 'd',
             Self::Agenda => 'e',
-            Self::RecentFiles => 'r',
+            Self::FileExplorer => 'r',
             Self::OpenProject => 'p',
             Self::Help => '?',
             Self::NewFile => 'n',
@@ -147,7 +147,7 @@ pub fn render_dashboard(
         draw_line("PRIMER", x, top, 6, logo_style);
     }
 
-    let motto = "Leaves from the vine...";
+    let motto = "A sound soul dwells within a sound mind and a sound body...";
     if area.width >= motto.len() as u16 {
         let motto_x = area.x + (area.width - motto.len() as u16) / 2;
         draw_line(
@@ -168,7 +168,7 @@ pub fn render_dashboard(
             "FILES",
             vec![
                 ("f", "Browse files", Some(DashboardAction::FindFile)),
-                ("r", "Open buffers", Some(DashboardAction::RecentFiles)),
+                ("r", "File explorer", Some(DashboardAction::FileExplorer)),
                 ("n", "New file", Some(DashboardAction::NewFile)),
                 ("g", "Live grep", Some(DashboardAction::LiveGrep)),
             ],

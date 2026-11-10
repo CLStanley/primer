@@ -242,6 +242,7 @@ type DynQueryCallback<T, D> =
 pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     columns: Arc<[Column<T, D>]>,
     primary_column: usize,
+    title: Option<String>,
     editor_data: Arc<D>,
     version: Arc<AtomicUsize>,
     matcher: Nucleo<T>,
@@ -255,6 +256,8 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
 
     /// Whether to show the preview panel (default true)
     show_preview: bool,
+    /// Render a compact selection-only confirmation without the search input.
+    selection_only: bool,
     /// Constraints for tabular formatting
     widths: Vec<Constraint>,
 
@@ -378,6 +381,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         Self {
             columns,
             primary_column: default_column,
+            title: None,
             matcher,
             editor_data,
             version,
@@ -386,6 +390,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             query,
             truncate_start: true,
             show_preview: true,
+            selection_only: false,
             callback_fn: Box::new(callback_fn),
             default_action: Action::Replace,
             completion_height: 0,
@@ -407,6 +412,16 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             picker_version: self.version.clone(),
             _redraw: helix_event::RequestRedrawOnDrop,
         }
+    }
+
+    pub fn selection_only(mut self) -> Self {
+        self.selection_only = true;
+        self
+    }
+
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
     }
 
     pub fn truncate_start(mut self, truncate_start: bool) -> Self {
@@ -699,11 +714,15 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let background = cx.editor.theme.get("ui.background");
         surface.clear_with(area, background);
 
-        let block = Block::bordered().border_style(cx.editor.theme.get("ui.window")).border_type(match cx.editor.config().border_style {
+        let mut block = Block::bordered().border_style(cx.editor.theme.get("ui.window")).border_type(match cx.editor.config().border_style {
             UiBorderStyle::Square => BorderType::Plain,
             UiBorderStyle::Rounded => BorderType::Rounded,
             UiBorderStyle::Double => BorderType::Double,
         });
+
+        if let Some(title) = &self.title {
+            block = block.title(format!(" {title} "));
+        }
 
         // calculate the inner area inside the box
         let inner = block.inner(area);
@@ -723,32 +742,36 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             snapshot.item_count(),
         );
 
-        let area = inner.clip_left(1).with_height(1);
-        let line_area = area.clip_right(count.len() as u16 + 1);
-
-        // render the prompt first since it will clear its background
-        self.prompt.render(line_area, surface, cx);
-
-        surface.set_stringn(
-            (area.x + area.width).saturating_sub(count.len() as u16 + 1),
-            area.y,
-            &count,
-            (count.len()).min(area.width as usize),
-            text_style,
-        );
-
-        // -- Separator
-        let sep_style = cx.editor.theme.get("ui.background.separator");
-        let borders = BorderType::line_symbols(BorderType::Plain);
-        for x in inner.left()..inner.right() {
-            if let Some(cell) = surface.get_mut(x, inner.y + 1) {
-                cell.set_symbol(borders.horizontal).set_style(sep_style);
+        let inner = if self.selection_only {
+            inner
+        } else {
+            let area = inner.clip_left(1).with_height(1);
+            let line_area = area.clip_right(count.len() as u16 + 1);
+    
+            // render the prompt first since it will clear its background
+            self.prompt.render(line_area, surface, cx);
+    
+            surface.set_stringn(
+                (area.x + area.width).saturating_sub(count.len() as u16 + 1),
+                area.y,
+                &count,
+                (count.len()).min(area.width as usize),
+                text_style,
+            );
+    
+            // -- Separator
+            let sep_style = cx.editor.theme.get("ui.background.separator");
+            let borders = BorderType::line_symbols(BorderType::Plain);
+            for x in inner.left()..inner.right() {
+                if let Some(cell) = surface.get_mut(x, inner.y + 1) {
+                    cell.set_symbol(borders.horizontal).set_style(sep_style);
+                }
             }
-        }
-
-        // -- Render the contents:
-        // subtract area of prompt from top
-        let inner = inner.clip_top(2);
+    
+            // -- Render the contents:
+            // subtract area of prompt from top
+            inner.clip_top(2)
+        };
         let rows = inner.height.saturating_sub(self.header_height()) as u32;
         let offset = self.cursor - (self.cursor % std::cmp::max(1, rows));
         let cursor = self.cursor.saturating_sub(offset);
@@ -1198,11 +1221,15 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         };
         let area = inner.clip_left(1).with_height(1).with_width(picker_width);
 
-        self.prompt.cursor(area, editor)
+        if self.selection_only {
+            (None, CursorKind::Hidden)
+        } else {
+            self.prompt.cursor(area, editor)
+        }
     }
 
     fn required_size(&mut self, (width, height): (u16, u16)) -> Option<(u16, u16)> {
-        self.completion_height = height.saturating_sub(4 + self.header_height());
+        self.completion_height = height.saturating_sub(if self.selection_only { 2 } else { 4 + self.header_height() });
         Some((width, height))
     }
 

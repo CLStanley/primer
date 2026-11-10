@@ -41,6 +41,7 @@ pub struct Popup<T: Component> {
     ignore_escape_key: bool,
     id: &'static str,
     has_scrollbar: bool,
+    force_border: bool,
 }
 
 impl<T: Component> Popup<T> {
@@ -55,6 +56,7 @@ impl<T: Component> Popup<T> {
             ignore_escape_key: false,
             id,
             has_scrollbar: true,
+            force_border: false,
         }
     }
 
@@ -108,6 +110,12 @@ impl<T: Component> Popup<T> {
     /// Toggles the Popup's scrollbar.
     /// Consider disabling the scrollbar in case the child
     /// already has its own.
+    /// Draw a border even when the editor's general popup border setting is disabled.
+    pub fn with_border(mut self) -> Self {
+        self.force_border = true;
+        self
+    }
+
     pub fn with_scrollbar(mut self, enable_scrollbar: bool) -> Self {
         self.has_scrollbar = enable_scrollbar;
         self
@@ -141,7 +149,9 @@ impl<T: Component> Popup<T> {
             .type_name()
             .starts_with("helix_term::ui::menu::Menu");
 
-        let mut render_borders = if is_menu {
+        let mut render_borders = if self.force_border {
+            true
+        } else if is_menu {
             editor.menu_border()
         } else {
             editor.popup_border()

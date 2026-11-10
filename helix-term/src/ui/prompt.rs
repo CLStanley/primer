@@ -534,7 +534,7 @@ impl Prompt {
             let search_prompt = matches!(prompt_kind, "/" | "?")
                 || prompt_kind.to_ascii_lowercase().contains("search")
                 || prompt_kind.to_ascii_lowercase().contains("regex");
-            let title = if prompt_kind.starts_with("New note") { " New Note " } else if search_prompt { " Search " } else { " Prompt " };
+            let title = if prompt_kind.starts_with("Commit staged changes") { " Commit Message " } else if prompt_kind.starts_with("New Git branch name") { " Branch Name " } else if prompt_kind.starts_with("New note") { " New Note " } else if search_prompt { " Search " } else { " Prompt " };
             surface.set_stringn(popup.x + 2, popup.y, title, popup.width.saturating_sub(4) as usize, border);
             let icon = if search_prompt { " " } else { " " };
             surface.set_string(popup.x + 2, popup.y + 1, icon, prompt_color);

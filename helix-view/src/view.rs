@@ -509,6 +509,15 @@ impl View {
             }
         }
 
+        if doc.git_inline_blame_enabled && !doc.is_modified() {
+            let cursor = doc.selection(self.id).primary().cursor(doc.text().slice(..));
+            let line = doc.text().char_to_line(cursor);
+            if let Some(annotation) = doc.git_blame_annotations.get(line) {
+                let style = theme.and_then(|t| t.find_highlight("ui.virtual.inlay-hint"));
+                text_annotations.add_inline_annotations(std::slice::from_ref(annotation), style);
+            }
+        }
+
         let width = self.inner_width(doc);
         let enable_cursor_line = self
             .diagnostics_handler

@@ -1,8 +1,8 @@
 mod render;
 
+use crate::commands::{self, MappableCommand};
 use crate::compositor::{Component, Context, Event, EventResult};
 use crate::key;
-use crate::commands::{self, MappableCommand};
 use helix_view::graphics::Rect;
 use tui::buffer::Buffer as Surface;
 
@@ -14,7 +14,7 @@ pub enum DashboardAction {
     NewNote,
     DailyNote,
     Agenda,
-    RecentFiles,
+    FileExplorer,
     OpenProject,
     Help,
     NewFile,
@@ -32,7 +32,7 @@ impl Dashboard {
             selected: 0,
             actions: vec![
                 DashboardAction::FindFile,
-                DashboardAction::RecentFiles,
+                DashboardAction::FileExplorer,
                 DashboardAction::LiveGrep,
                 DashboardAction::FindNotes,
                 DashboardAction::NewNote,
@@ -65,27 +65,52 @@ impl Dashboard {
     }
 
     fn select_neighbor(&mut self, forward: bool, horizontal: bool) {
-        let Some(current) = self.selected_action() else { return };
+        let Some(current) = self.selected_action() else {
+            return;
+        };
         let target = if horizontal {
             match current {
-                DashboardAction::FindFile | DashboardAction::RecentFiles | DashboardAction::NewFile | DashboardAction::LiveGrep | DashboardAction::FindNotes | DashboardAction::NewNote | DashboardAction::DailyNote | DashboardAction::Agenda =>
-                    DashboardAction::OpenProject,
+                DashboardAction::FindFile
+                | DashboardAction::FileExplorer
+                | DashboardAction::NewFile
+                | DashboardAction::LiveGrep
+                | DashboardAction::FindNotes
+                | DashboardAction::NewNote
+                | DashboardAction::DailyNote
+                | DashboardAction::Agenda => DashboardAction::OpenProject,
                 DashboardAction::OpenProject => DashboardAction::FindFile,
                 DashboardAction::Help => DashboardAction::Quit,
                 DashboardAction::Quit => DashboardAction::Help,
             }
         } else {
             let column: &[DashboardAction] = match current {
-                DashboardAction::FindFile | DashboardAction::RecentFiles | DashboardAction::NewFile | DashboardAction::LiveGrep | DashboardAction::FindNotes | DashboardAction::NewNote | DashboardAction::DailyNote | DashboardAction::Agenda |
-                DashboardAction::Help => &[
-                    DashboardAction::FindFile, DashboardAction::RecentFiles,
-                    DashboardAction::NewFile, DashboardAction::LiveGrep, DashboardAction::NewNote, DashboardAction::DailyNote, DashboardAction::FindNotes, DashboardAction::Agenda, DashboardAction::Help,
+                DashboardAction::FindFile
+                | DashboardAction::FileExplorer
+                | DashboardAction::NewFile
+                | DashboardAction::LiveGrep
+                | DashboardAction::FindNotes
+                | DashboardAction::NewNote
+                | DashboardAction::DailyNote
+                | DashboardAction::Agenda
+                | DashboardAction::Help => &[
+                    DashboardAction::FindFile,
+                    DashboardAction::FileExplorer,
+                    DashboardAction::NewFile,
+                    DashboardAction::LiveGrep,
+                    DashboardAction::NewNote,
+                    DashboardAction::DailyNote,
+                    DashboardAction::FindNotes,
+                    DashboardAction::Agenda,
+                    DashboardAction::Help,
                 ],
-                DashboardAction::OpenProject | DashboardAction::Quit => &[
-                    DashboardAction::OpenProject, DashboardAction::Quit,
-                ],
+                DashboardAction::OpenProject | DashboardAction::Quit => {
+                    &[DashboardAction::OpenProject, DashboardAction::Quit]
+                }
             };
-            let index = column.iter().position(|action| *action == current).unwrap_or(0);
+            let index = column
+                .iter()
+                .position(|action| *action == current)
+                .unwrap_or(0);
             let next = if forward {
                 (index + 1) % column.len()
             } else {
@@ -135,10 +160,21 @@ impl Component for Dashboard {
             // The dashboard is the startup screen. Dismissing it into an
             // unnamed buffer must be an intentional New file action.
             key!(Esc) => EventResult::Consumed(None),
-            key!(Enter) | key!('f') | key!('r') | key!('g') | key!('o') | key!('a') | key!('d') | key!('e') | key!('p') | key!('?') | key!('n') | key!('q') => {
+            key!(Enter)
+            | key!('f')
+            | key!('r')
+            | key!('g')
+            | key!('o')
+            | key!('a')
+            | key!('d')
+            | key!('e')
+            | key!('p')
+            | key!('?')
+            | key!('n')
+            | key!('q') => {
                 let action = match key {
                     key!('f') => Some(DashboardAction::FindFile),
-                    key!('r') => Some(DashboardAction::RecentFiles),
+                    key!('r') => Some(DashboardAction::FileExplorer),
                     key!('g') => Some(DashboardAction::LiveGrep),
                     key!('o') => Some(DashboardAction::FindNotes),
                     key!('a') => Some(DashboardAction::NewNote),
@@ -167,7 +203,7 @@ impl Component for Dashboard {
                         Some(DashboardAction::NewNote) => MappableCommand::primer_notes_new,
                         Some(DashboardAction::DailyNote) => MappableCommand::primer_notes_daily,
                         Some(DashboardAction::Agenda) => MappableCommand::primer_agenda,
-                        Some(DashboardAction::RecentFiles) => MappableCommand::buffer_picker,
+                        Some(DashboardAction::FileExplorer) => MappableCommand::file_explorer,
                         Some(DashboardAction::OpenProject) => {
                             MappableCommand::file_picker_in_current_directory
                         }
@@ -217,7 +253,10 @@ mod tests {
     fn vertical_navigation_stays_in_column_and_wraps() {
         let mut dashboard = Dashboard::new();
         dashboard.next();
-        assert_eq!(dashboard.selected_action(), Some(DashboardAction::RecentFiles));
+        assert_eq!(
+            dashboard.selected_action(),
+            Some(DashboardAction::FileExplorer)
+        );
         dashboard.next();
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::NewFile));
         dashboard.next();
@@ -225,9 +264,15 @@ mod tests {
         dashboard.next();
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::NewNote));
         dashboard.next();
-        assert_eq!(dashboard.selected_action(), Some(DashboardAction::DailyNote));
+        assert_eq!(
+            dashboard.selected_action(),
+            Some(DashboardAction::DailyNote)
+        );
         dashboard.next();
-        assert_eq!(dashboard.selected_action(), Some(DashboardAction::FindNotes));
+        assert_eq!(
+            dashboard.selected_action(),
+            Some(DashboardAction::FindNotes)
+        );
         dashboard.next();
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::Agenda));
         dashboard.next();
@@ -242,7 +287,10 @@ mod tests {
     fn horizontal_navigation_switches_columns() {
         let mut dashboard = Dashboard::new();
         dashboard.right();
-        assert_eq!(dashboard.selected_action(), Some(DashboardAction::OpenProject));
+        assert_eq!(
+            dashboard.selected_action(),
+            Some(DashboardAction::OpenProject)
+        );
         dashboard.next();
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::Quit));
         dashboard.left();
