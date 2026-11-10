@@ -60,7 +60,26 @@ impl TerminalView {
 impl Component for TerminalView {
     fn handle_event(&mut self, event: &Event, _ctx: &mut Context) -> EventResult {
         if self.input_mode == TerminalInputMode::Normal {
-            return EventResult::Ignored(None);
+            if let Event::Key(key) = event {
+                if key.modifiers.is_empty() {
+                    match key.code {
+                        KeyCode::Char('i') => {
+                            self.set_input_mode(TerminalInputMode::Terminal);
+                            return EventResult::Consumed(None);
+                        }
+                        KeyCode::Char('q') => {
+                            let _ = self.terminal.kill();
+                            return EventResult::Consumed(Some(Box::new(|compositor, _| {
+                                compositor.remove_type::<TerminalView>();
+                            })));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            // Do not accidentally edit the underlying document while a
+            // terminal compositor layer is focused.
+            return EventResult::Consumed(None);
         }
         match event {
             Event::Key(key) => {
