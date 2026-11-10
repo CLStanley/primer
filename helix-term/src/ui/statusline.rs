@@ -77,7 +77,28 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
 
     let config = context.editor.config();
 
+    // PTY buffers have no text selection, encoding or line endings. Keep
+    // the user's configured layout while omitting inapplicable elements.
+    let applicable = |element: &StatusLineElementID| {
+        if context.terminal.is_none() { return true; }
+        !matches!(
+            element,
+            StatusLineElementID::Selections
+                | StatusLineElementID::PrimarySelectionLength
+                | StatusLineElementID::FileLineEnding
+                | StatusLineElementID::FileEncoding
+                | StatusLineElementID::FileIndentStyle
+                | StatusLineElementID::FileModificationIndicator
+                | StatusLineElementID::ReadOnlyIndicator
+                | StatusLineElementID::Diagnostics
+                | StatusLineElementID::WorkspaceDiagnostics
+                | StatusLineElementID::TotalLineNumbers
+                | StatusLineElementID::PositionPercentage
+        )
+    };
+
     for element_id in &config.statusline.left {
+        if !applicable(element_id) { continue; }
         let render = get_render_function(*element_id);
         (render)(context, |context, span| {
             append(&mut context.parts.left, span, base_style)
@@ -105,6 +126,7 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
     // Right side of the status line.
 
     for element_id in &config.statusline.right {
+        if !applicable(element_id) { continue; }
         let render = get_render_function(*element_id);
         (render)(context, |context, span| {
             append(&mut context.parts.right, span, base_style)
@@ -124,6 +146,7 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
     // Center of the status line.
 
     for element_id in &config.statusline.center {
+        if !applicable(element_id) { continue; }
         let render = get_render_function(*element_id);
         (render)(context, |context, span| {
             append(&mut context.parts.center, span, base_style)
