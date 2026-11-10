@@ -4872,10 +4872,9 @@ fn git_revert_hunk(cx: &mut Context) {
         ("Cancel", "Keep the file and all Git changes unchanged"),
     ];
     let picker = Picker::new(
-        [
-            PickerColumn::new("Action", |option: &(&'static str, &'static str), _| option.0.into()),
-            PickerColumn::new("Description", |option: &(&'static str, &'static str), _| option.1.into()),
-        ],
+        [PickerColumn::new("Choice", |option: &(&'static str, &'static str), _| {
+            format!("{} — {}", option.0, option.1).into()
+        })],
         0, options, (),
         move |cx, option: &(&'static str, &'static str), _| {
             if option.0 != "Revert Hunk" {
@@ -4938,7 +4937,7 @@ fn git_revert_hunk(cx: &mut Context) {
             });
         },
     );
-    let mut overlay = overlaid(picker.with_title("Revert Unstaged Git Hunk"));
+    let mut overlay = overlaid(picker.selection_only().with_title("Revert Unstaged Git Hunk"));
     overlay.calc_child_size = Box::new(|area| {
         let width = area.width.min(110).max(1);
         let height = area.height.min(8).max(1);
@@ -5072,10 +5071,9 @@ fn git_branch_picker(cx: &mut Context) {
                     ("Cancel", "Keep the current branch and all changes untouched"),
                 ];
                 let choice = Picker::new(
-                    [
-                        PickerColumn::new("Action", |option: &(&'static str, &'static str), _| option.0.into()),
-                        PickerColumn::new("Description", |option: &(&'static str, &'static str), _| option.1.into()),
-                    ],
+                    [PickerColumn::new("Choice", |option: &(&'static str, &'static str), _| {
+                        format!("{} — {}", option.0, option.1).into()
+                    })],
                     0, options, (),
                     move |cx, option: &(&'static str, &'static str), _| {
                         if option.0 == "Cancel" {
@@ -5142,7 +5140,7 @@ fn git_branch_picker(cx: &mut Context) {
                         }
                     },
                 );
-                let mut overlay = overlaid(choice.with_title("Uncommitted Changes — Switch Branch"));
+                let mut overlay = overlaid(choice.selection_only().with_title("Uncommitted Changes — Switch Branch"));
                 overlay.calc_child_size = Box::new(|area| {
                     let width = area.width.min(110).max(1);
                     let height = area.height.min(9).max(1);
