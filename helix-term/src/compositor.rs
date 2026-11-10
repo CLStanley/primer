@@ -257,20 +257,21 @@ impl Compositor {
 
     pub fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
         self.sync_terminal_document(cx.editor);
-        // A parked terminal is a live session, not a background image.
-        // Rendering it behind transparent editor buffers leaks its old
-        // contents through scratch buffers and creates overlapping chrome.
-        let editor_kind = std::any::type_name::<crate::ui::EditorView>();
+        // Only the selected full-screen document paints the background.
+        // Inactive terminal sessions retain their PTYs but do not paint.
+        let active = cx.editor.tree.try_get(cx.editor.tree.focus).map(|view| view.doc);
         let terminal_kind = std::any::type_name::<crate::ui::terminal::TerminalView>();
-        let editor_index = self.layers.iter().position(|layer| layer.type_name() == editor_kind);
-        let terminal_index = self.layers.iter().position(|layer| layer.type_name() == terminal_kind);
-        for (index, layer) in self.layers.iter_mut().enumerate() {
-            // Render exactly one full-screen view. The inactive editor must
-            // not bleed through a transparent terminal (or vice versa).
-            if (layer.type_name() == terminal_kind && editor_index.is_some_and(|editor| index < editor))
-                || (layer.type_name() == editor_kind && terminal_index.is_some_and(|terminal| index < terminal))
-            {
+        let editor_kind = std::any::type_name::<crate::ui::EditorView>();
+        let terminal_active = active.is_some_and(|id| cx.editor.terminal_documents.contains(&id));
+        for layer in self.layers.iter_mut() {
+            if layer.type_name() == editor_kind && terminal_active {
                 continue;
+            }
+            if layer.type_name() == terminal_kind {
+                let selected = layer.as_any()
+                    .downcast_ref::<crate::ui::terminal::TerminalView>()
+                    .is_some_and(|terminal| Some(terminal.document_id()) == active);
+                if !selected { continue; }
             }
             layer.render(area, surface, cx);
         }
