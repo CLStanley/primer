@@ -567,6 +567,15 @@ where
 
     if !head.is_empty() {
         let style = context.editor.theme.get("ui.text.focus");
+        if context.editor.config().statusline_powerline {
+            if let Some(background) = style.bg {
+                write(context, Span::from(" "));
+                write(context, Span::styled("", Style::default().fg(background)));
+                write(context, Span::styled(format!("  {head} "), style));
+                write(context, Span::styled("", Style::default().fg(background)));
+                return;
+            }
+        }
         write(context, Span::styled(format!("   {head} "), style));
     }
 }
