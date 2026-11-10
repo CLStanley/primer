@@ -184,22 +184,60 @@ impl Component for TerminalView {
 
         if area.height >= 3 {
             let tab = Rect::new(area.x, area.y, area.width, 1);
-            let tab_style = cx.editor.theme.get("ui.bufferline.active").add_modifier(Modifier::BOLD);
-            surface.set_style(tab, cx.editor.theme.get("ui.background"));
+            let background = cx.editor.theme.try_get("ui.bufferline.background")
+                .unwrap_or_else(|| cx.editor.theme.get("ui.background"));
+            let active = cx.editor.theme.try_get("ui.bufferline.active")
+                .unwrap_or_else(|| cx.editor.theme.get("ui.statusline.active"))
+                .bg(cx.editor.theme.get("ui.statusline.normal").bg.unwrap_or(Color::Rgb(183, 156, 222)))
+                .fg(cx.editor.theme.get("ui.statusline.normal").fg.unwrap_or(Color::Rgb(29, 22, 43)))
+                .add_modifier(Modifier::BOLD);
+            surface.set_style(tab, background);
             let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".into());
             let name = std::path::Path::new(&shell)
                 .file_name().and_then(|name| name.to_str()).unwrap_or("terminal");
             let title = format!("  {name}  ");
-            surface.set_stringn(tab.x, tab.y, &title, tab.width as usize, tab_style);
+            let mut x = tab.x;
+            if cx.editor.config().bufferline_powerline {
+                if let Some(bg) = active.bg {
+                    x = surface.set_stringn(x, tab.y, "", tab.width as usize, background.fg(bg)).0;
+                }
+            }
+            x = surface.set_stringn(x, tab.y, &title, tab.right().saturating_sub(x) as usize, active).0;
+            if cx.editor.config().bufferline_powerline {
+                if let Some(bg) = active.bg {
+                    surface.set_stringn(x, tab.y, "", tab.right().saturating_sub(x) as usize, background.fg(bg));
+                }
+            }
 
             let status = Rect::new(area.x, area.y + area.height - 2, area.width, 1);
-            let status_style = cx.editor.theme.get("ui.statusline");
-            surface.set_style(status, status_style);
-            surface.set_stringn(status.x, status.y, &" ".repeat(status.width as usize), status.width as usize, status_style);
+            let mut base = cx.editor.theme.get("ui.statusline");
+            base.bg = Some(Color::Reset);
+            surface.set_style(status, base);
+            surface.set_stringn(status.x, status.y, &" ".repeat(status.width as usize), status.width as usize, base);
+
+            let terminal_mode = self.input_mode == TerminalInputMode::Terminal;
+            let mode_name = if terminal_mode { "TERMINAL" } else { "NORMAL" };
+            let mode_style = cx.editor.theme.try_get(if terminal_mode {
+                "ui.statusline.insert"
+            } else {
+                "ui.statusline.normal"
+            }).unwrap_or_else(|| cx.editor.theme.get("ui.statusline.active"))
+              .add_modifier(Modifier::BOLD);
+            let mode_text = format!("   {mode_name}  ");
+            surface.set_stringn(status.x, status.y, &mode_text, status.width as usize, mode_style);
+
             let (columns, rows) = self.terminal.screen().size();
-            let mode = if self.input_mode == TerminalInputMode::Terminal { "TERMINAL" } else { "NORMAL" };
-            let detail = format!("  {mode}  │  {name}  │  {columns}×{rows}");
-            surface.set_stringn(status.x, status.y, &detail, status.width as usize, status_style);
+            let dimensions = format!(" {columns}×{rows} ");
+            let shell_text = format!("  {name} ");
+            let shell_style = cx.editor.theme.get("ui.statusline.active").add_modifier(Modifier::BOLD);
+            let shell_width = shell_text.chars().count() as u16;
+            let dim_width = dimensions.chars().count() as u16;
+            if status.width > shell_width + dim_width + mode_text.chars().count() as u16 {
+                let shell_x = status.right() - shell_width;
+                let dim_x = shell_x - dim_width;
+                surface.set_stringn(dim_x, status.y, &dimensions, dim_width as usize, base);
+                surface.set_stringn(shell_x, status.y, &shell_text, shell_width as usize, shell_style);
+            }
 
             let command = Rect::new(area.x, area.y + area.height - 1, area.width, 1);
             let command_style = cx.editor.theme.get("ui.text");
