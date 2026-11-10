@@ -2229,6 +2229,7 @@ impl Editor {
             }
         }
 
+        self.terminal_documents.remove(&doc_id);
         let doc = self.documents.remove(&doc_id).unwrap();
 
         // If the document we removed was visible in all views, we will have no more views. We don't
