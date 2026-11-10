@@ -277,6 +277,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "C-o" => jump_backward,
         "C-s" => save_selection,
         "space" => { "Space"
+            "t" => primer_terminal,
             "f" => { "Find"
                 "f" => file_picker,
                 "F" => file_picker_in_current_directory,
