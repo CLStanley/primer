@@ -85,6 +85,12 @@ impl Component for TerminalView {
                         }
                         return EventResult::Consumed(None);
                     }
+                    // Let Primer's real editor command-line keymap open the
+                    // prompt. The prompt becomes the top compositor layer, so
+                    // subsequent keystrokes go to it rather than the PTY.
+                    if self.close_sequence == 0 && key.code == KeyCode::Char(':') {
+                        return EventResult::Ignored(None);
+                    }
                     match (self.close_sequence, key.code) {
                         (0, KeyCode::Char(' ')) => {
                             self.close_sequence = 1;
