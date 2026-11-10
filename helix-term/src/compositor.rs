@@ -136,24 +136,6 @@ impl Compositor {
         Some(self.layers.remove(idx))
     }
 
-    /// Keep a long-lived component alive but render the editor above it.
-    /// Used while a terminal session is not the active view.
-    pub fn park_below_editor<T: 'static>(&mut self) -> bool {
-        let kind = std::any::type_name::<T>();
-        let editor_kind = std::any::type_name::<crate::ui::EditorView>();
-        let Some(index) = self.layers.iter().position(|layer| layer.type_name() == kind) else {
-            return false;
-        };
-        let component = self.layers.remove(index);
-        let Some(editor_index) = self.layers.iter().position(|layer| layer.type_name() == editor_kind) else {
-            self.layers.insert(index, component);
-            return false;
-        };
-        self.layers.insert(editor_index, component);
-        self.need_full_redraw();
-        true
-    }
-
     /// Bring an existing session back instead of spawning another PTY.
     pub fn raise_type<T: 'static>(&mut self) -> bool {
         let kind = std::any::type_name::<T>();
