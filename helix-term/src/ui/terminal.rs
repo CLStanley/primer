@@ -22,6 +22,7 @@ use tui::buffer::Buffer;
 /// runtime while associating it with a stable terminal session identifier.
 pub struct TerminalView {
     terminal: RunningTerminal,
+    document_id: helix_view::document::DocumentId,
     last_size: Option<(u16, u16)>,
     error: Option<String>,
     input_mode: TerminalInputMode,
@@ -32,9 +33,10 @@ pub struct TerminalView {
 }
 
 impl TerminalView {
-    pub fn new(terminal: RunningTerminal) -> Self {
+    pub fn new(terminal: RunningTerminal, document_id: helix_view::document::DocumentId) -> Self {
         Self {
             terminal,
+            document_id,
             last_size: None,
             error: None,
             input_mode: TerminalInputMode::Terminal,
@@ -43,6 +45,10 @@ impl TerminalView {
             pending_keys: Vec::new(),
             confirm_close: false,
         }
+    }
+
+    pub fn document_id(&self) -> helix_view::document::DocumentId {
+        self.document_id
     }
 
     pub fn terminal(&self) -> &RunningTerminal {
