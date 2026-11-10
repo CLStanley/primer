@@ -362,32 +362,15 @@ impl Component for TerminalView {
         render_terminal(self.terminal.screen(), pane, surface, cx.editor.theme.get("ui.text").fg(Color::LightGray));
 
         if area.height >= 3 {
-            let tab = Rect::new(area.x, area.y, area.width, 1);
-            let background = cx.editor.theme.try_get("ui.bufferline.background")
-                .unwrap_or_else(|| cx.editor.theme.get("ui.background"));
-            let active = cx.editor.theme.try_get("ui.bufferline.active")
-                .unwrap_or_else(|| cx.editor.theme.get("ui.statusline.active"))
-                .bg(cx.editor.theme.get("ui.statusline.normal").bg.unwrap_or(Color::Rgb(183, 156, 222)))
-                .fg(cx.editor.theme.get("ui.statusline.normal").fg.unwrap_or(Color::Rgb(29, 22, 43)))
-                .add_modifier(Modifier::BOLD)
-                .underline_style(UnderlineStyle::Reset);
-            surface.set_style(tab, background);
+            // The terminal uses the same document bufferline as text buffers.
+            crate::ui::EditorView::render_bufferline(
+                cx.editor,
+                Rect::new(area.x, area.y, area.width, 1),
+                surface,
+            );
             let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".into());
             let name = std::path::Path::new(&shell)
                 .file_name().and_then(|name| name.to_str()).unwrap_or("terminal");
-            let title = format!("  {name}  ");
-            let mut x = tab.x;
-            if cx.editor.config().bufferline_powerline {
-                if let Some(bg) = active.bg {
-                    x = surface.set_stringn(x, tab.y, "", tab.width as usize, background.fg(bg)).0;
-                }
-            }
-            x = surface.set_stringn(x, tab.y, &title, tab.right().saturating_sub(x) as usize, active).0;
-            if cx.editor.config().bufferline_powerline {
-                if let Some(bg) = active.bg {
-                    surface.set_stringn(x, tab.y, "", tab.right().saturating_sub(x) as usize, background.fg(bg));
-                }
-            }
 
             let status = Rect::new(area.x, area.y + area.height - 2, area.width, 1);
             let mut base = cx.editor.theme.get("ui.statusline");
