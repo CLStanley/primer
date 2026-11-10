@@ -32,7 +32,7 @@ impl TerminalScreen {
 
     pub fn resize(&mut self, columns: u16, rows: u16) -> anyhow::Result<()> {
         anyhow::ensure!(columns > 0 && rows > 0, "terminal dimensions must be nonzero");
-        self.parser.screen_mut().set_size(rows, columns);
+        self.parser.set_size(rows, columns);
         self.columns = columns;
         self.rows = rows;
         Ok(())
