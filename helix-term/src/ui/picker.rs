@@ -242,6 +242,7 @@ type DynQueryCallback<T, D> =
 pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     columns: Arc<[Column<T, D>]>,
     primary_column: usize,
+    title: Option<String>,
     editor_data: Arc<D>,
     version: Arc<AtomicUsize>,
     matcher: Nucleo<T>,
@@ -378,6 +379,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         Self {
             columns,
             primary_column: default_column,
+            title: None,
             matcher,
             editor_data,
             version,
@@ -407,6 +409,11 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             picker_version: self.version.clone(),
             _redraw: helix_event::RequestRedrawOnDrop,
         }
+    }
+
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
     }
 
     pub fn truncate_start(mut self, truncate_start: bool) -> Self {
@@ -699,11 +706,15 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let background = cx.editor.theme.get("ui.background");
         surface.clear_with(area, background);
 
-        let block = Block::bordered().border_style(cx.editor.theme.get("ui.window")).border_type(match cx.editor.config().border_style {
+        let mut block = Block::bordered().border_style(cx.editor.theme.get("ui.window")).border_type(match cx.editor.config().border_style {
             UiBorderStyle::Square => BorderType::Plain,
             UiBorderStyle::Rounded => BorderType::Rounded,
             UiBorderStyle::Double => BorderType::Double,
         });
+
+        if let Some(title) = &self.title {
+            block = block.title(format!(" {title} "));
+        }
 
         // calculate the inner area inside the box
         let inner = block.inner(area);
