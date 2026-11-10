@@ -417,6 +417,8 @@ impl MappableCommand {
         git_blame_line, "Show Git blame for current line",
         git_toggle_inline_blame, "Toggle inline Git blame",
         git_stage_hunk, "Stage Git hunk at cursor",
+        git_stage_all, "Stage all changes in active Git repository",
+        git_unstage_all, "Unstage all changes in active Git repository",
         git_unstage_hunk, "Unstage Git hunk at cursor",
         git_revert_hunk, "Revert unstaged Git hunk with confirmation",
         git_repository_status, "Show Git repository status",
@@ -5040,6 +5042,50 @@ fn git_repository_status(cx: &mut Context) {
             compositor.replace_or_push("git-repository-status", popup);
         })))
     });
+}
+
+/// Stage or unstage the entire active repository, leaving working files intact.
+fn git_change_all(cx: &mut Context, unstage: bool) {
+    let cwd = active_buffer_directory(cx.editor);
+    cx.editor.set_status(if unstage { "Unstaging repository changes…" } else { "Staging repository changes…" });
+    cx.jobs.callback(async move {
+        let root = tokio::process::Command::new("git")
+            .arg("-C").arg(&cwd)
+            .args(["rev-parse", "--show-toplevel"])
+            .output().await?;
+        if !root.status.success() {
+            anyhow::bail!("Active buffer is not inside a Git repository");
+        }
+        let root = PathBuf::from(String::from_utf8_lossy(&root.stdout).trim());
+        let mut cmd = tokio::process::Command::new("git");
+        cmd.arg("-C").arg(&root);
+        if unstage {
+            cmd.args(["reset", "-q", "HEAD", "--", "."]);
+        } else {
+            cmd.args(["add", "-A", "--", "."]);
+        }
+        let output = cmd.output().await?;
+        let result = if output.status.success() {
+            Ok(if unstage { "All repository changes unstaged" } else { "All repository changes staged" })
+        } else {
+            Err(format!("Git {} all failed: {}", if unstage { "unstage" } else { "stage" },
+                String::from_utf8_lossy(&output.stderr).trim()))
+        };
+        Ok(Callback::EditorCompositor(Box::new(move |editor, _| {
+            match result {
+                Ok(message) => editor.set_status(message),
+                Err(message) => editor.set_error(message),
+            }
+        })))
+    });
+}
+
+fn git_stage_all(cx: &mut Context) {
+    git_change_all(cx, false);
+}
+
+fn git_unstage_all(cx: &mut Context) {
+    git_change_all(cx, true);
 }
 
 fn git_stage_hunk(cx: &mut Context) {
