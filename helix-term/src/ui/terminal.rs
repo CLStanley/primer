@@ -92,6 +92,16 @@ impl Component for TerminalView {
                         }
                         return EventResult::Consumed(None);
                     }
+                    // Terminal Normal Mode shares the editor's buffer navigation
+                    // shortcuts. Reveal the editor when moving away from the PTY;
+                    // the terminal session remains alive for a later return.
+                    if self.close_sequence == 0
+                        && matches!(key.code, KeyCode::Char('H') | KeyCode::Char('L'))
+                    {
+                        return EventResult::Consumed(Some(Box::new(|compositor, _cx| {
+                            compositor.park_below_editor::<TerminalView>();
+                        })));
+                    }
                     // Let Primer's real editor command-line keymap open the
                     // prompt. The prompt becomes the top compositor layer, so
                     // subsequent keystrokes go to it rather than the PTY.
