@@ -111,6 +111,7 @@ impl Component for TerminalView {
                     if self.confirm_close {
                         self.confirm_close = false;
                         self.close_sequence = 0;
+                        ctx.editor.status_msg = None;
                         if key.code == KeyCode::Char('y') {
                             let _ = self.terminal.kill();
                             return EventResult::Consumed(Some(Box::new(|compositor, cx| {
@@ -173,6 +174,7 @@ impl Component for TerminalView {
                                 self.pending_keys.clear();
                                 ctx.editor.autoinfo = None;
                                 self.confirm_close = true;
+                                ctx.editor.set_status("Kill terminal and running processes? [y/N]");
                                 return EventResult::Consumed(None);
                             }
                             let keys = self.pending_keys.clone();
