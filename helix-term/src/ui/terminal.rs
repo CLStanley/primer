@@ -110,8 +110,18 @@ impl Component for TerminalView {
                     if self.close_sequence == 0
                         && matches!(key.code, KeyCode::Char('H') | KeyCode::Char('L'))
                     {
-                        return EventResult::Consumed(Some(Box::new(|compositor, _cx| {
-                            compositor.park_below_editor::<TerminalView>();
+                        let forward = key.code == KeyCode::Char('L');
+                        return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+                            let current = cx.editor.tree.get(cx.editor.tree.focus).doc;
+                            let ids: Vec<_> = cx.editor.documents.keys().copied().collect();
+                            if let Some(index) = ids.iter().position(|id| *id == current) {
+                                if ids.len() > 1 {
+                                    let next = if forward { (index + 1) % ids.len() }
+                                        else { (index + ids.len() - 1) % ids.len() };
+                                    cx.editor.switch(ids[next], helix_view::editor::Action::Replace);
+                                }
+                            }
+                            compositor.sync_terminal_document(cx.editor);
                         })));
                     }
                     // Let Primer's real editor command-line keymap open the
@@ -200,7 +210,17 @@ impl Component for TerminalView {
                                             "primer_buffer_next" | "primer_buffer_previous"
                                             | "buffer_next" | "buffer_previous"
                                         ) {
-                                            compositor.park_below_editor::<TerminalView>();
+                                            let current = cx.editor.tree.get(cx.editor.tree.focus).doc;
+                                            let ids: Vec<_> = cx.editor.documents.keys().copied().collect();
+                                            if let Some(index) = ids.iter().position(|id| *id == current) {
+                                                if ids.len() > 1 {
+                                                    let forward = matches!(command.name(), "primer_buffer_next" | "buffer_next");
+                                                    let next = if forward { (index + 1) % ids.len() }
+                                                        else { (index + ids.len() - 1) % ids.len() };
+                                                    cx.editor.switch(ids[next], helix_view::editor::Action::Replace);
+                                                }
+                                            }
+                                            compositor.sync_terminal_document(cx.editor);
                                             return;
                                         }
                                         // Only editor-wide UI actions are safe until
