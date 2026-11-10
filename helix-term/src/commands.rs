@@ -4954,36 +4954,73 @@ fn active_git_root(cx: &mut Context) -> Option<PathBuf> {
     }
 }
 
-/// Browse local branches and switch without discarding unsaved edits.
-fn git_branch_picker(cx: &mut Context) {
-    let Some(root) = active_git_root(cx) else { return };
-    let output = std::process::Command::new("git")
-        .arg("-C").arg(&root)
-        .args(["branch", "--list", "--format=%(HEAD)|%(refname:short)"])
-        .output();
-    let output = match output {
-        Ok(output) if output.status.success() => output,
-        Ok(output) => {
-            cx.editor.set_error(format!("Could not list Git branches: {}", String::from_utf8_lossy(&output.stderr)));
+// Only Primer-created stashes are eligible for automatic restoration.
+const PRIMER_STASH_PREFIX: &str = "primer-branch:";
+
+fn primer_git(root: &Path, args: &[&str]) -> Result<String, String> {
+    let output = std::process::Command::new("git").arg("-C").arg(root)
+        .args(args).output().map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+}
+
+fn primer_branch_stash(root: &Path, branch: &str) -> Result<Option<String>, String> {
+    let list = primer_git(root, &["stash", "list", "--format=%gd%x09%s"])?;
+    let marker = format!("{PRIMER_STASH_PREFIX}{branch}");
+    Ok(list.lines().filter_map(|line| line.split_once('\t'))
+        .find(|(_, message)| message.ends_with(&marker))
+        .map(|(reference, _)| reference.to_owned()))
+}
+
+fn primer_finish_branch_switch(cx: &mut Context, root: &Path, name: &str) {
+    if let Err(error) = primer_git(root, &["switch", "--", name]) {
+        cx.editor.set_error(format!("Could not switch to {name}: {error}"));
+        return;
+    }
+    let restore = match primer_branch_stash(root, name) {
+        Ok(Some(reference)) => {
+            match primer_git(root, &["stash", "pop", "--index", &reference]) {
+                Ok(_) => format!("; restored saved changes for {name}"),
+                Err(error) => {
+                    cx.editor.set_error(format!(
+                        "Switched to {name}, but stash restoration failed: {error}. Stash retained; resolve manually."
+                    ));
+                    return;
+                }
+            }
+        }
+        Ok(None) => String::new(),
+        Err(error) => {
+            cx.editor.set_error(format!("Switched to {name}; could not inspect stashes: {error}"));
             return;
         }
+    };
+    let command = typed::TYPABLE_COMMAND_MAP.get("reload-all").expect("reload-all command exists");
+    match typed::execute_command(cx, command, "", PromptEvent::Validate) {
+        Ok(()) => cx.editor.set_status(format!("Switched to {name}{restore}; buffers refreshed")),
+        Err(error) => cx.editor.set_error(format!("Switched to {name}; reload failed: {error}")),
+    }
+}
+
+/// Browse local branches, asking how to handle working-tree changes.
+fn git_branch_picker(cx: &mut Context) {
+    let Some(root) = active_git_root(cx) else { return };
+    let output = match primer_git(&root, &["branch", "--list", "--format=%(HEAD)|%(refname:short)"]) {
+        Ok(output) => output,
         Err(error) => {
             cx.editor.set_error(format!("Could not list Git branches: {error}"));
             return;
         }
     };
-    let branches: Vec<(bool, String)> = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter_map(|line| {
-            let (marker, name) = line.split_once('|')?;
-            Some((marker.trim() == "*", name.to_owned()))
-        })
-        .collect();
-    let columns = [
-        PickerColumn::new("Git Branches", |branch: &(bool, String), _| {
-            format!("{} {}", if branch.0 { "*" } else { " " }, branch.1).into()
-        }),
-    ];
+    let branches: Vec<(bool, String)> = output.lines().filter_map(|line| {
+        let (marker, name) = line.split_once('|')?;
+        Some((marker.trim() == "*", name.to_owned()))
+    }).collect();
+    let columns = [PickerColumn::new("Git Branches", |branch: &(bool, String), _| {
+        format!("{} {}", if branch.0 { "*" } else { " " }, branch.1).into()
+    })];
     let picker = Picker::new(columns, 0, branches, (), move |cx, branch: &(bool, String), _| {
         if branch.0 {
             cx.editor.set_status(format!("Already on branch {}", branch.1));
@@ -4994,28 +5031,98 @@ fn git_branch_picker(cx: &mut Context) {
             return;
         }
         let name = branch.1.clone();
-        let output = std::process::Command::new("git")
-            .arg("-C").arg(&root)
-            .args(["switch", "--"]).arg(&name)
-            .output();
-        match output {
-            Ok(output) if output.status.success() => {
-                let command = typed::TYPABLE_COMMAND_MAP
-                    .get("reload-all")
-                    .expect("reload-all command exists");
-                match typed::execute_command(cx, command, "", PromptEvent::Validate) {
-                    Ok(()) => cx.editor.set_status(format!("Switched to {name}; buffers refreshed")),
-                    Err(error) => cx.editor.set_error(format!(
-                        "Switched to {name}, but buffer refresh failed: {error}"
-                    )),
+        let status = match primer_git(&root, &["status", "--porcelain=v1", "--untracked-files=all"]) {
+            Ok(status) => status,
+            Err(error) => {
+                cx.editor.set_error(format!("Could not check working tree: {error}"));
+                return;
+            }
+        };
+        if status.is_empty() {
+            primer_finish_branch_switch(cx, &root, &name);
+            return;
+        }
+        let source = match primer_git(&root, &["branch", "--show-current"]) {
+            Ok(source) if !source.is_empty() => source,
+            _ => {
+                cx.editor.set_error("Cannot stash branch changes from a detached HEAD");
+                return;
+            }
+        };
+        let prompt_root = root.clone();
+        let mut prompt = Prompt::new(
+            format!("Changes detected. Switch to {name} [STASH / NORMAL / CANCEL]: ").into(),
+            None, ui::completers::none,
+            move |cx, input, event| {
+                if event != PromptEvent::Validate { return; }
+                if cx.editor.documents().any(|doc| doc.is_modified()) {
+                    cx.editor.set_error("Save unsaved editor buffers before switching");
+                    return;
+                }
+                let latest_status = primer_git(&prompt_root, &["status", "--porcelain=v1", "--untracked-files=all"]);
+                if latest_status.as_ref().ok() != Some(&status) {
+                    cx.editor.set_error("Working tree changed while confirming; reopen branch picker");
+                    return;
+                }
+                match input.trim().to_ascii_uppercase().as_str() {
+                    "STASH" => {
+                        // A branch may have only one pending Primer stash to prevent
+                        // silently overwriting a previously saved work session.
+                        match primer_branch_stash(&prompt_root, &source) {
+                            Ok(Some(_)) => {
+                                cx.editor.set_error("This branch already has a saved Primer stash; restore it manually first");
+                                return;
+                            }
+                            Err(error) => {
+                                cx.editor.set_error(format!("Cannot inspect stashes: {error}"));
+                                return;
+                            }
+                            Ok(None) => {}
+                        }
+                        let marker = format!("{PRIMER_STASH_PREFIX}{source}");
+                        if let Err(error) = primer_git(&prompt_root, &["stash", "push", "--include-untracked", "-m", &marker]) {
+                            cx.editor.set_error(format!("Could not stash changes; branch unchanged: {error}"));
+                            return;
+                        }
+                        if let Err(error) = primer_git(&prompt_root, &["switch", "--", &name]) {
+                            cx.editor.set_error(format!(
+                                "Switch failed: {error}. Changes saved in stash for {source}; restore manually."
+                            ));
+                            return;
+                        }
+                        // The switch already happened; restore the destination's
+                        // Primer stash and reload without switching a second time.
+                        let restore = match primer_branch_stash(&prompt_root, &name) {
+                            Ok(Some(reference)) => primer_git(&prompt_root, &["stash", "pop", "--index", &reference])
+                                .map(|_| " (destination changes restored)".to_owned()),
+                            Ok(None) => Ok(String::new()),
+                            Err(error) => Err(error),
+                        };
+                        let suffix = match restore {
+                            Ok(suffix) => suffix,
+                            Err(error) => {
+                                cx.editor.set_error(format!(
+                                    "Switched to {name}, but restoring destination changes failed: {error}. Stash retained."
+                                ));
+                                return;
+                            }
+                        };
+                        let command = typed::TYPABLE_COMMAND_MAP.get("reload-all").expect("reload-all command exists");
+                        match typed::execute_command(cx, command, "", PromptEvent::Validate) {
+                            Ok(()) => cx.editor.set_status(format!("Switched to {name}{suffix}; buffers refreshed")),
+                            Err(error) => cx.editor.set_error(format!("Switched to {name}; reload failed: {error}")),
+                        }
+                    }
+                    "NORMAL" => primer_finish_branch_switch(cx, &prompt_root, &name),
+                    "CANCEL" => cx.editor.set_status("Branch switch cancelled"),
+                    _ => cx.editor.set_error("Enter STASH, NORMAL, or CANCEL"),
                 }
             }
-            Ok(output) => cx.editor.set_error(format!(
-                "Could not switch to {name}: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            )),
-            Err(error) => cx.editor.set_error(format!("Could not switch to {name}: {error}")),
-        }
+        );
+        prompt.doc_fn = Box::new(|_| Some(
+            "STASH saves tracked and untracked changes for this branch before switching. NORMAL uses standard Git behavior, potentially carrying changes. CANCEL leaves everything unchanged.".into()
+        ));
+        cx.push_layer(Box::new(prompt));
     });
     let mut overlay = overlaid(picker.with_title("Git Branches"));
     overlay.calc_child_size = Box::new(|area| {
@@ -5024,8 +5131,7 @@ fn git_branch_picker(cx: &mut Context) {
         helix_view::graphics::Rect::new(
             area.x + area.width.saturating_sub(width) / 2,
             area.y + area.height.saturating_sub(height) / 2,
-            width,
-            height,
+            width, height,
         )
     });
     cx.push_layer(Box::new(overlay));
