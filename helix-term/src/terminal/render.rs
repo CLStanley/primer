@@ -4,7 +4,7 @@
 //! It clips all output to the assigned pane and leaves editor focus handling
 //! to the future terminal view integration.
 
-use helix_view::graphics::{Color, Modifier, Rect, Style};
+use helix_view::graphics::{Color, Modifier, Rect, Style, UnderlineStyle};
 use tui::buffer::Buffer;
 
 use super::screen::TerminalScreen;
@@ -57,7 +57,7 @@ pub fn render_terminal(
                 cell_style = cell_style.add_modifier(Modifier::ITALIC);
             }
             if cell.underline() {
-                cell_style = cell_style.add_modifier(Modifier::UNDERLINED);
+                cell_style = cell_style.underline_style(UnderlineStyle::Line);
             }
             if cell.inverse() {
                 let fg = cell_style.fg;
