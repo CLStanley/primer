@@ -328,6 +328,17 @@ impl Compositor {
                 layer.render(area, surface, cx);
             }
         }
+
+        // EditorView draws its Which-Key popup before terminal pane surfaces.
+        // Repaint the shared popup above PTYs while a terminal has focus.
+        if cx.editor.tree.try_get(cx.editor.tree.focus)
+            .is_some_and(|view| cx.editor.terminal_documents.contains(&view.doc))
+        {
+            if let Some(mut info) = cx.editor.autoinfo.take() {
+                info.render(area, surface, cx);
+                cx.editor.autoinfo = Some(info);
+            }
+        }
     }
 
     pub fn cursor(&self, area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
