@@ -5050,7 +5050,9 @@ fn git_branch_picker(cx: &mut Context) {
             }
         };
         let prompt_root = root.clone();
-        let mut prompt = Prompt::new(
+        cx.jobs.callback(async move {
+            Ok(Callback::EditorCompositor(Box::new(move |editor, compositor| {
+                let mut prompt = Prompt::new(
             format!("Changes detected. Switch to {name} [STASH / NORMAL / CANCEL]: ").into(),
             None, ui::completers::none,
             move |cx, input, event| {
@@ -5122,9 +5124,7 @@ fn git_branch_picker(cx: &mut Context) {
         prompt.doc_fn = Box::new(|_| Some(
             "STASH saves tracked and untracked changes for this branch before switching. NORMAL uses standard Git behavior, potentially carrying changes. CANCEL leaves everything unchanged.".into()
         ));
-        prompt.recalculate_completion(cx.editor);
-        cx.jobs.callback(async move {
-            Ok(Callback::EditorCompositor(Box::new(move |_, compositor| {
+                prompt.recalculate_completion(editor);
                 compositor.push(Box::new(prompt));
             })))
         });
