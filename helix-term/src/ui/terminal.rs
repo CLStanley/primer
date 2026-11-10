@@ -424,8 +424,6 @@ impl Component for TerminalView {
             );
             let message = if self.confirm_close {
                 "Kill terminal and running processes? [y/N]"
-            } else if self.input_mode == TerminalInputMode::Terminal {
-                "-- TERMINAL --"
             } else {
                 ""
             };
