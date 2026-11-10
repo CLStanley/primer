@@ -83,6 +83,11 @@ impl EditorView {
         surface: &mut Surface,
         is_focused: bool,
     ) {
+        // A terminal document is a pane occupant, not a text document.
+        // Its PTY is drawn by the compositor after the editor chrome.
+        if editor.terminal_documents.contains(&doc.id()) {
+            return;
+        }
         let inner = view.inner_area(doc);
         let area = view.area;
         let theme = &editor.theme;
