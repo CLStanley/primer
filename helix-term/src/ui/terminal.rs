@@ -235,6 +235,20 @@ impl Component for TerminalView {
                                             compositor.sync_terminal_document(cx.editor);
                                             return;
                                         }
+                                        // Pane navigation is valid for PTY-backed
+                                        // views even though they are not editable text.
+                                        let direction = match command.name() {
+                                            "jump_view_left" => Some(helix_view::tree::Direction::Left),
+                                            "jump_view_right" => Some(helix_view::tree::Direction::Right),
+                                            "jump_view_up" => Some(helix_view::tree::Direction::Up),
+                                            "jump_view_down" => Some(helix_view::tree::Direction::Down),
+                                            _ => None,
+                                        };
+                                        if let Some(direction) = direction {
+                                            cx.editor.focus_direction(direction);
+                                            compositor.sync_terminal_document(cx.editor);
+                                            return;
+                                        }
                                         // Editor-wide commands, including creating a
                                         // new PTY, work from terminal Normal Mode.
                                         if matches!(
