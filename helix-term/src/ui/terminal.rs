@@ -86,6 +86,12 @@ impl Component for TerminalView {
                         if key.code == KeyCode::Char('y') {
                             let _ = self.terminal.kill();
                             return EventResult::Consumed(Some(Box::new(|compositor, cx| {
+                                if let Some(terminal) = compositor.find::<TerminalView>() {
+                                    let id = terminal.document_id();
+                                    if let Err(_err) = cx.editor.close_document(id, true) {
+                                        cx.editor.terminal_documents.remove(&id);
+                                    }
+                                }
                                 compositor.remove_type::<TerminalView>();
                                 // Restore the home screen when there is no real file to show.
                                 // Do not discard existing named editing buffers.
