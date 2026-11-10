@@ -79,8 +79,9 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
 
     // PTY buffers have no text selection, encoding or line endings. Keep
     // the user's configured layout while omitting inapplicable elements.
+    let is_terminal = context.terminal.is_some();
     let applicable = |element: &StatusLineElementID| {
-        if context.terminal.is_none() { return true; }
+        if !is_terminal { return true; }
         !matches!(
             element,
             StatusLineElementID::Selections
