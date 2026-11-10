@@ -192,6 +192,16 @@ impl Component for TerminalView {
                                             for callback in callbacks {
                                                 callback(compositor, cx);
                                             }
+                                            // Pickers operate on editor documents. Put the
+                                            // persistent PTY behind EditorView so a selected
+                                            // file/buffer becomes visible immediately.
+                                            if matches!(command.name(),
+                                                "file_picker" | "file_picker_in_current_directory"
+                                                | "file_explorer" | "file_explorer_in_current_buffer_directory"
+                                                | "buffer_picker"
+                                            ) {
+                                                compositor.park_below_editor::<TerminalView>();
+                                            }
                                         } else {
                                             cx.editor.set_error(format!(
                                                 "Switch to an editor buffer before using {} (terminal view integration pending)",
