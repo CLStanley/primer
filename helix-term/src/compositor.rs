@@ -153,6 +153,16 @@ impl Compositor {
         self.layers
             .retain(|component| component.type_name() != type_name);
     }
+    /// Remove only the terminal session associated with the given document.
+    pub fn remove_terminal_document(&mut self, id: helix_view::DocumentId) {
+        self.layers.retain(|layer| {
+            layer.as_any()
+                .downcast_ref::<crate::ui::terminal::TerminalView>()
+                .is_none_or(|terminal| terminal.document_id() != id)
+        });
+        self.need_full_redraw();
+    }
+
     /// Keep the selected terminal above the editor and every other terminal
     /// below it. Document selection, not compositor insertion order, owns focus.
     pub fn sync_terminal_document(&mut self, editor: &Editor) {
