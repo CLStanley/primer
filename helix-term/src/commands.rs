@@ -4985,7 +4985,7 @@ fn git_branch_picker(cx: &mut Context) {
             format!("{} {}", if branch.0 { "*" } else { " " }, branch.1).into()
         }),
     ];
-    let picker = Picker::new(columns, 1, branches, (), |cx, branch: &(bool, String), _| {
+    let picker = Picker::new(columns, 0, branches, (), |cx, branch: &(bool, String), _| {
         cx.editor.set_status(format!("Branch: {}{}", branch.1, if branch.0 { " (current)" } else { "" }));
     });
     let mut overlay = overlaid(picker);
