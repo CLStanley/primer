@@ -10,7 +10,7 @@ use crate::terminal::TerminalInputMode;
 use crate::terminal::{render::render_terminal, runtime::RunningTerminal};
 use helix_core::Position;
 use helix_view::document::Mode;
-use helix_view::graphics::{Color, CursorKind, Modifier, Rect};
+use helix_view::graphics::{Color, CursorKind, Rect};
 use helix_view::input::KeyEvent;
 use helix_view::keyboard::{KeyCode, KeyModifiers};
 use tui::buffer::Buffer;
@@ -391,95 +391,25 @@ impl Component for TerminalView {
                 Rect::new(area.x, area.y, area.width, 1),
                 surface,
             );
-            let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".into());
-            let name = std::path::Path::new(&shell)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("terminal");
-
             let status = Rect::new(area.x, area.y + area.height - 2, area.width, 1);
-            let mut base = cx.editor.theme.get("ui.statusline");
-            base.bg = Some(Color::Reset);
-            surface.set_style(status, base);
-            surface.set_stringn(
-                status.x,
-                status.y,
-                &" ".repeat(status.width as usize),
-                status.width as usize,
-                base,
-            );
-
-            let terminal_mode = self.input_mode == TerminalInputMode::Terminal;
-            let mode_name = if terminal_mode { "TERMINAL" } else { "NORMAL" };
-            let mode_style = cx
-                .editor
-                .theme
-                .try_get(if terminal_mode {
-                    "ui.statusline.insert"
-                } else {
-                    "ui.statusline.normal"
-                })
-                .unwrap_or_else(|| cx.editor.theme.get("ui.statusline.active"))
-                .add_modifier(Modifier::BOLD);
-            let configured_mode = &cx.editor.config().statusline.mode.normal;
-            let mode_label = if terminal_mode {
-                mode_name
-            } else {
-                configured_mode.as_str()
-            };
-            let mode_text = format!("   {mode_label}  ");
-            let mode_bg = mode_style.bg.unwrap_or(Color::Rgb(183, 156, 222));
-            let mut mode_x = status.x;
-            mode_x = surface
-                .set_stringn(
-                    mode_x,
-                    status.y,
-                    "",
-                    status.width as usize,
-                    base.fg(mode_bg),
-                )
-                .0;
-            mode_x = surface
-                .set_stringn(
-                    mode_x,
-                    status.y,
-                    &mode_text,
-                    status.right().saturating_sub(mode_x) as usize,
-                    mode_style,
-                )
-                .0;
-            surface.set_stringn(
-                mode_x,
-                status.y,
-                "",
-                status.right().saturating_sub(mode_x) as usize,
-                base.fg(mode_bg),
-            );
-
             let (columns, rows) = self.terminal.screen().size();
-            let dimensions = format!(" {columns}×{rows} ");
-            let shell_text = format!("  {name} ");
-            let shell_style = cx
-                .editor
-                .theme
-                .get("ui.statusline.normal")
-                .add_modifier(Modifier::BOLD);
-            let shell_width = shell_text.chars().count() as u16 + 2;
-            let dim_width = dimensions.chars().count() as u16;
-            if status.width > shell_width + dim_width + mode_text.chars().count() as u16 {
-                let shell_x = status.right() - shell_width;
-                let dim_x = shell_x - dim_width;
-                surface.set_stringn(dim_x, status.y, &dimensions, dim_width as usize, base);
-                let shell_bg = shell_style.bg.unwrap_or(Color::Rgb(183, 156, 222));
-                surface.set_stringn(shell_x, status.y, "", 1, base.fg(shell_bg));
-                surface.set_stringn(
-                    shell_x + 1,
-                    status.y,
-                    &shell_text,
-                    shell_text.chars().count(),
-                    shell_style,
-                );
-                surface.set_stringn(status.right() - 1, status.y, "", 1, base.fg(shell_bg));
+            let name = cx.editor.terminal_names.get(&self.document_id)
+                .map(String::as_str)
+                .unwrap_or("terminal");
+            if let Some(view) = cx.editor.tree.try_get(cx.editor.tree.focus) {
+                if let Some(doc) = cx.editor.documents.get(&self.document_id) {
+                    let spinners = crate::ui::ProgressSpinners::default();
+                    let mut context = crate::ui::statusline::RenderContext::new(
+                        cx.editor, doc, view, true, &spinners,
+                    );
+                    context.terminal = Some(crate::ui::statusline::TerminalStatus {
+                        name,
+                        input_mode: self.input_mode == TerminalInputMode::Terminal,
+                        columns,
+                        rows,
+                    });
+                    crate::ui::statusline::render(&mut context, status, surface);
+                }
             }
 
             let command = Rect::new(area.x, area.y + area.height - 1, area.width, 1);
