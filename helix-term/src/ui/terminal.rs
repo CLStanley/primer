@@ -23,6 +23,8 @@ pub struct TerminalView {
     error: Option<String>,
     input_mode: TerminalInputMode,
     escape_pending: bool,
+    close_sequence: u8,
+    confirm_close: bool,
 }
 
 impl TerminalView {
@@ -33,6 +35,8 @@ impl TerminalView {
             error: None,
             input_mode: TerminalInputMode::Terminal,
             escape_pending: false,
+            close_sequence: 0,
+            confirm_close: false,
         }
     }
 
@@ -63,23 +67,42 @@ impl Component for TerminalView {
         if self.input_mode == TerminalInputMode::Normal {
             if let Event::Key(key) = event {
                 if key.modifiers.is_empty() {
-                    match key.code {
-                        KeyCode::Char('i') => {
-                            self.set_input_mode(TerminalInputMode::Terminal);
-                            return EventResult::Consumed(None);
-                        }
-                        KeyCode::Char('q') => {
+                    if self.confirm_close {
+                        self.confirm_close = false;
+                        self.close_sequence = 0;
+                        if key.code == KeyCode::Char('y') {
                             let _ = self.terminal.kill();
                             return EventResult::Consumed(Some(Box::new(|compositor, _| {
                                 compositor.remove_type::<TerminalView>();
                             })));
                         }
-                        _ => {}
+                        return EventResult::Consumed(None);
                     }
+                    match (self.close_sequence, key.code) {
+                        (0, KeyCode::Char(' ')) => {
+                            self.close_sequence = 1;
+                            return EventResult::Consumed(None);
+                        }
+                        (1, KeyCode::Char('b')) => {
+                            self.close_sequence = 2;
+                            return EventResult::Consumed(None);
+                        }
+                        (2, KeyCode::Char('q')) => {
+                            self.close_sequence = 0;
+                            self.confirm_close = true;
+                            return EventResult::Consumed(None);
+                        }
+                        (_, KeyCode::Char('i')) => {
+                            self.close_sequence = 0;
+                            self.set_input_mode(TerminalInputMode::Terminal);
+                            return EventResult::Consumed(None);
+                        }
+                        _ => self.close_sequence = 0,
+                    }
+                } else {
+                    self.close_sequence = 0;
                 }
             }
-            // Do not accidentally edit the underlying document while a
-            // terminal compositor layer is focused.
             return EventResult::Consumed(None);
         }
         match event {
@@ -182,9 +205,14 @@ impl Component for TerminalView {
             let command_style = cx.editor.theme.get("ui.text");
             surface.set_style(command, cx.editor.theme.get("ui.background"));
             surface.set_stringn(command.x, command.y, &" ".repeat(command.width as usize), command.width as usize, command_style);
-            if self.input_mode == TerminalInputMode::Terminal {
-                surface.set_stringn(command.x, command.y, "-- TERMINAL --", command.width as usize, command_style);
-            }
+            let message = if self.confirm_close {
+                "Kill terminal and running processes? [y/N]"
+            } else if self.input_mode == TerminalInputMode::Terminal {
+                "-- TERMINAL --"
+            } else {
+                ""
+            };
+            surface.set_stringn(command.x, command.y, message, command.width as usize, command_style);
         }
     }
 }
