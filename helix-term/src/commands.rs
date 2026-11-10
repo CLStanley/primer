@@ -4954,8 +4954,7 @@ fn active_git_root(cx: &mut Context) -> Option<PathBuf> {
     }
 }
 
-/// Browse local branches. Selecting one reports its name; switching is a separate,
-/// guarded operation to be introduced after buffer refresh support.
+/// Browse local branches and switch without discarding unsaved edits.
 fn git_branch_picker(cx: &mut Context) {
     let Some(root) = active_git_root(cx) else { return };
     let output = std::process::Command::new("git")
@@ -4985,8 +4984,32 @@ fn git_branch_picker(cx: &mut Context) {
             format!("{} {}", if branch.0 { "*" } else { " " }, branch.1).into()
         }),
     ];
-    let picker = Picker::new(columns, 0, branches, (), |cx, branch: &(bool, String), _| {
-        cx.editor.set_status(format!("Branch: {}{}", branch.1, if branch.0 { " (current)" } else { "" }));
+    let picker = Picker::new(columns, 0, branches, (), move |cx, branch: &(bool, String), _| {
+        if branch.0 {
+            cx.editor.set_status(format!("Already on branch {}", branch.1));
+            return;
+        }
+        if cx.editor.documents().any(|doc| doc.is_modified()) {
+            cx.editor.set_error("Save or discard unsaved buffers before switching branches");
+            return;
+        }
+        let name = branch.1.clone();
+        let output = std::process::Command::new("git")
+            .arg("-C").arg(&root)
+            .args(["switch", "--"]).arg(&name)
+            .output();
+        match output {
+            Ok(output) if output.status.success() => {
+                cx.editor.set_status(format!(
+                    "Switched to {name}. Reload open file buffers to see branch contents."
+                ));
+            }
+            Ok(output) => cx.editor.set_error(format!(
+                "Could not switch to {name}: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            )),
+            Err(error) => cx.editor.set_error(format!("Could not switch to {name}: {error}")),
+        }
     });
     let mut overlay = overlaid(picker.with_title("Git Branches"));
     overlay.calc_child_size = Box::new(|area| {
