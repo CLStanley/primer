@@ -227,8 +227,13 @@ impl Compositor {
         let editor_kind = std::any::type_name::<crate::ui::EditorView>();
         let terminal_kind = std::any::type_name::<crate::ui::terminal::TerminalView>();
         let editor_index = self.layers.iter().position(|layer| layer.type_name() == editor_kind);
+        let terminal_index = self.layers.iter().position(|layer| layer.type_name() == terminal_kind);
         for (index, layer) in self.layers.iter_mut().enumerate() {
-            if layer.type_name() == terminal_kind && editor_index.is_some_and(|editor| index < editor) {
+            // Render exactly one full-screen view. The inactive editor must
+            // not bleed through a transparent terminal (or vice versa).
+            if (layer.type_name() == terminal_kind && editor_index.is_some_and(|editor| index < editor))
+                || (layer.type_name() == editor_kind && terminal_index.is_some_and(|terminal| index < terminal))
+            {
                 continue;
             }
             layer.render(area, surface, cx);
