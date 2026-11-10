@@ -322,13 +322,14 @@ impl Compositor {
             }
         }
 
-        // Make adjacent split boundaries visible without consuming PTY cells.
-        // The separator is painted over the last column of the left pane.
+        // Split geometry can reserve a separator column/row between view
+        // rectangles. Match nearby edges rather than requiring exact contact.
         let views: Vec<_> = cx.editor.tree.views().map(|(view, _)| view.area).collect();
         let separator_style = cx.editor.theme.get("ui.window");
         for pane in &views {
             if pane.x > area.x && views.iter().any(|other| {
-                other.x.saturating_add(other.width) == pane.x
+                let right = other.x.saturating_add(other.width);
+                right <= pane.x && pane.x.saturating_sub(right) <= 2
                     && other.y < pane.y.saturating_add(pane.height)
                     && pane.y < other.y.saturating_add(other.height)
             }) {
@@ -338,7 +339,8 @@ impl Compositor {
                 }
             }
             if pane.y > area.y && views.iter().any(|other| {
-                other.y.saturating_add(other.height) == pane.y
+                let bottom = other.y.saturating_add(other.height);
+                bottom <= pane.y && pane.y.saturating_sub(bottom) <= 2
                     && other.x < pane.x.saturating_add(pane.width)
                     && pane.x < other.x.saturating_add(other.width)
             }) {
