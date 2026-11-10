@@ -1,8 +1,7 @@
 //! Compositor component for a live terminal session.
 //!
-//! This component is intentionally not wired into commands or editor tabs yet.
-//! It establishes the UI boundary: PTY output is drained and painted without
-//! converting terminal contents into an editable text document.
+//! Each PTY is associated with an editor document, so buffer navigation and
+//! the shared bufferline can select it without converting PTY output into text.
 
 use crate::compositor::{Component, Context, Event, EventResult};
 use crate::keymap::KeyTrie;
@@ -16,10 +15,7 @@ use helix_view::input::KeyEvent;
 use helix_view::keyboard::{KeyCode, KeyModifiers};
 use tui::buffer::Buffer;
 
-/// A terminal surface owned by the compositor.
-///
-/// The future terminal-buffer integration can reuse this surface and its
-/// runtime while associating it with a stable terminal session identifier.
+/// PTY-backed terminal surface associated with an editor document.
 pub struct TerminalView {
     terminal: RunningTerminal,
     document_id: helix_view::DocumentId,
@@ -278,22 +274,12 @@ impl Component for TerminalView {
                                             for callback in callbacks {
                                                 callback(compositor, cx);
                                             }
-                                            // Pickers operate on editor documents. Put the
-                                            // persistent PTY behind EditorView so a selected
-                                            // file/buffer becomes visible immediately.
-                                            if matches!(
-                                                command.name(),
-                                                "file_picker"
-                                                    | "file_picker_in_current_directory"
-                                                    | "file_explorer"
-                                                    | "file_explorer_in_current_buffer_directory"
-                                                    | "buffer_picker"
-                                            ) {
-                                                compositor.park_below_editor::<TerminalView>();
-                                            }
+                                            // The selected editor document controls which
+                                            // surface is visible after picker callbacks.
+                                            compositor.sync_terminal_document(cx.editor);
                                         } else {
                                             cx.editor.set_error(format!(
-                                                "Switch to an editor buffer before using {} (terminal view integration pending)",
+                                                "Switch to an editable buffer before using {}",
                                                 command.name()
                                             ));
                                         }
