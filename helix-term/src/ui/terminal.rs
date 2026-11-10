@@ -9,7 +9,7 @@ use crate::terminal::input::encode_key;
 use crate::keymap::KeyTrie;
 use helix_view::document::Mode;
 use crate::terminal::TerminalInputMode;
-use helix_view::keyboard::{KeyCode, KeyModifiers};
+use helix_view::keyboard::{KeyCode, KeyModifiers, KeyEvent};
 use crate::terminal::{render::render_terminal, runtime::RunningTerminal};
 use helix_view::graphics::{Rect, CursorKind, Color, Modifier, UnderlineStyle};
 use helix_core::Position;
@@ -26,6 +26,7 @@ pub struct TerminalView {
     input_mode: TerminalInputMode,
     escape_pending: bool,
     close_sequence: u8,
+    pending_keys: Vec<KeyEvent>,
     confirm_close: bool,
 }
 
@@ -38,6 +39,7 @@ impl TerminalView {
             input_mode: TerminalInputMode::Terminal,
             escape_pending: false,
             close_sequence: 0,
+            pending_keys: Vec::new(),
             confirm_close: false,
         }
     }
@@ -57,6 +59,8 @@ impl TerminalView {
     pub fn set_input_mode(&mut self, mode: TerminalInputMode) {
         self.input_mode = mode;
         self.escape_pending = false;
+        self.pending_keys.clear();
+        self.close_sequence = 0;
     }
 
     pub fn error(&self) -> Option<&str> {
@@ -97,38 +101,64 @@ impl Component for TerminalView {
                     // its shared Which-Key popup, without closing the terminal.
                     if key.code == KeyCode::Esc {
                         self.close_sequence = 0;
+                        self.pending_keys.clear();
                         ctx.editor.autoinfo = None;
                         return EventResult::Consumed(None);
                     }
                     match (self.close_sequence, key.code) {
                         (0, KeyCode::Char(' ')) => {
                             self.close_sequence = 1;
-                            // Read the real normal-mode keymap for its descriptions,
-                            // but do not execute editor commands against the document
-                            // behind this terminal.
-                            return EventResult::Consumed(Some(Box::new(|compositor, cx| {
+                            self.pending_keys.clear();
+                            self.pending_keys.push(*key);
+                            let keys = self.pending_keys.clone();
+                            return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
                                 if let Some(view) = compositor.find::<crate::ui::EditorView>() {
-                                    let key = crate::key!(' ');
                                     let keymaps = view.keymaps.map();
-                                    if let Some(KeyTrie::Node(node)) = keymaps[&Mode::Normal].search(&[key]) {
+                                    if let Some(KeyTrie::Node(node)) = keymaps[&Mode::Normal].search(&keys) {
                                         cx.editor.autoinfo = Some(node.infobox());
                                     }
                                 }
                             })));
                         }
-                        (1, KeyCode::Char('b')) => {
-                            self.close_sequence = 2;
-                            return EventResult::Consumed(None);
-                        }
-                        (2, KeyCode::Char('q')) => {
-                            self.close_sequence = 0;
-                            self.confirm_close = true;
-                            return EventResult::Consumed(None);
+                        (1, KeyCode::Char('b')) | (2, KeyCode::Char('q')) => {
+                            let closing = self.close_sequence == 2;
+                            self.pending_keys.push(*key);
+                            self.close_sequence = if closing { 0 } else { 2 };
+                            if closing {
+                                self.pending_keys.clear();
+                                ctx.editor.autoinfo = None;
+                                self.confirm_close = true;
+                                return EventResult::Consumed(None);
+                            }
+                            let keys = self.pending_keys.clone();
+                            return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+                                if let Some(view) = compositor.find::<crate::ui::EditorView>() {
+                                    let keymaps = view.keymaps.map();
+                                    if let Some(KeyTrie::Node(node)) = keymaps[&Mode::Normal].search(&keys) {
+                                        cx.editor.autoinfo = Some(node.infobox());
+                                    } else {
+                                        cx.editor.autoinfo = None;
+                                    }
+                                }
+                            })));
                         }
                         (_, KeyCode::Char('i')) => {
                             self.close_sequence = 0;
                             self.set_input_mode(TerminalInputMode::Terminal);
                             return EventResult::Consumed(None);
+                        }
+                        _ if !self.pending_keys.is_empty() => {
+                            self.pending_keys.push(*key);
+                            let keys = self.pending_keys.clone();
+                            return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+                                if let Some(view) = compositor.find::<crate::ui::EditorView>() {
+                                    let keymaps = view.keymaps.map();
+                                    match keymaps[&Mode::Normal].search(&keys) {
+                                        Some(KeyTrie::Node(node)) => cx.editor.autoinfo = Some(node.infobox()),
+                                        _ => cx.editor.autoinfo = None,
+                                    }
+                                }
+                            })));
                         }
                         _ => {
                             self.close_sequence = 0;
@@ -303,7 +333,7 @@ impl Component for TerminalView {
         // EditorView renders autoinfo before this compositor layer, so its
         // Which-Key panel is otherwise painted over by the terminal surface.
         // Draw the shared popup last while terminal Normal Mode is active.
-        if self.input_mode == TerminalInputMode::Normal && self.close_sequence > 0 {
+        if self.input_mode == TerminalInputMode::Normal && !self.pending_keys.is_empty() {
             if let Some(mut info) = cx.editor.autoinfo.take() {
                 info.render(area, surface, cx);
                 cx.editor.autoinfo = Some(info);
