@@ -194,7 +194,7 @@ where
     let config = context.editor.config();
     let modenames = &config.statusline.mode;
     let terminal_mode = context.terminal.as_ref().map(|terminal| terminal.input_mode);
-    let terminal_label = "TERMINAL".to_owned();
+    let terminal_label = modenames.terminal.clone();
     let mode_str = if terminal_mode == Some(true) {
         &terminal_label
     } else {
@@ -212,7 +212,7 @@ where
     };
     let style = if visible && config.color_modes {
         match context.editor.mode() {
-            _ if terminal_mode == Some(true) => context.editor.theme.get("ui.statusline.insert"),
+            _ if terminal_mode == Some(true) => context.editor.theme.try_get("ui.statusline.terminal").unwrap_or_else(|| context.editor.theme.get("ui.statusline.insert")),
             Mode::Insert => context.editor.theme.get("ui.statusline.insert"),
             Mode::Select => context.editor.theme.get("ui.statusline.select"),
             Mode::Normal => context.editor.theme.get("ui.statusline.normal"),
@@ -482,7 +482,7 @@ fn render_file_type<'a, F>(context: &mut RenderContext<'a>, write: F)
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
-    let file_type = context.doc.language_name().unwrap_or(DEFAULT_LANGUAGE_NAME);
+    let file_type = if context.terminal.is_some() { "terminal" } else { context.doc.language_name().unwrap_or(DEFAULT_LANGUAGE_NAME) };
 
     // Use the theme's normal-mode accent for the pill, and its informational
     // foreground (typically blue) for the language label.
