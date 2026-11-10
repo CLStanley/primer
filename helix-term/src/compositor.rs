@@ -298,7 +298,8 @@ impl Compositor {
             .collect();
         for (id, pane, focused) in panes {
             if let Some(terminal) = self.find_terminal_document(id) {
-                // Leave the pane's bottom statusline to the shared renderer.
+                // The editor reserves the bottom row of each view for its
+                // statusline. Paint only the terminal's content area.
                 let content = pane.clip_bottom(1);
                 terminal.render(content, surface, cx);
                 if focused {
@@ -331,6 +332,11 @@ impl Compositor {
 
     pub fn cursor(&self, area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
         for layer in self.layers.iter().rev() {
+            if let Some(terminal) = layer.as_any().downcast_ref::<crate::ui::terminal::TerminalView>() {
+                let Some(view) = editor.tree.try_get(editor.tree.focus) else { continue };
+                if view.doc != terminal.document_id() { continue; }
+                return terminal.cursor(view.area.clip_bottom(1), editor);
+            }
             if let (Some(pos), kind) = layer.cursor(area, editor) {
                 return (Some(pos), kind);
             }
