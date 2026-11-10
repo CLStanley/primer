@@ -151,8 +151,8 @@ impl Component for TerminalView {
                         _ if !self.pending_keys.is_empty() => {
                             self.pending_keys.push(*key);
                             let keys = self.pending_keys.clone();
-                            self.pending_keys.clear();
-                            self.close_sequence = 0;
+                            // Keep the sequence alive while traversing a nested
+                            // family. Only a completed or invalid binding resets it.
                             return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
                                 let result = compositor.find::<crate::ui::EditorView>()
                                     .and_then(|view| {
@@ -162,13 +162,13 @@ impl Component for TerminalView {
                                 match result {
                                     Some(KeyTrie::Node(node)) => {
                                         cx.editor.autoinfo = Some(node.infobox());
-                                        if let Some(terminal) = compositor.find::<TerminalView>() {
-                                            // The compositor owns terminal input state.
-                                            // Nested families remain available in the preview.
-                                            let _ = terminal;
-                                        }
+                                        // Preserve the pending keys for the next level.
                                     }
                                     Some(KeyTrie::MappableCommand(command)) => {
+                                        if let Some(terminal) = compositor.find::<TerminalView>() {
+                                            terminal.pending_keys.clear();
+                                            terminal.close_sequence = 0;
+                                        }
                                         cx.editor.autoinfo = None;
                                         // Only editor-wide UI actions are safe until
                                         // terminal sessions become real editor buffers.
@@ -200,6 +200,10 @@ impl Component for TerminalView {
                                         }
                                     }
                                     _ => {
+                                        if let Some(terminal) = compositor.find::<TerminalView>() {
+                                            terminal.pending_keys.clear();
+                                            terminal.close_sequence = 0;
+                                        }
                                         cx.editor.autoinfo = None;
                                     }
                                 }
