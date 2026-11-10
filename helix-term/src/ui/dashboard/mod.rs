@@ -82,6 +82,7 @@ impl Dashboard {
                 DashboardAction::OpenProject => DashboardAction::FindFile,
                 DashboardAction::Help => DashboardAction::Quit,
                 DashboardAction::Quit => DashboardAction::Help,
+                DashboardAction::Terminal => DashboardAction::Help,
             }
         } else {
             let column: &[DashboardAction] = match current {
@@ -104,7 +105,7 @@ impl Dashboard {
                     DashboardAction::Agenda,
                     DashboardAction::Help,
                 ],
-                DashboardAction::OpenProject | DashboardAction::Quit => {
+                DashboardAction::OpenProject | DashboardAction::Quit | DashboardAction::Terminal => {
                     &[DashboardAction::OpenProject, DashboardAction::Quit]
                 }
             };
