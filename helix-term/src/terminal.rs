@@ -5,6 +5,7 @@
 //! terminal screen state; editor tabs will hold `TerminalSessionId` handles.
 
 pub mod pty;
+pub mod runtime;
 pub mod screen;
 
 use std::collections::HashMap;
