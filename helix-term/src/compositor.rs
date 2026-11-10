@@ -322,6 +322,33 @@ impl Compositor {
             }
         }
 
+        // Make adjacent split boundaries visible without consuming PTY cells.
+        // The separator is painted over the last column of the left pane.
+        let views: Vec<_> = cx.editor.tree.views().map(|(view, _)| view.area).collect();
+        let separator_style = cx.editor.theme.get("ui.window");
+        for pane in &views {
+            if pane.x > area.x && views.iter().any(|other| {
+                other.x.saturating_add(other.width) == pane.x
+                    && other.y < pane.y.saturating_add(pane.height)
+                    && pane.y < other.y.saturating_add(other.height)
+            }) {
+                let x = pane.x - 1;
+                for y in pane.y..pane.y.saturating_add(pane.height) {
+                    surface.set_string(x, y, "│", separator_style);
+                }
+            }
+            if pane.y > area.y && views.iter().any(|other| {
+                other.y.saturating_add(other.height) == pane.y
+                    && other.x < pane.x.saturating_add(pane.width)
+                    && pane.x < other.x.saturating_add(other.width)
+            }) {
+                let y = pane.y - 1;
+                for x in pane.x..pane.x.saturating_add(pane.width) {
+                    surface.set_string(x, y, "─", separator_style);
+                }
+            }
+        }
+
         // Dialogs, prompts and other overlays remain above the editor panes.
         for layer in self.layers.iter_mut() {
             if layer.type_name() != editor_kind && layer.type_name() != terminal_kind {
