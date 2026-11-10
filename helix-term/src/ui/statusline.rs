@@ -4,7 +4,7 @@ use helix_lsp::lsp::DiagnosticSeverity;
 use helix_view::document::DEFAULT_LANGUAGE_NAME;
 use helix_view::{
     document::{Mode, SCRATCH_BUFFER_NAME},
-    graphics::Rect,
+    graphics::{Color, Rect},
     theme::Style,
     Document, Editor, View,
 };
@@ -51,11 +51,14 @@ pub struct RenderBuffer<'a> {
 }
 
 pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface) {
-    let base_style = if context.focused {
+    // Keep the statusline itself transparent. Individual pills provide their
+    // own backgrounds; Color::Reset clears any previously painted row color.
+    let mut base_style = if context.focused {
         context.editor.theme.get("ui.statusline")
     } else {
         context.editor.theme.get("ui.statusline.inactive")
     };
+    base_style.bg = Some(Color::Reset);
 
     surface.set_style(viewport.with_height(1), base_style);
 
