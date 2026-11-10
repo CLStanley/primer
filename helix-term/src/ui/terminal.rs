@@ -173,10 +173,7 @@ impl Component for TerminalView {
                                         // Only editor-wide UI actions are safe until
                                         // terminal sessions become real editor buffers.
                                         if matches!(command.name(),
-                                            "file_picker" | "file_picker_in_current_directory"
-                                            | "file_explorer" | "file_explorer_in_current_buffer_directory"
-                                            | "global_search" | "command_palette"
-                                            | "buffer_picker" | "primer_agenda"
+                                            "global_search" | "command_palette" | "primer_agenda"
                                         ) {
                                             let mut command_cx = crate::commands::Context {
                                                 editor: cx.editor,
@@ -194,7 +191,7 @@ impl Component for TerminalView {
                                             }
                                         } else {
                                             cx.editor.set_error(format!(
-                                                "Terminal buffer integration required for {}",
+                                                "Switch to an editor buffer before using {} (terminal view integration pending)",
                                                 command.name()
                                             ));
                                         }
