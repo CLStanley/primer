@@ -4974,12 +4974,13 @@ fn primer_branch_stash(root: &Path, branch: &str) -> Result<Option<String>, Stri
         .map(|(reference, _)| reference.to_owned()))
 }
 
-fn primer_finish_branch_switch(cx: &mut compositor::Context, root: &Path, name: &str) {
+fn primer_finish_branch_switch(cx: &mut compositor::Context, root: &Path, name: &str, restore_stash: bool) {
     if let Err(error) = primer_git(root, &["switch", "--", name]) {
         cx.editor.set_error(format!("Could not switch to {name}: {error}"));
         return;
     }
-    let restore = match primer_branch_stash(root, name) {
+    let restore = if !restore_stash { Ok(None) } else { primer_branch_stash(root, name) };
+    let restore = match restore {
         Ok(Some(reference)) => {
             match primer_git(root, &["stash", "pop", "--index", &reference]) {
                 Ok(_) => format!("; restored saved changes for {name}"),
@@ -5039,7 +5040,7 @@ fn git_branch_picker(cx: &mut Context) {
             }
         };
         if status.is_empty() {
-            primer_finish_branch_switch(cx, &root, &name);
+            primer_finish_branch_switch(cx, &root, &name, false);
             return;
         }
         let source = match primer_git(&root, &["branch", "--show-current"]) {
@@ -5049,28 +5050,42 @@ fn git_branch_picker(cx: &mut Context) {
                 return;
             }
         };
-        let prompt_root = root.clone();
+        let choice_root = root.clone();
         cx.jobs.callback(async move {
-            Ok(Callback::EditorCompositor(Box::new(move |editor, compositor| {
-                let mut prompt = Prompt::new(
-            format!("Changes detected. Switch to {name} [STASH / NORMAL / CANCEL]: ").into(),
-            None, ui::completers::none,
-            move |cx, input, event| {
-                if event != PromptEvent::Validate { return; }
-                if cx.editor.documents().any(|doc| doc.is_modified()) {
-                    cx.editor.set_error("Save unsaved editor buffers before switching");
-                    return;
-                }
-                let latest_status = primer_git(&prompt_root, &["status", "--porcelain=v1", "--untracked-files=all"]);
-                if latest_status.as_ref().ok() != Some(&status) {
-                    cx.editor.set_error("Working tree changed while confirming; reopen branch picker");
-                    return;
-                }
-                match input.trim().to_ascii_uppercase().as_str() {
-                    "STASH" => {
-                        // A branch may have only one pending Primer stash to prevent
-                        // silently overwriting a previously saved work session.
-                        match primer_branch_stash(&prompt_root, &source) {
+            Ok(Callback::EditorCompositor(Box::new(move |_, compositor| {
+                let options: Vec<(&'static str, &'static str)> = vec![
+                    ("Stash & Switch", "Save this branch's changes, then switch and restore destination changes"),
+                    ("Switch Normally", "Use standard Git behavior; uncommitted changes may follow you"),
+                    ("Cancel", "Keep the current branch and all changes untouched"),
+                ];
+                let choice = Picker::new(
+                    [
+                        PickerColumn::new("Action", |option: &(&'static str, &'static str), _| option.0.into()),
+                        PickerColumn::new("Description", |option: &(&'static str, &'static str), _| option.1.into()),
+                    ],
+                    0, options, (),
+                    move |cx, option: &(&'static str, &'static str), _| {
+                        if option.0 == "Cancel" {
+                            cx.editor.set_status("Branch switch cancelled");
+                            return;
+                        }
+                        if cx.editor.documents().any(|doc| doc.is_modified()) {
+                            cx.editor.set_error("Save unsaved editor buffers before switching");
+                            return;
+                        }
+                        if primer_git(&choice_root, &["branch", "--show-current"]).ok().as_deref() != Some(source.as_str()) {
+                            cx.editor.set_error("Active branch changed; reopen the picker");
+                            return;
+                        }
+                        if primer_git(&choice_root, &["status", "--porcelain=v1", "--untracked-files=all"]).as_ref().ok() != Some(&status) {
+                            cx.editor.set_error("Working tree changed; reopen the picker");
+                            return;
+                        }
+                        if option.0 == "Switch Normally" {
+                            primer_finish_branch_switch(cx, &choice_root, &name, false);
+                            return;
+                        }
+                        match primer_branch_stash(&choice_root, &source) {
                             Ok(Some(_)) => {
                                 cx.editor.set_error("This branch already has a saved Primer stash; restore it manually first");
                                 return;
@@ -5082,20 +5097,18 @@ fn git_branch_picker(cx: &mut Context) {
                             Ok(None) => {}
                         }
                         let marker = format!("{PRIMER_STASH_PREFIX}{source}");
-                        if let Err(error) = primer_git(&prompt_root, &["stash", "push", "--include-untracked", "-m", &marker]) {
+                        if let Err(error) = primer_git(&choice_root, &["stash", "push", "--include-untracked", "-m", &marker]) {
                             cx.editor.set_error(format!("Could not stash changes; branch unchanged: {error}"));
                             return;
                         }
-                        if let Err(error) = primer_git(&prompt_root, &["switch", "--", &name]) {
+                        if let Err(error) = primer_git(&choice_root, &["switch", "--", &name]) {
                             cx.editor.set_error(format!(
                                 "Switch failed: {error}. Changes saved in stash for {source}; restore manually."
                             ));
                             return;
                         }
-                        // The switch already happened; restore the destination's
-                        // Primer stash and reload without switching a second time.
-                        let restore = match primer_branch_stash(&prompt_root, &name) {
-                            Ok(Some(reference)) => primer_git(&prompt_root, &["stash", "pop", "--index", &reference])
+                        let restore = match primer_branch_stash(&choice_root, &name) {
+                            Ok(Some(reference)) => primer_git(&choice_root, &["stash", "pop", "--index", &reference])
                                 .map(|_| " (destination changes restored)".to_owned()),
                             Ok(None) => Ok(String::new()),
                             Err(error) => Err(error),
@@ -5114,18 +5127,19 @@ fn git_branch_picker(cx: &mut Context) {
                             Ok(()) => cx.editor.set_status(format!("Switched to {name}{suffix}; buffers refreshed")),
                             Err(error) => cx.editor.set_error(format!("Switched to {name}; reload failed: {error}")),
                         }
-                    }
-                    "NORMAL" => primer_finish_branch_switch(cx, &prompt_root, &name),
-                    "CANCEL" => cx.editor.set_status("Branch switch cancelled"),
-                    _ => cx.editor.set_error("Enter STASH, NORMAL, or CANCEL"),
-                }
-            }
-        );
-        prompt.doc_fn = Box::new(|_| Some(
-            "STASH saves tracked and untracked changes for this branch before switching. NORMAL uses standard Git behavior, potentially carrying changes. CANCEL leaves everything unchanged.".into()
-        ));
-                prompt.recalculate_completion(editor);
-                compositor.push(Box::new(prompt));
+                    },
+                );
+                let mut overlay = overlaid(choice.with_title("Uncommitted Changes — Switch Branch"));
+                overlay.calc_child_size = Box::new(|area| {
+                    let width = area.width.min(110).max(1);
+                    let height = area.height.min(9).max(1);
+                    helix_view::graphics::Rect::new(
+                        area.x + area.width.saturating_sub(width) / 2,
+                        area.y + area.height.saturating_sub(height) / 2,
+                        width, height,
+                    )
+                });
+                compositor.push(Box::new(overlay));
             })))
         });
     });
