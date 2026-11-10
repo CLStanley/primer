@@ -331,11 +331,12 @@ impl Compositor {
 
         // EditorView draws its Which-Key popup before terminal pane surfaces.
         // Repaint the shared popup above PTYs while a terminal has focus.
-        if cx.editor.tree.try_get(cx.editor.tree.focus)
-            .is_some_and(|view| cx.editor.terminal_documents.contains(&view.doc))
+        if let Some(pane) = cx.editor.tree.try_get(cx.editor.tree.focus)
+            .filter(|view| cx.editor.terminal_documents.contains(&view.doc))
+            .map(|view| view.area)
         {
             if let Some(mut info) = cx.editor.autoinfo.take() {
-                info.render(area, surface, cx);
+                info.render(pane, surface, cx);
                 cx.editor.autoinfo = Some(info);
             }
         }
