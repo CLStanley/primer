@@ -3014,13 +3014,20 @@ fn open_terminal(cx: &mut compositor::Context, _args: Args, event: PromptEvent) 
     cx.jobs.callback(async move {
         Ok(job::Callback::EditorCompositor(Box::new(
             move |editor: &mut Editor, compositor: &mut Compositor| {
-                if compositor.raise_type::<crate::ui::terminal::TerminalView>() {
+                if let Some(view) = compositor.find::<crate::ui::terminal::TerminalView>() {
+                    let id = view.document_id();
+                    editor.switch(id, helix_view::editor::Action::Replace);
+                    compositor.raise_type::<crate::ui::terminal::TerminalView>();
                     return;
                 }
                 match crate::terminal::runtime::RunningTerminal::spawn(
                     &shell, &[], &directory, 80, 24, 1000,
                 ) {
-                    Ok(terminal) => compositor.push(Box::new(crate::ui::terminal::TerminalView::new(terminal))),
+                    Ok(terminal) => {
+                        let id = editor.new_file(helix_view::editor::Action::Replace);
+                        editor.terminal_documents.insert(id);
+                        compositor.push(Box::new(crate::ui::terminal::TerminalView::new(terminal, id)));
+                    },
                     Err(err) => editor.set_error(format!("Unable to open terminal: {err}")),
                 }
             },
