@@ -420,6 +420,7 @@ impl MappableCommand {
         git_unstage_hunk, "Unstage Git hunk at cursor",
         git_revert_hunk, "Revert unstaged Git hunk with confirmation",
         git_repository_status, "Show Git repository status",
+        git_commit_staged, "Commit staged Git changes",
         select_references_to_symbol_under_cursor, "Select symbol references",
         workspace_symbol_picker, "Open workspace symbol picker",
         syntax_workspace_symbol_picker, "Open workspace symbol picker from syntax information",
@@ -4929,6 +4930,72 @@ fn git_revert_hunk(cx: &mut Context) {
         },
     );
     prompt.doc_fn = Box::new(|_| Some("Discard the unstaged change under your cursor. This cannot be undone through Git.\nType REVERT (uppercase) and press Enter to confirm, or Esc to cancel.\nStaged changes will be preserved.".into()));
+    prompt.recalculate_completion(cx.editor);
+    cx.push_layer(Box::new(prompt));
+}
+
+/// Commit only the already staged index of the active file's repository.
+fn git_commit_staged(cx: &mut Context) {
+    let cwd = active_buffer_directory(cx.editor);
+    let root_output = std::process::Command::new("git")
+        .arg("-C").arg(&cwd).args(["rev-parse", "--show-toplevel"]).output();
+    let root = match root_output {
+        Ok(output) if output.status.success() => {
+            PathBuf::from(String::from_utf8_lossy(&output.stdout).trim())
+        }
+        _ => {
+            cx.editor.set_error("Active buffer is not inside a Git repository");
+            return;
+        }
+    };
+    let staged = std::process::Command::new("git")
+        .arg("-C").arg(&root).args(["diff", "--cached", "--quiet", "--exit-code"]).status();
+    match staged {
+        Ok(status) if status.code() == Some(1) => {}
+        Ok(status) if status.success() => {
+            cx.editor.set_status("Nothing staged to commit; stage changes first");
+            return;
+        }
+        _ => {
+            cx.editor.set_error("Could not inspect staged Git changes");
+            return;
+        }
+    }
+    let mut prompt = Prompt::new(
+        "Commit staged changes (message): ".into(),
+        None,
+        ui::completers::none,
+        move |cx, input, event| {
+            if event != PromptEvent::Validate { return; }
+            let message = input.trim();
+            if message.is_empty() {
+                cx.editor.set_error("Commit message cannot be empty");
+                return;
+            }
+            let message = message.to_owned();
+            let root = root.clone();
+            cx.editor.set_status("Committing staged changes…");
+            cx.jobs.callback(async move {
+                let output = tokio::process::Command::new("git")
+                    .arg("-C").arg(&root)
+                    .args(["commit", "-m"]).arg(&message)
+                    .output().await?;
+                let result = if output.status.success() {
+                    Ok(String::from_utf8_lossy(&output.stdout)
+                        .lines().next().unwrap_or("Git commit created").to_owned())
+                } else {
+                    Err(format!("Git commit failed: {}", String::from_utf8_lossy(&output.stderr).trim()))
+                };
+                Ok(Callback::EditorCompositor(Box::new(move |editor, _| {
+                    match result {
+                        Ok(message) => editor.set_status(message),
+                        Err(message) => editor.set_error(message),
+                    }
+                })))
+            });
+        },
+    );
+    prompt.doc_fn = Box::new(|_| Some("Commits only changes already staged in the active repository.\nUnstaged changes remain untouched. Enter a message and press Enter, or Esc to cancel.".into()));
     prompt.recalculate_completion(cx.editor);
     cx.push_layer(Box::new(prompt));
 }
