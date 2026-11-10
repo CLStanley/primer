@@ -64,7 +64,7 @@ impl Component for TerminalView {
         }
         match event {
             Event::Key(key) => {
-                let prefix = key.code == KeyCode::Char('\\\\')
+                let prefix = key.code == KeyCode::Char('\\')
                     && key.modifiers.contains(KeyModifiers::CONTROL);
                 if self.escape_pending {
                     self.escape_pending = false;
