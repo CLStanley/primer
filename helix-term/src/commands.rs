@@ -4988,7 +4988,7 @@ fn git_branch_picker(cx: &mut Context) {
     let picker = Picker::new(columns, 0, branches, (), |cx, branch: &(bool, String), _| {
         cx.editor.set_status(format!("Branch: {}{}", branch.1, if branch.0 { " (current)" } else { "" }));
     });
-    let mut overlay = overlaid(picker);
+    let mut overlay = overlaid(picker.with_title("Git Branches"));
     overlay.calc_child_size = Box::new(|area| {
         let width = area.width.min(72).max(1);
         let height = area.height.min(18).max(1);
