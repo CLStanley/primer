@@ -191,19 +191,6 @@ impl Compositor {
         let any_inactive_front = self.layers.iter().enumerate().any(|(i, layer)| i > editor_index && i != index && layer.type_name() == terminal_kind);
         if active_is_front && !any_inactive_front { return; }
         let active_layer = self.layers.remove(index);
-        let mut index = 0;
-        while index < self.layers.len() {
-            if self.layers[index].type_name() == terminal_kind {
-                let layer = self.layers.remove(index);
-                let editor_index = self.layers.iter().position(|l| l.type_name() == editor_kind).unwrap();
-                self.layers.insert(editor_index, layer);
-                index = 0;
-                // The removed terminal is now before the editor; only scan
-                // terminals following the editor to avoid reprocessing.
-                break;
-            }
-            index += 1;
-        }
         while let Some(index) = self.layers.iter().enumerate().find_map(|(index, layer)| {
             (index > self.layers.iter().position(|l| l.type_name() == editor_kind)?
                 && layer.type_name() == terminal_kind).then_some(index)
