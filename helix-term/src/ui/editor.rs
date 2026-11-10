@@ -691,9 +691,7 @@ impl EditorView {
 
         for doc in editor.documents() {
             let fname = if editor.terminal_documents.contains(&doc.id()) {
-                std::env::var("SHELL").ok()
-                    .and_then(|shell| PathBuf::from(shell).file_name().map(|name| name.to_string_lossy().into_owned()))
-                    .unwrap_or_else(|| "terminal".to_owned())
+                editor.terminal_names.get(&doc.id()).cloned().unwrap_or_else(|| "terminal".to_owned())
             } else {
                 doc.path().unwrap_or(&scratch)
                     .file_name().unwrap_or_default()
