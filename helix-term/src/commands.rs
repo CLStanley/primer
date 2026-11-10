@@ -456,6 +456,7 @@ impl MappableCommand {
         goto_window_top, "Goto window top",
         goto_window_center, "Goto window center",
         goto_window_bottom, "Goto window bottom",
+        primer_terminal, "Open or return to the terminal",
         primer_buffer_previous, "Previous buffer",
         primer_buffer_next, "Next buffer",
         primer_buffer_new, "New empty buffer",
@@ -4485,6 +4486,14 @@ fn goto_column_impl(cx: &mut Context, movement: Movement) {
     });
     push_jump(view, doc);
     doc.set_selection(view.id, selection);
+}
+
+fn primer_terminal(cx: &mut Context) {
+    MappableCommand::Typable {
+        name: "terminal".to_owned(),
+        args: String::new(),
+        doc: "Open or return to the terminal".to_owned(),
+    }.execute(cx);
 }
 
 fn primer_buffer_previous(cx: &mut Context) {
