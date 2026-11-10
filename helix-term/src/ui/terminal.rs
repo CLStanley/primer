@@ -187,7 +187,9 @@ impl Component for TerminalView {
                                                 jobs: cx.jobs,
                                             };
                                             command.execute(&mut command_cx);
-                                            for callback in command_cx.callback {
+                                            let callbacks = std::mem::take(&mut command_cx.callback);
+                                            drop(command_cx);
+                                            for callback in callbacks {
                                                 callback(compositor, cx);
                                             }
                                         } else {
