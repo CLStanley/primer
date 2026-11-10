@@ -3020,6 +3020,9 @@ fn open_terminal(cx: &mut compositor::Context, _args: Args, event: PromptEvent) 
                     Ok(terminal) => {
                         let id = editor.new_file(helix_view::editor::Action::Replace);
                         editor.terminal_documents.insert(id);
+                        let shell_name = std::path::Path::new(&shell).file_name().and_then(|name| name.to_str()).unwrap_or("terminal");
+                        let number = editor.terminal_names.len() + 1;
+                        editor.terminal_names.insert(id, format!("{shell_name} {number}"));
                         compositor.push(Box::new(crate::ui::terminal::TerminalView::new(terminal, id)));
                     },
                     Err(err) => editor.set_error(format!("Unable to open terminal: {err}")),
