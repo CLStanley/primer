@@ -173,7 +173,10 @@ impl Component for TerminalView {
                                         // Only editor-wide UI actions are safe until
                                         // terminal sessions become real editor buffers.
                                         if matches!(command.name(),
-                                            "global_search" | "command_palette" | "primer_agenda"
+                                            "file_picker" | "file_picker_in_current_directory"
+                                            | "file_explorer" | "file_explorer_in_current_buffer_directory"
+                                            | "global_search" | "command_palette"
+                                            | "buffer_picker" | "primer_agenda"
                                         ) {
                                             let mut command_cx = crate::commands::Context {
                                                 editor: cx.editor,
