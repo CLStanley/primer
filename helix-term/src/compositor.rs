@@ -279,23 +279,53 @@ impl Compositor {
 
     pub fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
         self.sync_terminal_document(cx.editor);
-        // Only the selected full-screen document paints the background.
-        // Inactive terminal sessions retain their PTYs but do not paint.
-        let active = cx.editor.tree.try_get(cx.editor.tree.focus).map(|view| view.doc);
         let terminal_kind = std::any::type_name::<crate::ui::terminal::TerminalView>();
         let editor_kind = std::any::type_name::<crate::ui::EditorView>();
-        let terminal_active = active.is_some_and(|id| cx.editor.terminal_documents.contains(&id));
+
+        // Draw the editor's real split tree first, including the shared
+        // bufferline, pane borders and statuslines.
         for layer in self.layers.iter_mut() {
-            if layer.type_name() == editor_kind && terminal_active {
-                continue;
+            if layer.type_name() == editor_kind {
+                layer.render(area, surface, cx);
             }
-            if layer.type_name() == terminal_kind {
-                let selected = layer.as_any()
-                    .downcast_ref::<crate::ui::terminal::TerminalView>()
-                    .is_some_and(|terminal| Some(terminal.document_id()) == active);
-                if !selected { continue; }
+        }
+
+        // Paint every visible terminal in its own editor view. A terminal
+        // document may be displayed in more than one split.
+        let panes: Vec<_> = cx.editor.tree.views()
+            .filter(|(view, _)| cx.editor.terminal_documents.contains(&view.doc))
+            .map(|(view, focused)| (view.doc, view.area, focused))
+            .collect();
+        for (id, pane, focused) in panes {
+            if let Some(terminal) = self.find_terminal_document(id) {
+                // Leave the pane's bottom statusline to the shared renderer.
+                let content = pane.clip_bottom(1);
+                terminal.render(content, surface, cx);
+                if focused {
+                    // The terminal statusline reflects PTY input mode and size.
+                    let (columns, rows) = terminal.terminal().screen().size();
+                    let input_mode = terminal.input_mode() == crate::terminal::TerminalInputMode::Terminal;
+                    let name = cx.editor.terminal_names.get(&id).map(String::as_str).unwrap_or("terminal");
+                    if let Some(view) = cx.editor.tree.views().find(|(view, _)| view.doc == id).map(|(view, _)| view) {
+                        if let Some(doc) = cx.editor.documents.get(&id) {
+                            let spinners = crate::ui::ProgressSpinners::default();
+                            let mut context = crate::ui::statusline::RenderContext::new(cx.editor, doc, view, true, &spinners);
+                            context.terminal = Some(crate::ui::statusline::TerminalStatus {
+                                name, input_mode, columns, rows,
+                            });
+                            let status = pane.clip_top(pane.height.saturating_sub(1));
+                            crate::ui::statusline::render(&mut context, status, surface);
+                        }
+                    }
+                }
             }
-            layer.render(area, surface, cx);
+        }
+
+        // Dialogs, prompts and other overlays remain above the editor panes.
+        for layer in self.layers.iter_mut() {
+            if layer.type_name() != editor_kind && layer.type_name() != terminal_kind {
+                layer.render(area, surface, cx);
+            }
         }
     }
 
