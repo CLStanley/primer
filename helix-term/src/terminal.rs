@@ -4,6 +4,8 @@
 //! document. A later PTY-backed session manager will own process I/O and
 //! terminal screen state; editor tabs will hold `TerminalSessionId` handles.
 
+pub mod pty;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 
