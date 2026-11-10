@@ -3011,13 +3011,18 @@ fn open_terminal(cx: &mut compositor::Context, _args: Args, event: PromptEvent) 
 
     let directory = current_workspace(cx);
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".to_owned());
-    let terminal = crate::terminal::runtime::RunningTerminal::spawn(
-        &shell, &[], &directory, 80, 24, 1000,
-    )?;
     cx.jobs.callback(async move {
         Ok(job::Callback::EditorCompositor(Box::new(
-            move |_editor: &mut Editor, compositor: &mut Compositor| {
-                compositor.push(Box::new(crate::ui::terminal::TerminalView::new(terminal)));
+            move |editor: &mut Editor, compositor: &mut Compositor| {
+                if compositor.raise_type::<crate::ui::terminal::TerminalView>() {
+                    return;
+                }
+                match crate::terminal::runtime::RunningTerminal::spawn(
+                    &shell, &[], &directory, 80, 24, 1000,
+                ) {
+                    Ok(terminal) => compositor.push(Box::new(crate::ui::terminal::TerminalView::new(terminal))),
+                    Err(err) => editor.set_error(format!("Unable to open terminal: {err}")),
+                }
             },
         )))
     });
@@ -3028,7 +3033,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "terminal",
         aliases: &["term"],
-        doc: "Open an interactive terminal (temporary compositor view).",
+        doc: "Open or return to the existing interactive terminal session.",
         fun: open_terminal,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
