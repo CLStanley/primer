@@ -29,7 +29,7 @@ pub fn render_terminal(
     // not leave stale content from the previous frame.
     surface.set_style(area, style);
     for row in 0..area.height {
-        surface.set_stringn(area.x, area.y + row, " ".repeat(area.width as usize), area.width as usize, style);
+        surface.set_stringn(area.x, area.y + row, &" ".repeat(area.width as usize), area.width as usize, style);
     }
 
     for row in 0..height {
@@ -43,7 +43,7 @@ pub fn render_terminal(
                 continue;
             }
             let remaining = (width - col) as usize;
-            surface.set_stringn(area.x + col, area.y + row, contents, remaining, style);
+            surface.set_stringn(area.x + col, area.y + row, &contents, remaining, style);
         }
     }
 }
