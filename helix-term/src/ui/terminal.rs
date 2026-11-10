@@ -6,7 +6,7 @@
 
 use crate::compositor::{Component, Context, Event, EventResult};
 use crate::terminal::input::encode_key;
-use crate::keymap::KeymapResult;
+use crate::keymap::KeyTrie;
 use helix_view::document::Mode;
 use crate::terminal::TerminalInputMode;
 use helix_view::keyboard::{KeyCode, KeyModifiers};
@@ -102,7 +102,8 @@ impl Component for TerminalView {
                             return EventResult::Consumed(Some(Box::new(|compositor, cx| {
                                 if let Some(view) = compositor.find::<crate::ui::EditorView>() {
                                     let key = crate::key!(Space);
-                                    if let KeymapResult::Pending(node) = view.keymaps.get(Mode::Normal, key) {
+                                    let keymaps = view.keymaps.map();
+                                    if let Some(KeyTrie::Node(node)) = keymaps[&Mode::Normal].search(&[key]) {
                                         cx.editor.autoinfo = Some(node.infobox());
                                     }
                                 }
