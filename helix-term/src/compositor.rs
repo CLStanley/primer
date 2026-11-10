@@ -153,33 +153,67 @@ impl Compositor {
         self.layers
             .retain(|component| component.type_name() != type_name);
     }
-    /// The focused editor document is the source of truth for whether the
-    /// persistent terminal session or the text editor is the active view.
-    /// Reorder only these two layers; picker/prompt overlays remain on top.
+    /// Keep the selected terminal above the editor and every other terminal
+    /// below it. Document selection, not compositor insertion order, owns focus.
     pub fn sync_terminal_document(&mut self, editor: &Editor) {
         let Some(active) = editor.tree.try_get(editor.tree.focus).map(|view| view.doc) else {
             return;
         };
         let terminal_kind = std::any::type_name::<crate::ui::terminal::TerminalView>();
         let editor_kind = std::any::type_name::<crate::ui::EditorView>();
-        let Some(terminal_index) = self.layers.iter().position(|layer| layer.type_name() == terminal_kind) else {
-            return;
-        };
-        let terminal_id = self.layers[terminal_index].as_any()
-            .downcast_ref::<crate::ui::terminal::TerminalView>()
-            .map(|terminal| terminal.document_id());
-        let Some(terminal_id) = terminal_id else { return };
         let Some(editor_index) = self.layers.iter().position(|layer| layer.type_name() == editor_kind) else {
             return;
         };
-        let terminal_should_be_front = active == terminal_id;
-        let already_front = terminal_index > editor_index;
-        if terminal_should_be_front == already_front {
+        let active_terminal = self.layers.iter().position(|layer| {
+            layer.type_name() == terminal_kind
+                && layer.as_any()
+                    .downcast_ref::<crate::ui::terminal::TerminalView>()
+                    .is_some_and(|terminal| terminal.document_id() == active)
+        });
+        let Some(index) = active_terminal else {
+            // A file is active. Ensure every terminal stays behind EditorView.
+            let mut changed = false;
+            while let Some(index) = self.layers.iter().enumerate().find_map(|(index, layer)| {
+                (index > self.layers.iter().position(|l| l.type_name() == editor_kind)?
+                    && layer.type_name() == terminal_kind).then_some(index)
+            }) {
+                let terminal = self.layers.remove(index);
+                let editor_index = self.layers.iter().position(|l| l.type_name() == editor_kind).unwrap();
+                self.layers.insert(editor_index, terminal);
+                changed = true;
+            }
+            if changed { self.need_full_redraw(); }
             return;
+        };
+        // Move all inactive terminals behind the editor before raising the
+        // selected session. This keeps input and rendering on one session.
+        let active_is_front = index > editor_index && !self.layers.iter().enumerate().any(|(i, layer)| i > index && layer.type_name() == terminal_kind);
+        let any_inactive_front = self.layers.iter().enumerate().any(|(i, layer)| i > editor_index && i != index && layer.type_name() == terminal_kind);
+        if active_is_front && !any_inactive_front { return; }
+        let active_layer = self.layers.remove(index);
+        let mut index = 0;
+        while index < self.layers.len() {
+            if self.layers[index].type_name() == terminal_kind {
+                let layer = self.layers.remove(index);
+                let editor_index = self.layers.iter().position(|l| l.type_name() == editor_kind).unwrap();
+                self.layers.insert(editor_index, layer);
+                index = 0;
+                // The removed terminal is now before the editor; only scan
+                // terminals following the editor to avoid reprocessing.
+                break;
+            }
+            index += 1;
         }
-        let component = self.layers.remove(terminal_index);
-        let editor_index = self.layers.iter().position(|layer| layer.type_name() == editor_kind).unwrap();
-        self.layers.insert(if terminal_should_be_front { editor_index + 1 } else { editor_index }, component);
+        while let Some(index) = self.layers.iter().enumerate().find_map(|(index, layer)| {
+            (index > self.layers.iter().position(|l| l.type_name() == editor_kind)?
+                && layer.type_name() == terminal_kind).then_some(index)
+        }) {
+            let layer = self.layers.remove(index);
+            let editor_index = self.layers.iter().position(|l| l.type_name() == editor_kind).unwrap();
+            self.layers.insert(editor_index, layer);
+        }
+        let editor_index = self.layers.iter().position(|l| l.type_name() == editor_kind).unwrap();
+        self.layers.insert(editor_index + 1, active_layer);
         self.need_full_redraw();
     }
 
