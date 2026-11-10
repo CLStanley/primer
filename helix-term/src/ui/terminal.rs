@@ -6,6 +6,8 @@
 
 use crate::compositor::{Component, Context, Event, EventResult};
 use crate::terminal::input::encode_key;
+use crate::keymap::KeymapResult;
+use helix_view::document::Mode;
 use crate::terminal::TerminalInputMode;
 use helix_view::keyboard::{KeyCode, KeyModifiers};
 use crate::terminal::{render::render_terminal, runtime::RunningTerminal};
@@ -94,7 +96,17 @@ impl Component for TerminalView {
                     match (self.close_sequence, key.code) {
                         (0, KeyCode::Char(' ')) => {
                             self.close_sequence = 1;
-                            return EventResult::Consumed(None);
+                            // Read the real normal-mode keymap for its descriptions,
+                            // but do not execute editor commands against the document
+                            // behind this terminal.
+                            return EventResult::Consumed(Some(Box::new(|compositor, cx| {
+                                if let Some(view) = compositor.find::<crate::ui::EditorView>() {
+                                    let key = crate::key!(Space);
+                                    if let KeymapResult::Pending(node) = view.keymaps.get(Mode::Normal, key) {
+                                        cx.editor.autoinfo = Some(node.infobox());
+                                    }
+                                }
+                            })));
                         }
                         (1, KeyCode::Char('b')) => {
                             self.close_sequence = 2;
