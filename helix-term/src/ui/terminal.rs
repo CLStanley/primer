@@ -65,7 +65,7 @@ impl TerminalView {
 }
 
 impl Component for TerminalView {
-    fn handle_event(&mut self, event: &Event, _ctx: &mut Context) -> EventResult {
+    fn handle_event(&mut self, event: &Event, ctx: &mut Context) -> EventResult {
         if self.input_mode == TerminalInputMode::Normal {
             if let Event::Key(key) = event {
                 if key.modifiers.is_empty() {
@@ -92,6 +92,13 @@ impl Component for TerminalView {
                     // subsequent keystrokes go to it rather than the PTY.
                     if self.close_sequence == 0 && key.code == KeyCode::Char(':') {
                         return EventResult::Ignored(None);
+                    }
+                    // Escape cancels an unfinished terminal key family, including
+                    // its shared Which-Key popup, without closing the terminal.
+                    if key.code == KeyCode::Esc {
+                        self.close_sequence = 0;
+                        ctx.editor.autoinfo = None;
+                        return EventResult::Consumed(None);
                     }
                     match (self.close_sequence, key.code) {
                         (0, KeyCode::Char(' ')) => {
@@ -123,10 +130,14 @@ impl Component for TerminalView {
                             self.set_input_mode(TerminalInputMode::Terminal);
                             return EventResult::Consumed(None);
                         }
-                        _ => self.close_sequence = 0,
+                        _ => {
+                            self.close_sequence = 0;
+                            ctx.editor.autoinfo = None;
+                        },
                     }
                 } else {
                     self.close_sequence = 0;
+                    ctx.editor.autoinfo = None;
                 }
             }
             return EventResult::Consumed(None);
@@ -250,7 +261,9 @@ impl Component for TerminalView {
                 "ui.statusline.normal"
             }).unwrap_or_else(|| cx.editor.theme.get("ui.statusline.active"))
               .add_modifier(Modifier::BOLD);
-            let mode_text = format!("   {mode_name}  ");
+            let configured_mode = &cx.editor.config().statusline.mode.normal;
+            let mode_label = if terminal_mode { mode_name } else { configured_mode.as_str() };
+            let mode_text = format!("   {mode_label}  ");
             let mode_bg = mode_style.bg.unwrap_or(Color::Rgb(183, 156, 222));
             let mut mode_x = status.x;
             mode_x = surface.set_stringn(mode_x, status.y, "", status.width as usize, base.fg(mode_bg)).0;
