@@ -4867,13 +4867,18 @@ fn git_revert_hunk(cx: &mut Context) {
             return;
         }
     };
-    let mut prompt = Prompt::new(
-        "Discard unstaged Git hunk? Type REVERT to confirm: ".into(),
-        None,
-        ui::completers::none,
-        move |cx, input, event| {
-            if event != PromptEvent::Validate { return; }
-            if input.trim() != "REVERT" {
+    let options: Vec<(&'static str, &'static str)> = vec![
+        ("Revert Hunk", "Permanently discard the unstaged change under the cursor; staged changes stay intact"),
+        ("Cancel", "Keep the file and all Git changes unchanged"),
+    ];
+    let picker = Picker::new(
+        [
+            PickerColumn::new("Action", |option: &(&'static str, &'static str), _| option.0.into()),
+            PickerColumn::new("Description", |option: &(&'static str, &'static str), _| option.1.into()),
+        ],
+        0, options, (),
+        move |cx, option: &(&'static str, &'static str), _| {
+            if option.0 != "Revert Hunk" {
                 cx.editor.set_status("Git hunk revert cancelled");
                 return;
             }
@@ -4933,9 +4938,17 @@ fn git_revert_hunk(cx: &mut Context) {
             });
         },
     );
-    prompt.doc_fn = Box::new(|_| Some("Discard the unstaged change under your cursor. This cannot be undone through Git.\nType REVERT (uppercase) and press Enter to confirm, or Esc to cancel.\nStaged changes will be preserved.".into()));
-    prompt.recalculate_completion(cx.editor);
-    cx.push_layer(Box::new(prompt));
+    let mut overlay = overlaid(picker.with_title("Revert Unstaged Git Hunk"));
+    overlay.calc_child_size = Box::new(|area| {
+        let width = area.width.min(110).max(1);
+        let height = area.height.min(8).max(1);
+        helix_view::graphics::Rect::new(
+            area.x + area.width.saturating_sub(width) / 2,
+            area.y + area.height.saturating_sub(height) / 2,
+            width, height,
+        )
+    });
+    cx.push_layer(Box::new(overlay));
 }
 
 /// Resolve the Git root for the focused buffer without changing the process cwd.
