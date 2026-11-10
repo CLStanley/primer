@@ -396,7 +396,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "y" => yank_to_clipboard,
             "t" => { "Tools"
                 "t" => primer_terminal,
-                "c" => command_mode,
             },
             "Y" => yank_main_selection_to_clipboard,
             "p" => paste_clipboard_after,
