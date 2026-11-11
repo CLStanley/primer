@@ -510,6 +510,24 @@ impl TerminalRenameDialog {
 }
 
 impl Component for TerminalRenameDialog {
+    fn cursor(&self, area: Rect, _editor: &helix_view::Editor) -> (Option<Position>, CursorKind) {
+        let width = area.width.saturating_sub(4).min((self.name.chars().count() + 8).max(32).min(88) as u16);
+        let height = area.height.saturating_sub(2).min(5);
+        if width < 12 || height < 5 {
+            return (None, CursorKind::Hidden);
+        }
+        let x = area.x + (area.width - width) / 2;
+        let y = area.y + (area.height - height) / 2;
+        let max = width.saturating_sub(4) as usize;
+        let visible_width = unicode_width::UnicodeWidthStr::width(
+            self.name.chars().rev().take(max).collect::<Vec<_>>().into_iter().rev().collect::<String>().as_str()
+        );
+        (
+            Some(Position::new((y + 2) as usize, (x + 2 + visible_width.min(max) as u16) as usize)),
+            CursorKind::Bar,
+        )
+    }
+
     fn id(&self) -> Option<&'static str> {
         Some(TERMINAL_RENAME_DIALOG_ID)
     }
