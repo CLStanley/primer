@@ -225,6 +225,19 @@ impl Component for TerminalView {
                                             compositor.sync_terminal_document(cx.editor);
                                             return;
                                         }
+                                        // A PTY belongs to one pane at a time. Splitting
+                                        // from a terminal creates an editable scratch pane,
+                                        // leaving the running shell in its original pane.
+                                        if matches!(command.name(), "hsplit" | "vsplit" | "hsplit_new" | "vsplit_new") {
+                                            let action = if matches!(command.name(), "hsplit" | "hsplit_new") {
+                                                helix_view::editor::Action::HorizontalSplit
+                                            } else {
+                                                helix_view::editor::Action::VerticalSplit
+                                            };
+                                            cx.editor.new_file(action);
+                                            compositor.sync_terminal_document(cx.editor);
+                                            return;
+                                        }
                                         // Closing a split is different from killing
                                         // its PTY-backed buffer. Keep the session alive
                                         // so it remains available in the bufferline.
