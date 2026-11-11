@@ -119,7 +119,11 @@ fn quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow
     if cx.editor.terminal_documents.contains(&id) {
         let name = cx.editor.terminal_names.get(&id)
             .cloned().unwrap_or_else(|| "terminal".to_owned());
-        cx.compositor.push(Box::new(crate::ui::terminal::TerminalCloseDialog::new(id, name)));
+        cx.jobs.callback(async move {
+            Ok(crate::job::Callback::EditorCompositor(Box::new(move |_editor, compositor| {
+                compositor.push(Box::new(crate::ui::terminal::TerminalCloseDialog::new(id, name)));
+            })))
+        });
         return Ok(());
     }
 
