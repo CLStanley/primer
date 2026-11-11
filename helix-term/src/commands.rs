@@ -459,6 +459,7 @@ impl MappableCommand {
         primer_terminal, "Open a terminal buffer",
         primer_terminal_hsplit, "Open terminal in horizontal split",
         primer_terminal_vsplit, "Open terminal in vertical split",
+        primer_terminal_rename, "Rename terminal tab",
         primer_buffer_previous, "Previous buffer",
         primer_buffer_next, "Next buffer",
         primer_buffer_new, "New empty buffer",
@@ -4512,6 +4513,15 @@ fn primer_terminal_vsplit(cx: &mut Context) {
         args: String::new(),
         doc: "Open terminal in vertical split".to_owned(),
     }.execute(cx);
+}
+
+fn primer_terminal_rename(cx: &mut Context) {
+    let id = view!(cx.editor).doc;
+    let Some(name) = cx.editor.terminal_names.get(&id).cloned() else {
+        cx.editor.set_status("Current buffer is not a terminal tab");
+        return;
+    };
+    cx.push_layer(Box::new(crate::ui::terminal::TerminalRenameDialog::new(id, name)));
 }
 
 fn primer_buffer_previous(cx: &mut Context) {
