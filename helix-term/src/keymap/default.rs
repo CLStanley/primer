@@ -398,6 +398,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "t" => primer_terminal,
                 "h" => primer_terminal_hsplit,
                 "v" => primer_terminal_vsplit,
+                "n" => primer_terminal_rename,
             },
             "Y" => yank_main_selection_to_clipboard,
             "p" => paste_clipboard_after,
