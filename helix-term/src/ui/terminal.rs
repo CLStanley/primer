@@ -148,8 +148,24 @@ impl Component for TerminalView {
                                 }
                             }
                             let register = ctx.editor.config().default_yank_register;
-                            match ctx.editor.registers.write(register, vec![selected]) {
-                                Ok(()) => ctx.editor.set_status(format!("Yanked terminal selection to register {register}")),
+                            // Match Primer's configured yank register, and also
+                            // populate the system clipboard for external paste.
+                            let result = ctx.editor.registers.write(register, vec![selected.clone()]);
+                            match result {
+                                Ok(()) => {
+                                    if register == '+' {
+                                        ctx.editor.set_status("Yanked terminal selection to clipboard");
+                                    } else {
+                                        match ctx.editor.registers.write('+', vec![selected]) {
+                                            Ok(()) => ctx.editor.set_status(format!(
+                                                "Yanked terminal selection to register {register} and clipboard"
+                                            )),
+                                            Err(error) => ctx.editor.set_error(format!(
+                                                "Yanked to register {register}, but clipboard failed: {error}"
+                                            )),
+                                        }
+                                    }
+                                }
                                 Err(error) => ctx.editor.set_error(error.to_string()),
                             }
                         }
@@ -338,6 +354,7 @@ impl Component for TerminalView {
                                                 | "global_search"
                                                 | "command_palette"
                                                 | "buffer_picker"
+                                                | "primer_buffer_new"
                                                 | "primer_agenda"
                                                 | "primer_terminal"
                                                 | "primer_terminal_hsplit"
