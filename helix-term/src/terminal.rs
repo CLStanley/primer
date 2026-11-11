@@ -21,6 +21,8 @@ pub struct TerminalSessionId(u64);
 pub enum TerminalInputMode {
     /// Key events are interpreted by Primer (tabs, splits, navigation).
     Normal,
+    /// Navigate and select read-only terminal output.
+    Select,
     /// Key events are forwarded to the running PTY application.
     Terminal,
 }
