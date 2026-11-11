@@ -129,6 +129,34 @@ impl Component for TerminalView {
                             .clamp(0, rows.saturating_sub(1) as i32) as u16;
                         return EventResult::Consumed(None);
                     }
+                    if key.code == KeyCode::Char('y') && self.input_mode == TerminalInputMode::Select {
+                        if let Some(anchor) = self.selection_anchor {
+                            let cursor = (self.navigation_row, self.navigation_col);
+                            let start = anchor.min(cursor);
+                            let end = anchor.max(cursor);
+                            let screen = self.terminal.screen().screen();
+                            let (columns, rows) = self.terminal.screen().size();
+                            let mut selected = String::new();
+                            for row in start.0..=end.0.min(rows.saturating_sub(1)) {
+                                if row != start.0 { selected.push('\\n'); }
+                                let first = if row == start.0 { start.1 } else { 0 };
+                                let last = if row == end.0 { end.1 } else { columns.saturating_sub(1) };
+                                for col in first..=last.min(columns.saturating_sub(1)) {
+                                    if let Some(cell) = screen.cell(row, col) {
+                                        selected.push_str(&cell.contents());
+                                    }
+                                }
+                            }
+                            let register = ctx.editor.config().default_yank_register;
+                            match ctx.editor.registers.write(register, vec![selected]) {
+                                Ok(()) => ctx.editor.set_status(format!("Yanked terminal selection to register {register}")),
+                                Err(error) => ctx.editor.set_error(error.to_string()),
+                            }
+                        }
+                        self.set_input_mode(TerminalInputMode::Normal);
+                        ctx.editor.mode = Mode::Normal;
+                        return EventResult::Consumed(None);
+                    }
                     if key.code == KeyCode::Char('v') {
                         self.set_input_mode(TerminalInputMode::Select);
                         self.selection_anchor = Some((self.navigation_row, self.navigation_col));
