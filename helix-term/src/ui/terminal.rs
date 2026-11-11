@@ -27,6 +27,7 @@ pub struct TerminalView {
     pending_keys: Vec<KeyEvent>,
     navigation_row: u16,
     navigation_col: u16,
+    selection_anchor: Option<(u16, u16)>,
 }
 
 impl TerminalView {
@@ -42,6 +43,7 @@ impl TerminalView {
             pending_keys: Vec::new(),
             navigation_row: 0,
             navigation_col: 0,
+            selection_anchor: None,
         }
     }
 
@@ -83,6 +85,9 @@ impl TerminalView {
 
     pub fn set_input_mode(&mut self, mode: TerminalInputMode) {
         self.input_mode = mode;
+        if mode != TerminalInputMode::Select {
+            self.selection_anchor = None;
+        }
         if mode == TerminalInputMode::Terminal {
             self.terminal.screen_mut().set_scrollback_offset(0);
         }
@@ -126,6 +131,7 @@ impl Component for TerminalView {
                     }
                     if key.code == KeyCode::Char('v') {
                         self.set_input_mode(TerminalInputMode::Select);
+                        self.selection_anchor = Some((self.navigation_row, self.navigation_col));
                         ctx.editor.mode = Mode::Select;
                         return EventResult::Consumed(None);
                     }
@@ -448,6 +454,21 @@ impl Component for TerminalView {
             surface,
             cx.editor.theme.get("ui.text").fg(Color::LightGray),
         );
+        if self.input_mode == TerminalInputMode::Select {
+            if let Some((anchor_row, anchor_col)) = self.selection_anchor {
+                let start = (anchor_row, anchor_col).min((self.navigation_row, self.navigation_col));
+                let end = (anchor_row, anchor_col).max((self.navigation_row, self.navigation_col));
+                let selection_style = cx.editor.theme.get("ui.selection");
+                for row in start.0..=end.0.min(area.height.saturating_sub(1)) {
+                    let first = if row == start.0 { start.1 } else { 0 };
+                    let last = if row == end.0 { end.1 } else { area.width.saturating_sub(1) };
+                    if first < area.width {
+                        surface.set_style(Rect::new(area.x + first, area.y + row,
+                            last.min(area.width - 1) - first + 1, 1), selection_style);
+                    }
+                }
+            }
+        }
     }
 }
 
