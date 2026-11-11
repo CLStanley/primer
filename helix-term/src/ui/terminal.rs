@@ -436,7 +436,12 @@ impl Component for TerminalCloseDialog {
     fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
         use tui::widgets::{Block, BorderType, Widget};
         use helix_view::editor::UiBorderStyle;
-        let width = area.width.saturating_sub(4).min(56);
+        // Fit the dialog to its labels and choices rather than allocating
+        // a large fixed popup. Leave room for the border and padding.
+        let content_width = self.name.chars().count()
+            .max("Closing stops all running processes.".len())
+            .max("Close Terminal".len());
+        let width = area.width.saturating_sub(4).min((content_width + 4) as u16);
         let height = area.height.saturating_sub(2).min(9);
         if width < 12 || height < 7 { return; }
         let popup = Rect::new(
