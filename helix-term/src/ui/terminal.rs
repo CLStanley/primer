@@ -512,8 +512,8 @@ impl TerminalRenameDialog {
 impl Component for TerminalRenameDialog {
     fn cursor(&self, area: Rect, _editor: &helix_view::Editor) -> (Option<Position>, CursorKind) {
         let width = area.width.saturating_sub(4).min((self.name.chars().count() + 8).max(32).min(88) as u16);
-        let height = area.height.saturating_sub(2).min(5);
-        if width < 12 || height < 5 {
+        let height = area.height.saturating_sub(2).min(6);
+        if width < 12 || height < 6 {
             return (None, CursorKind::Hidden);
         }
         let x = area.x + (area.width - width) / 2;
@@ -521,7 +521,7 @@ impl Component for TerminalRenameDialog {
         let max = width.saturating_sub(4) as usize;
         let visible_width = self.name.chars().count().min(max);
         (
-            Some(Position::new((y + 2) as usize, (x + 2 + visible_width.min(max) as u16) as usize)),
+            Some(Position::new((y + 1) as usize, (x + 2 + visible_width.min(max) as u16) as usize)),
             CursorKind::Bar,
         )
     }
@@ -588,7 +588,8 @@ impl Component for TerminalRenameDialog {
         let style = cx.editor.theme.get("ui.text");
         let max = width.saturating_sub(4) as usize;
         let visible: String = self.name.chars().rev().take(max).collect::<Vec<_>>().into_iter().rev().collect();
-        surface.set_string(popup.x + 2, popup.y + 2, &visible, style);
+        surface.set_string(popup.x + 2, popup.y + 1, &visible, style);
+        surface.set_string(popup.x + 1, popup.y + 2, &"─".repeat(width.saturating_sub(2) as usize), cx.editor.theme.get("ui.window"));
         surface.set_string(popup.x + 2, popup.y + 3, "Enter: Save    Esc: Cancel", style);
     }
 }
