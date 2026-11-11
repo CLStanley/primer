@@ -519,9 +519,7 @@ impl Component for TerminalRenameDialog {
         let x = area.x + (area.width - width) / 2;
         let y = area.y + (area.height - height) / 2;
         let max = width.saturating_sub(4) as usize;
-        let visible_width = unicode_width::UnicodeWidthStr::width(
-            self.name.chars().rev().take(max).collect::<Vec<_>>().into_iter().rev().collect::<String>().as_str()
-        );
+        let visible_width = self.name.chars().count().min(max);
         (
             Some(Position::new((y + 2) as usize, (x + 2 + visible_width.min(max) as u16) as usize)),
             CursorKind::Bar,
