@@ -5167,8 +5167,8 @@ fn git_branch_picker(cx: &mut Context) {
     });
     let mut overlay = overlaid(picker.selection_only().with_title("Git Branches"));
     overlay.calc_child_size = Box::new(move |area| {
-        let width = area.width.min((branch_width + 10).max(24) as u16).max(1);
-        let height = area.height.min((branch_count + 2).max(3) as u16).max(1);
+        let width = area.width.min((branch_width + 18).max(48).min(72) as u16).max(1);
+        let height = area.height.min((branch_count + 4).max(8).min(18) as u16).max(1);
         helix_view::graphics::Rect::new(
             area.x + area.width.saturating_sub(width) / 2,
             area.y + area.height.saturating_sub(height) / 2,
