@@ -121,7 +121,16 @@ fn quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow
     }
 
     cx.block_try_flush_writes()?;
-    cx.editor.close(view!(cx.editor).id);
+    if cx.editor.tree.views().count() == 1 && cx.editor.documents().count() > 1 {
+        let id = view!(cx.editor).doc;
+        if cx.editor.terminal_documents.contains(&id) {
+            cx.editor.set_status("Use Space+b+q to close a terminal with confirmation");
+            return Ok(());
+        }
+        cx.editor.close_document(id, false).map_err(|err| anyhow::anyhow!(err))?;
+    } else {
+        cx.editor.close(view!(cx.editor).id);
+    }
 
     Ok(())
 }
