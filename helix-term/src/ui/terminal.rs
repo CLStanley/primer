@@ -470,7 +470,7 @@ impl Component for TerminalCloseDialog {
             if *selected {
                 surface.set_stringn(popup.x + 2, y, &" ".repeat(row_width as usize), row_width as usize, style);
             }
-            surface.set_string(popup.x + 3, y, format!("{} {label}", if *selected { ">" } else { " " }), style);
+            surface.set_string(popup.x + 3, y, &format!("{} {label}", if *selected { ">" } else { " " }), style);
         }
     }
 }
