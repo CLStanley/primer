@@ -25,6 +25,8 @@ pub struct TerminalView {
     escape_pending: bool,
     close_sequence: u8,
     pending_keys: Vec<KeyEvent>,
+    navigation_row: u16,
+    navigation_col: u16,
 }
 
 impl TerminalView {
@@ -38,6 +40,8 @@ impl TerminalView {
             escape_pending: false,
             close_sequence: 0,
             pending_keys: Vec::new(),
+            navigation_row: 0,
+            navigation_col: 0,
         }
     }
 
@@ -91,8 +95,30 @@ impl TerminalView {
 
 impl Component for TerminalView {
     fn handle_event(&mut self, event: &Event, ctx: &mut Context) -> EventResult {
-        if self.input_mode == TerminalInputMode::Normal {
+        if matches!(self.input_mode, TerminalInputMode::Normal | TerminalInputMode::Select) {
             if let Event::Key(key) = event {
+                // Navigate the visible VT grid without sending input to the PTY.
+                if key.modifiers.is_empty() {
+                    let (cols, rows) = self.terminal.screen().size();
+                    let movement = match key.code {
+                        KeyCode::Char('h') | KeyCode::Left => Some((-1i32, 0i32)),
+                        KeyCode::Char('l') | KeyCode::Right => Some((1, 0)),
+                        KeyCode::Char('j') | KeyCode::Down => Some((0, 1)),
+                        KeyCode::Char('k') | KeyCode::Up => Some((0, -1)),
+                        _ => None,
+                    };
+                    if let Some((dx, dy)) = movement {
+                        self.navigation_col = (self.navigation_col as i32 + dx)
+                            .clamp(0, cols.saturating_sub(1) as i32) as u16;
+                        self.navigation_row = (self.navigation_row as i32 + dy)
+                            .clamp(0, rows.saturating_sub(1) as i32) as u16;
+                        return EventResult::Consumed(None);
+                    }
+                    if key.code == KeyCode::Char('v') {
+                        self.set_input_mode(TerminalInputMode::Select);
+                        return EventResult::Consumed(None);
+                    }
+                }
                 // Terminal Normal Mode shares the editor's buffer navigation.
                 // Terminals may report shifted letters with a SHIFT modifier.
                 if self.close_sequence == 0
@@ -115,6 +141,10 @@ impl Component for TerminalView {
                     // Escape cancels an unfinished terminal key family, including
                     // its shared Which-Key popup, without closing the terminal.
                     if key.code == KeyCode::Esc {
+                        if self.input_mode == TerminalInputMode::Select {
+                            self.set_input_mode(TerminalInputMode::Normal);
+                            return EventResult::Consumed(None);
+                        }
                         self.close_sequence = 0;
                         self.pending_keys.clear();
                         ctx.editor.autoinfo = None;
@@ -360,8 +390,12 @@ impl Component for TerminalView {
     }
     fn cursor(&self, area: Rect, _editor: &helix_view::Editor) -> (Option<Position>, CursorKind) {
         let pane = area;
-        if self.input_mode != TerminalInputMode::Terminal || pane.width == 0 || pane.height == 0 {
+        if pane.width == 0 || pane.height == 0 {
             return (None, CursorKind::Hidden);
+        }
+        if self.input_mode != TerminalInputMode::Terminal {
+            return (Some(Position::new((pane.y + self.navigation_row.min(pane.height - 1)) as usize,
+                (pane.x + self.navigation_col.min(pane.width - 1)) as usize)), CursorKind::Block);
         }
         let screen = self.terminal.screen().screen();
         if screen.hide_cursor() {
