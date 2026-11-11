@@ -266,6 +266,7 @@ impl Component for TerminalView {
                                                 | "primer_terminal"
                                                 | "primer_terminal_hsplit"
                                                 | "primer_terminal_vsplit"
+                                                | "primer_terminal_rename"
                                         ) {
                                             let mut command_cx = crate::commands::Context {
                                                 editor: cx.editor,
@@ -492,5 +493,86 @@ impl Component for TerminalCloseDialog {
             }
             surface.set_string(popup.x + 3, y, &format!("{} {label}", if *selected { ">" } else { " " }), style);
         }
+    }
+}
+
+const TERMINAL_RENAME_DIALOG_ID: &str = "terminal-rename-dialog";
+
+pub struct TerminalRenameDialog {
+    id: helix_view::DocumentId,
+    name: String,
+}
+
+impl TerminalRenameDialog {
+    pub fn new(id: helix_view::DocumentId, name: String) -> Self {
+        Self { id, name }
+    }
+}
+
+impl Component for TerminalRenameDialog {
+    fn id(&self) -> Option<&'static str> {
+        Some(TERMINAL_RENAME_DIALOG_ID)
+    }
+
+    fn handle_event(&mut self, event: &Event, _ctx: &mut Context) -> EventResult {
+        let Event::Key(key) = event else { return EventResult::Consumed(None) };
+        match key.code {
+            KeyCode::Esc => EventResult::Consumed(Some(Box::new(|compositor, _| {
+                compositor.remove(TERMINAL_RENAME_DIALOG_ID);
+            }))),
+            KeyCode::Enter => {
+                let name = self.name.trim().to_owned();
+                let id = self.id;
+                EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+                    compositor.remove(TERMINAL_RENAME_DIALOG_ID);
+                    if name.is_empty() {
+                        cx.editor.set_error("Terminal tab name cannot be empty");
+                    } else if let Some(current) = cx.editor.terminal_names.get_mut(&id) {
+                        *current = name;
+                    }
+                })))
+            }
+            KeyCode::Backspace => {
+                self.name.pop();
+                EventResult::Consumed(None)
+            }
+            KeyCode::Char(c) if key.modifiers.is_empty() || key.modifiers == helix_view::keyboard::KeyModifiers::SHIFT => {
+                if self.name.chars().count() < 80 {
+                    self.name.push(c);
+                }
+                EventResult::Consumed(None)
+            }
+            _ => EventResult::Consumed(None),
+        }
+    }
+
+    fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
+        use tui::widgets::{Block, BorderType, Widget};
+        use helix_view::editor::UiBorderStyle;
+        let width = area.width.saturating_sub(4).min((self.name.chars().count() + 8).max(32).min(88) as u16);
+        let height = area.height.saturating_sub(2).min(5);
+        if width < 12 || height < 5 { return; }
+        let popup = Rect::new(
+            area.x + (area.width - width) / 2,
+            area.y + (area.height - height) / 2,
+            width,
+            height,
+        );
+        surface.clear_with(popup, cx.editor.theme.get("ui.background"));
+        let border_type = match cx.editor.config().border_style {
+            UiBorderStyle::Square => BorderType::Plain,
+            UiBorderStyle::Rounded => BorderType::Rounded,
+            UiBorderStyle::Double => BorderType::Double,
+        };
+        Block::bordered()
+            .title(" Rename Tab ")
+            .border_type(border_type)
+            .border_style(cx.editor.theme.get("ui.window"))
+            .render(popup, surface);
+        let style = cx.editor.theme.get("ui.text");
+        let max = width.saturating_sub(4) as usize;
+        let visible: String = self.name.chars().rev().take(max).collect::<Vec<_>>().into_iter().rev().collect();
+        surface.set_string(popup.x + 2, popup.y + 2, &visible, style);
+        surface.set_string(popup.x + 2, popup.y + 3, "Enter: Save    Esc: Cancel", style);
     }
 }
