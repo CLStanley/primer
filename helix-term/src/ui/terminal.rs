@@ -83,6 +83,9 @@ impl TerminalView {
 
     pub fn set_input_mode(&mut self, mode: TerminalInputMode) {
         self.input_mode = mode;
+        if mode == TerminalInputMode::Terminal {
+            self.terminal.screen_mut().set_scrollback_offset(0);
+        }
         self.escape_pending = false;
         self.pending_keys.clear();
         self.close_sequence = 0;
@@ -108,6 +111,13 @@ impl Component for TerminalView {
                         _ => None,
                     };
                     if let Some((dx, dy)) = movement {
+                        if dy < 0 && self.navigation_row == 0 {
+                            let offset = self.terminal.screen().scrollback_offset();
+                            self.terminal.screen_mut().set_scrollback_offset(offset.saturating_add(1));
+                        } else if dy > 0 && self.navigation_row >= rows.saturating_sub(1) {
+                            let offset = self.terminal.screen().scrollback_offset();
+                            self.terminal.screen_mut().set_scrollback_offset(offset.saturating_sub(1));
+                        }
                         self.navigation_col = (self.navigation_col as i32 + dx)
                             .clamp(0, cols.saturating_sub(1) as i32) as u16;
                         self.navigation_row = (self.navigation_row as i32 + dy)
@@ -116,6 +126,7 @@ impl Component for TerminalView {
                     }
                     if key.code == KeyCode::Char('v') {
                         self.set_input_mode(TerminalInputMode::Select);
+                        ctx.editor.set_status("Terminal SELECT — selection and yank pending implementation");
                         return EventResult::Consumed(None);
                     }
                 }
@@ -143,6 +154,7 @@ impl Component for TerminalView {
                     if key.code == KeyCode::Esc {
                         if self.input_mode == TerminalInputMode::Select {
                             self.set_input_mode(TerminalInputMode::Normal);
+                            ctx.editor.set_status("Terminal NORMAL");
                             return EventResult::Consumed(None);
                         }
                         self.close_sequence = 0;
