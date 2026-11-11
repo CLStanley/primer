@@ -5163,7 +5163,7 @@ fn git_branch_picker(cx: &mut Context) {
             })))
         });
     });
-    let mut overlay = overlaid(picker.with_title("Git Branches"));
+    let mut overlay = overlaid(picker.selection_only().with_title("Git Branches"));
     overlay.calc_child_size = Box::new(|area| {
         let width = area.width.min(72).max(1);
         let height = area.height.min(18).max(1);
