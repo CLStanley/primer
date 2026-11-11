@@ -148,7 +148,7 @@ impl Component for TerminalView {
                                 let name = ctx.editor.terminal_names.get(&id)
                                     .cloned().unwrap_or_else(|| "terminal".to_owned());
                                 return EventResult::Consumed(Some(Box::new(move |compositor, _cx| {
-                                    compositor.push(Box::new(TerminalCloseDialog { id, name }));
+                                    compositor.push(Box::new(TerminalCloseDialog { id, name, selected_close: false }));
                                 })));
                             }
                             let keys = self.pending_keys.clone();
@@ -394,6 +394,7 @@ const TERMINAL_CLOSE_DIALOG_ID: &str = "terminal-close-dialog";
 struct TerminalCloseDialog {
     id: helix_view::DocumentId,
     name: String,
+    selected_close: bool,
 }
 
 impl Component for TerminalCloseDialog {
@@ -403,8 +404,14 @@ impl Component for TerminalCloseDialog {
 
     fn handle_event(&mut self, event: &Event, _ctx: &mut Context) -> EventResult {
         let Event::Key(key) = event else { return EventResult::Consumed(None) };
-        let confirmed = matches!(key.code, KeyCode::Char('y') | KeyCode::Enter);
-        let cancelled = matches!(key.code, KeyCode::Char('n') | KeyCode::Esc);
+        if matches!(key.code, KeyCode::Up | KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('k') | KeyCode::Tab) {
+            self.selected_close = !self.selected_close;
+            return EventResult::Consumed(None);
+        }
+        let confirmed = key.code == KeyCode::Char('y')
+            || (key.code == KeyCode::Enter && self.selected_close);
+        let cancelled = matches!(key.code, KeyCode::Char('n') | KeyCode::Esc)
+            || (key.code == KeyCode::Enter && !self.selected_close);
         if !confirmed && !cancelled { return EventResult::Consumed(None); }
         let id = self.id;
         EventResult::Consumed(Some(Box::new(move |compositor, cx| {
@@ -427,25 +434,43 @@ impl Component for TerminalCloseDialog {
     }
 
     fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
-        use tui::widgets::{Block, Borders, Widget};
-        let width = area.width.saturating_sub(4).min(54);
-        let height = area.height.saturating_sub(2).min(7);
-        if width < 8 || height < 5 { return; }
+        use tui::widgets::{Block, BorderType, Widget};
+        use helix_view::editor::UiBorderStyle;
+        let width = area.width.saturating_sub(4).min(56);
+        let height = area.height.saturating_sub(2).min(9);
+        if width < 12 || height < 7 { return; }
         let popup = Rect::new(
             area.x + (area.width - width) / 2,
             area.y + (area.height - height) / 2,
             width,
             height,
         );
-        surface.set_style(popup, cx.editor.theme.get("ui.popup"));
-        Block::default()
+        surface.clear_with(popup, cx.editor.theme.get("ui.background"));
+        let border_type = match cx.editor.config().border_style {
+            UiBorderStyle::Square => BorderType::Plain,
+            UiBorderStyle::Rounded => BorderType::Rounded,
+            UiBorderStyle::Double => BorderType::Double,
+        };
+        Block::bordered()
             .title(" Close Terminal ")
-            .borders(Borders::ALL)
-            .border_style(cx.editor.theme.get("ui.popup"))
+            .border_type(border_type)
+            .border_style(cx.editor.theme.get("ui.window"))
             .render(popup, surface);
         let text_style = cx.editor.theme.get("ui.text");
+        let selected_style = cx.editor.theme.get("ui.text.focus");
         surface.set_string(popup.x + 2, popup.y + 2, &self.name, text_style);
-        surface.set_string(popup.x + 2, popup.y + 3, "This will stop its running processes.", text_style);
-        surface.set_string(popup.x + 2, popup.y + 5, "[y/Enter] Close    [n/Esc] Cancel", text_style);
+        surface.set_string(popup.x + 2, popup.y + 3, "Closing stops all running processes.", text_style);
+        let row_width = popup.width.saturating_sub(4);
+        for (index, (label, selected)) in [
+            ("Cancel", !self.selected_close),
+            ("Close Terminal", self.selected_close),
+        ].iter().enumerate() {
+            let y = popup.y + 5 + index as u16;
+            let style = if *selected { selected_style } else { text_style };
+            if *selected {
+                surface.set_stringn(popup.x + 2, y, &" ".repeat(row_width as usize), row_width as usize, style);
+            }
+            surface.set_string(popup.x + 3, y, format!("{} {label}", if *selected { ">" } else { " " }), style);
+        }
     }
 }
