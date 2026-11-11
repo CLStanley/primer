@@ -340,7 +340,9 @@ impl Compositor {
             }
             if pane.y > area.y && views.iter().any(|other| {
                 let bottom = other.y.saturating_add(other.height);
-                bottom <= pane.y && pane.y.saturating_sub(bottom) <= 2
+                // A touching pane has its statusline on the preceding row.
+                // Only draw a separator when the layout reserves a real gap.
+                bottom < pane.y && pane.y.saturating_sub(bottom) <= 2
                     && other.x < pane.x.saturating_add(pane.width)
                     && pane.x < other.x.saturating_add(other.width)
             }) {
