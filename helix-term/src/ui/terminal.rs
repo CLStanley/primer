@@ -25,7 +25,6 @@ pub struct TerminalView {
     escape_pending: bool,
     close_sequence: u8,
     pending_keys: Vec<KeyEvent>,
-    confirm_close: bool,
 }
 
 impl TerminalView {
@@ -39,7 +38,6 @@ impl TerminalView {
             escape_pending: false,
             close_sequence: 0,
             pending_keys: Vec::new(),
-            confirm_close: false,
         }
     }
 
@@ -108,33 +106,6 @@ impl Component for TerminalView {
                     })));
                 }
                 if key.modifiers.is_empty() {
-                    if self.confirm_close {
-                        self.confirm_close = false;
-                        self.close_sequence = 0;
-                        ctx.editor.status_msg = None;
-                        if key.code == KeyCode::Char('y') {
-                            let _ = self.terminal.kill();
-                            return EventResult::Consumed(Some(Box::new(|compositor, cx| {
-                                let id = cx.editor.tree.get(cx.editor.tree.focus).doc;
-                                if let Err(_err) = cx.editor.close_document(id, true) {
-                                    cx.editor.terminal_documents.remove(&id);
-                                }
-                                compositor.remove_terminal_document(id);
-                                // Restore the home screen when there is no real file to show.
-                                // Do not discard existing named editing buffers.
-                                if !cx.editor.documents().any(|doc| doc.path().is_some())
-                                    && cx.editor.terminal_documents.is_empty()
-                                    && compositor
-                                        .find::<crate::ui::dashboard::Dashboard>()
-                                        .is_none()
-                                {
-                                    compositor
-                                        .push(Box::new(crate::ui::dashboard::Dashboard::new()));
-                                }
-                            })));
-                        }
-                        return EventResult::Consumed(None);
-                    }
                     // Let Primer's real editor command-line keymap open the
                     // prompt. The prompt becomes the top compositor layer, so
                     // subsequent keystrokes go to it rather than the PTY.
@@ -173,9 +144,12 @@ impl Component for TerminalView {
                             if closing {
                                 self.pending_keys.clear();
                                 ctx.editor.autoinfo = None;
-                                self.confirm_close = true;
-                                ctx.editor.set_status("Kill terminal and running processes? [y/N]");
-                                return EventResult::Consumed(None);
+                                let id = self.document_id;
+                                let name = ctx.editor.terminal_names.get(&id)
+                                    .cloned().unwrap_or_else(|| "terminal".to_owned());
+                                return EventResult::Consumed(Some(Box::new(move |compositor, _cx| {
+                                    compositor.push(Box::new(TerminalCloseDialog { id, name }));
+                                })));
                             }
                             let keys = self.pending_keys.clone();
                             return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
@@ -411,5 +385,67 @@ impl Component for TerminalView {
             surface,
             cx.editor.theme.get("ui.text").fg(Color::LightGray),
         );
+    }
+}
+
+const TERMINAL_CLOSE_DIALOG_ID: &str = "terminal-close-dialog";
+
+/// A modal confirmation that uses Primer's normal compositor layering.
+struct TerminalCloseDialog {
+    id: helix_view::DocumentId,
+    name: String,
+}
+
+impl Component for TerminalCloseDialog {
+    fn id(&self) -> Option<&'static str> {
+        Some(TERMINAL_CLOSE_DIALOG_ID)
+    }
+
+    fn handle_event(&mut self, event: &Event, _ctx: &mut Context) -> EventResult {
+        let Event::Key(key) = event else { return EventResult::Consumed(None) };
+        let confirmed = matches!(key.code, KeyCode::Char('y') | KeyCode::Enter);
+        let cancelled = matches!(key.code, KeyCode::Char('n') | KeyCode::Esc);
+        if !confirmed && !cancelled { return EventResult::Consumed(None); }
+        let id = self.id;
+        EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+            compositor.remove(TERMINAL_CLOSE_DIALOG_ID);
+            if !confirmed { return; }
+            if let Some(terminal) = compositor.find_terminal_document(id) {
+                let _ = terminal.terminal_mut().kill();
+            }
+            if cx.editor.close_document(id, true).is_err() {
+                cx.editor.terminal_documents.remove(&id);
+            }
+            compositor.remove_terminal_document(id);
+            if !cx.editor.documents().any(|doc| doc.path().is_some())
+                && cx.editor.terminal_documents.is_empty()
+                && compositor.find::<crate::ui::dashboard::Dashboard>().is_none()
+            {
+                compositor.push(Box::new(crate::ui::dashboard::Dashboard::new()));
+            }
+        })))
+    }
+
+    fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
+        use tui::widgets::{Block, Borders, Widget};
+        let width = area.width.saturating_sub(4).min(54);
+        let height = area.height.saturating_sub(2).min(7);
+        if width < 8 || height < 5 { return; }
+        let popup = Rect::new(
+            area.x + (area.width - width) / 2,
+            area.y + (area.height - height) / 2,
+            width,
+            height,
+        );
+        surface.set_style(popup, cx.editor.theme.get("ui.popup"));
+        Block::default()
+            .title(" Close Terminal ")
+            .borders(Borders::ALL)
+            .border_style(cx.editor.theme.get("ui.popup"))
+            .render(popup, surface);
+        let text_style = cx.editor.theme.get("ui.text");
+        surface.set_string(popup.x + 2, popup.y + 2, &self.name, text_style);
+        surface.set_string(popup.x + 2, popup.y + 3, "This will stop its running processes.", text_style);
+        surface.set_string(popup.x + 2, popup.y + 5, "[y/Enter] Close    [n/Esc] Cancel", text_style);
     }
 }
