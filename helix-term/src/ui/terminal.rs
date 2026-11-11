@@ -264,6 +264,8 @@ impl Component for TerminalView {
                                                 | "buffer_picker"
                                                 | "primer_agenda"
                                                 | "primer_terminal"
+                                                | "primer_terminal_hsplit"
+                                                | "primer_terminal_vsplit"
                                         ) {
                                             let mut command_cx = crate::commands::Context {
                                                 editor: cx.editor,
