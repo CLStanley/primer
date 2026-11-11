@@ -138,7 +138,7 @@ impl Component for TerminalView {
                             let (columns, rows) = self.terminal.screen().size();
                             let mut selected = String::new();
                             for row in start.0..=end.0.min(rows.saturating_sub(1)) {
-                                if row != start.0 { selected.push('\\n'); }
+                                if row != start.0 { selected.push('\n'); }
                                 let first = if row == start.0 { start.1 } else { 0 };
                                 let last = if row == end.0 { end.1 } else { columns.saturating_sub(1) };
                                 for col in first..=last.min(columns.saturating_sub(1)) {
