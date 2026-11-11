@@ -115,6 +115,14 @@ fn quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow
         return Ok(());
     }
 
+    let id = view!(cx.editor).doc;
+    if cx.editor.terminal_documents.contains(&id) {
+        let name = cx.editor.terminal_names.get(&id)
+            .cloned().unwrap_or_else(|| "terminal".to_owned());
+        cx.push_layer(Box::new(crate::ui::terminal::TerminalCloseDialog::new(id, name)));
+        return Ok(());
+    }
+
     // last view and we have unsaved changes
     if cx.editor.tree.views().count() == 1 {
         buffers_remaining_impl(cx.editor)?
@@ -123,10 +131,6 @@ fn quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow
     cx.block_try_flush_writes()?;
     if cx.editor.tree.views().count() == 1 && cx.editor.documents().count() > 1 {
         let id = view!(cx.editor).doc;
-        if cx.editor.terminal_documents.contains(&id) {
-            cx.editor.set_status("Use Space+b+q to close a terminal with confirmation");
-            return Ok(());
-        }
         cx.editor.close_document(id, false).map_err(|err| match err {
             CloseError::BufferModified(name) => anyhow::anyhow!("Unsaved changes in {name}"),
             CloseError::DoesNotExist => anyhow::anyhow!("Buffer no longer exists"),
