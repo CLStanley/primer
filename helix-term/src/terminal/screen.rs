@@ -40,7 +40,7 @@ impl TerminalScreen {
 
     /// Select the number of history rows displayed above the live viewport.
     pub fn set_scrollback_offset(&mut self, offset: usize) {
-        self.parser.screen_mut().set_scrollback(offset);
+        self.parser.set_scrollback(offset);
     }
 
     pub fn scrollback_offset(&self) -> usize {
