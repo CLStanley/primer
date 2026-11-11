@@ -116,6 +116,10 @@ impl RunningTerminal {
         &self.screen
     }
 
+    pub fn screen_mut(&mut self) -> &mut TerminalScreen {
+        &mut self.screen
+    }
+
     pub fn write_input(&self, bytes: &[u8]) -> Result<()> {
         self.process.write_input(bytes)
     }
