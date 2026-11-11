@@ -126,7 +126,7 @@ impl Component for TerminalView {
                     }
                     if key.code == KeyCode::Char('v') {
                         self.set_input_mode(TerminalInputMode::Select);
-                        ctx.editor.set_status("Terminal SELECT — selection and yank pending implementation");
+                        ctx.editor.mode = Mode::Select;
                         return EventResult::Consumed(None);
                     }
                 }
@@ -154,7 +154,7 @@ impl Component for TerminalView {
                     if key.code == KeyCode::Esc {
                         if self.input_mode == TerminalInputMode::Select {
                             self.set_input_mode(TerminalInputMode::Normal);
-                            ctx.editor.set_status("Terminal NORMAL");
+                            ctx.editor.mode = Mode::Normal;
                             return EventResult::Consumed(None);
                         }
                         self.close_sequence = 0;
@@ -361,6 +361,7 @@ impl Component for TerminalView {
             Event::Key(key) => {
                 if key.code == KeyCode::Esc && key.modifiers.is_empty() {
                     self.set_input_mode(TerminalInputMode::Normal);
+                    ctx.editor.mode = Mode::Normal;
                     return EventResult::Consumed(None);
                 }
                 let prefix = key.code == KeyCode::Char('\\')
