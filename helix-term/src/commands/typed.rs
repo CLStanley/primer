@@ -130,6 +130,7 @@ fn quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow
         cx.editor.close_document(id, false).map_err(|err| match err {
             CloseError::BufferModified(name) => anyhow::anyhow!("Unsaved changes in {name}"),
             CloseError::DoesNotExist => anyhow::anyhow!("Buffer no longer exists"),
+            CloseError::SaveError(err) => err,
         })?;
     } else {
         cx.editor.close(view!(cx.editor).id);
