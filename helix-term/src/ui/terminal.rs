@@ -407,10 +407,16 @@ impl Component for TerminalView {
 const TERMINAL_CLOSE_DIALOG_ID: &str = "terminal-close-dialog";
 
 /// A modal confirmation that uses Primer's normal compositor layering.
-struct TerminalCloseDialog {
+pub(crate) struct TerminalCloseDialog {
     id: helix_view::DocumentId,
     name: String,
     selected_close: bool,
+}
+
+impl TerminalCloseDialog {
+    pub(crate) fn new(id: helix_view::DocumentId, name: String) -> Self {
+        Self { id, name, selected_close: false }
+    }
 }
 
 impl Component for TerminalCloseDialog {
