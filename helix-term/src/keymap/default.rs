@@ -373,7 +373,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             },
             "w" => { "Window"
                 "C-w" | "w" => rotate_view,
-                "C-s" | "s" | "h" => hsplit,
+                "h" => hsplit,
                 "C-v" | "v" => vsplit,
                 "C-t" | "t" => transpose_view,
                 "f" => goto_file_hsplit,
@@ -396,6 +396,8 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "y" => yank_to_clipboard,
             "t" => { "Tools"
                 "t" => primer_terminal,
+                "h" => primer_terminal_hsplit,
+                "v" => primer_terminal_vsplit,
             },
             "Y" => yank_main_selection_to_clipboard,
             "p" => paste_clipboard_after,
