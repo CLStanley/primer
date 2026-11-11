@@ -456,7 +456,9 @@ impl MappableCommand {
         goto_window_top, "Goto window top",
         goto_window_center, "Goto window center",
         goto_window_bottom, "Goto window bottom",
-        primer_terminal, "Open or return to the terminal",
+        primer_terminal, "Open a terminal buffer",
+        primer_terminal_hsplit, "Open terminal in horizontal split",
+        primer_terminal_vsplit, "Open terminal in vertical split",
         primer_buffer_previous, "Previous buffer",
         primer_buffer_next, "Next buffer",
         primer_buffer_new, "New empty buffer",
@@ -4493,6 +4495,22 @@ fn primer_terminal(cx: &mut Context) {
         name: "terminal".to_owned(),
         args: String::new(),
         doc: "Open or return to the terminal".to_owned(),
+    }.execute(cx);
+}
+
+fn primer_terminal_hsplit(cx: &mut Context) {
+    MappableCommand::Typable {
+        name: "terminal-hsplit".to_owned(),
+        args: String::new(),
+        doc: "Open terminal in horizontal split".to_owned(),
+    }.execute(cx);
+}
+
+fn primer_terminal_vsplit(cx: &mut Context) {
+    MappableCommand::Typable {
+        name: "terminal-vsplit".to_owned(),
+        args: String::new(),
+        doc: "Open terminal in vertical split".to_owned(),
     }.execute(cx);
 }
 
