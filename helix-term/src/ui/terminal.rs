@@ -192,7 +192,7 @@ impl Component for TerminalView {
                         compositor.sync_terminal_document(cx.editor);
                     })));
                 }
-                if key.modifiers.is_empty() {
+                if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT {
                     // Let Primer's real editor command-line keymap open the
                     // prompt. The prompt becomes the top compositor layer, so
                     // subsequent keystrokes go to it rather than the PTY.
