@@ -57,7 +57,7 @@ impl TerminalView {
         let (columns, rows) = self.terminal.screen().size();
         let mut text = String::new();
         for row in 0..rows {
-            if row != 0 { text.push('\\n'); }
+            if row != 0 { text.push('\n'); }
             for col in 0..columns {
                 if let Some(cell) = screen.cell(row, col) {
                     let content = cell.contents();
@@ -78,8 +78,8 @@ impl TerminalView {
                 .min(text.len_chars().saturating_sub(1))
         };
         self.terminal_selection = Some(Selection::single(
-            Range::new(offset(anchor_row, anchor_col),
-                offset(self.navigation_row, self.navigation_col)),
+            offset(anchor_row, anchor_col),
+            offset(self.navigation_row, self.navigation_col),
         ));
     }
 
