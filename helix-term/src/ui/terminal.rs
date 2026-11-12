@@ -229,6 +229,19 @@ impl Component for TerminalView {
                                 }
                             })));
                         }
+                        // Creating a scratch buffer must work from a PTY even if
+                        // the terminal's key-event representation differs from
+                        // the editor keymap's representation of uppercase N.
+                        (2, KeyCode::Char('N')) => {
+                            self.close_sequence = 0;
+                            self.pending_keys.clear();
+                            ctx.editor.autoinfo = None;
+                            return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+                                cx.editor.new_file(helix_view::editor::Action::Replace);
+                                cx.editor.mode = Mode::Normal;
+                                compositor.sync_terminal_document(cx.editor);
+                            })));
+                        }
                         (1, KeyCode::Char('b')) | (2, KeyCode::Char('q')) => {
                             let closing = self.close_sequence == 2;
                             self.pending_keys.push(*key);
