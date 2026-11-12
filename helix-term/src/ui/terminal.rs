@@ -8,7 +8,7 @@ use crate::keymap::KeyTrie;
 use crate::terminal::input::encode_key;
 use crate::terminal::TerminalInputMode;
 use crate::terminal::{render::render_terminal, runtime::RunningTerminal};
-use helix_core::{Position, Range, Rope, Selection};
+use helix_core::{Position, Rope, Selection};
 use helix_view::document::Mode;
 use helix_view::graphics::{Color, CursorKind, Rect};
 use helix_view::input::KeyEvent;
@@ -57,25 +57,33 @@ impl TerminalView {
         let (columns, rows) = self.terminal.screen().size();
         let mut text = String::new();
         for row in 0..rows {
-            if row != 0 { text.push('\n'); }
+            if row != 0 {
+                text.push('\n');
+            }
             for col in 0..columns {
                 if let Some(cell) = screen.cell(row, col) {
                     let content = cell.contents();
-                    if content.is_empty() { text.push(' '); }
-                    else { text.push_str(&content); }
-                } else { text.push(' '); }
+                    if content.is_empty() {
+                        text.push(' ');
+                    } else {
+                        text.push_str(&content);
+                    }
+                } else {
+                    text.push(' ');
+                }
             }
         }
         Rope::from(text)
     }
 
     fn update_terminal_selection(&mut self) {
-        let Some((anchor_row, anchor_col)) = self.selection_anchor else { return; };
+        let Some((anchor_row, anchor_col)) = self.selection_anchor else {
+            return;
+        };
         let text = self.selection_snapshot();
         let offset = |row: u16, col: u16| {
             let line = (row as usize).min(text.len_lines().saturating_sub(1));
-            (text.line_to_char(line) + col as usize)
-                .min(text.len_chars().saturating_sub(1))
+            (text.line_to_char(line) + col as usize).min(text.len_chars().saturating_sub(1))
         };
         self.terminal_selection = Some(Selection::single(
             offset(anchor_row, anchor_col),
@@ -84,10 +92,7 @@ impl TerminalView {
     }
 
     /// Advance through editor documents, including terminal-backed buffers.
-    fn switch_buffer(
-        editor: &mut helix_view::Editor,
-        forward: bool,
-    ) {
+    fn switch_buffer(editor: &mut helix_view::Editor, forward: bool) {
         let current = editor.tree.get(editor.tree.focus).doc;
         let ids: Vec<_> = editor.documents.keys().copied().collect();
         if ids.len() < 2 {
@@ -140,7 +145,10 @@ impl TerminalView {
 
 impl Component for TerminalView {
     fn handle_event(&mut self, event: &Event, ctx: &mut Context) -> EventResult {
-        if matches!(self.input_mode, TerminalInputMode::Normal | TerminalInputMode::Select) {
+        if matches!(
+            self.input_mode,
+            TerminalInputMode::Normal | TerminalInputMode::Select
+        ) {
             if let Event::Key(key) = event {
                 // Navigate the visible VT grid without sending input to the PTY.
                 if key.modifiers.is_empty() {
@@ -155,32 +163,43 @@ impl Component for TerminalView {
                     if let Some((dx, dy)) = movement {
                         if dy < 0 && self.navigation_row == 0 {
                             let offset = self.terminal.screen().scrollback_offset();
-                            self.terminal.screen_mut().set_scrollback_offset(offset.saturating_add(1));
+                            self.terminal
+                                .screen_mut()
+                                .set_scrollback_offset(offset.saturating_add(1));
                         } else if dy > 0 && self.navigation_row >= rows.saturating_sub(1) {
                             let offset = self.terminal.screen().scrollback_offset();
-                            self.terminal.screen_mut().set_scrollback_offset(offset.saturating_sub(1));
+                            self.terminal
+                                .screen_mut()
+                                .set_scrollback_offset(offset.saturating_sub(1));
                         }
                         self.navigation_col = (self.navigation_col as i32 + dx)
-                            .clamp(0, cols.saturating_sub(1) as i32) as u16;
+                            .clamp(0, cols.saturating_sub(1) as i32)
+                            as u16;
                         self.navigation_row = (self.navigation_row as i32 + dy)
-                            .clamp(0, rows.saturating_sub(1) as i32) as u16;
+                            .clamp(0, rows.saturating_sub(1) as i32)
+                            as u16;
                         if self.input_mode == TerminalInputMode::Select {
                             self.update_terminal_selection();
                         }
                         return EventResult::Consumed(None);
                     }
-                    if key.code == KeyCode::Char('y') && self.input_mode == TerminalInputMode::Select {
+                    if key.code == KeyCode::Char('y')
+                        && self.input_mode == TerminalInputMode::Select
+                    {
                         if let Some(selection) = &self.terminal_selection {
                             let snapshot = self.selection_snapshot();
-                            let selected = selection.primary().fragment(snapshot.slice(..)).to_string();
+                            let selected =
+                                selection.primary().fragment(snapshot.slice(..)).to_string();
                             let register = ctx.editor.config().default_yank_register;
                             // Match Primer's configured yank register, and also
                             // populate the system clipboard for external paste.
-                            let result = ctx.editor.registers.write(register, vec![selected.clone()]);
+                            let result =
+                                ctx.editor.registers.write(register, vec![selected.clone()]);
                             match result {
                                 Ok(()) => {
                                     if register == '+' {
-                                        ctx.editor.set_status("Yanked terminal selection to clipboard");
+                                        ctx.editor
+                                            .set_status("Yanked terminal selection to clipboard");
                                     } else {
                                         match ctx.editor.registers.write('+', vec![selected]) {
                                             Ok(()) => ctx.editor.set_status(format!(
@@ -277,11 +296,21 @@ impl Component for TerminalView {
                                 self.pending_keys.clear();
                                 ctx.editor.autoinfo = None;
                                 let id = self.document_id;
-                                let name = ctx.editor.terminal_names.get(&id)
-                                    .cloned().unwrap_or_else(|| "terminal".to_owned());
-                                return EventResult::Consumed(Some(Box::new(move |compositor, _cx| {
-                                    compositor.push(Box::new(TerminalCloseDialog { id, name, selected_close: false }));
-                                })));
+                                let name = ctx
+                                    .editor
+                                    .terminal_names
+                                    .get(&id)
+                                    .cloned()
+                                    .unwrap_or_else(|| "terminal".to_owned());
+                                return EventResult::Consumed(Some(Box::new(
+                                    move |compositor, _cx| {
+                                        compositor.push(Box::new(TerminalCloseDialog {
+                                            id,
+                                            name,
+                                            selected_close: false,
+                                        }));
+                                    },
+                                )));
                             }
                             let keys = self.pending_keys.clone();
                             return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
@@ -319,7 +348,9 @@ impl Component for TerminalView {
                                         // Preserve the pending keys for the next level.
                                     }
                                     Some(KeyTrie::MappableCommand(command)) => {
-                                        if let Some(terminal) = compositor.find_terminal_document(cx.editor.tree.get(cx.editor.tree.focus).doc) {
+                                        if let Some(terminal) = compositor.find_terminal_document(
+                                            cx.editor.tree.get(cx.editor.tree.focus).doc,
+                                        ) {
                                             terminal.pending_keys.clear();
                                             terminal.close_sequence = 0;
                                         }
@@ -346,10 +377,16 @@ impl Component for TerminalView {
                                         // Pane navigation is valid for PTY-backed
                                         // views even though they are not editable text.
                                         let direction = match command.name() {
-                                            "jump_view_left" => Some(helix_view::tree::Direction::Left),
-                                            "jump_view_right" => Some(helix_view::tree::Direction::Right),
+                                            "jump_view_left" => {
+                                                Some(helix_view::tree::Direction::Left)
+                                            }
+                                            "jump_view_right" => {
+                                                Some(helix_view::tree::Direction::Right)
+                                            }
                                             "jump_view_up" => Some(helix_view::tree::Direction::Up),
-                                            "jump_view_down" => Some(helix_view::tree::Direction::Down),
+                                            "jump_view_down" => {
+                                                Some(helix_view::tree::Direction::Down)
+                                            }
                                             _ => None,
                                         };
                                         if let Some(direction) = direction {
@@ -360,8 +397,14 @@ impl Component for TerminalView {
                                         // A PTY belongs to one pane at a time. Splitting
                                         // from a terminal creates an editable scratch pane,
                                         // leaving the running shell in its original pane.
-                                        if matches!(command.name(), "hsplit" | "vsplit" | "hsplit_new" | "vsplit_new") {
-                                            let action = if matches!(command.name(), "hsplit" | "hsplit_new") {
+                                        if matches!(
+                                            command.name(),
+                                            "hsplit" | "vsplit" | "hsplit_new" | "vsplit_new"
+                                        ) {
+                                            let action = if matches!(
+                                                command.name(),
+                                                "hsplit" | "hsplit_new"
+                                            ) {
                                                 helix_view::editor::Action::HorizontalSplit
                                             } else {
                                                 helix_view::editor::Action::VerticalSplit
@@ -427,7 +470,9 @@ impl Component for TerminalView {
                                         }
                                     }
                                     _ => {
-                                        if let Some(terminal) = compositor.find_terminal_document(cx.editor.tree.get(cx.editor.tree.focus).doc) {
+                                        if let Some(terminal) = compositor.find_terminal_document(
+                                            cx.editor.tree.get(cx.editor.tree.focus).doc,
+                                        ) {
                                             terminal.pending_keys.clear();
                                             terminal.close_sequence = 0;
                                         }
@@ -498,8 +543,13 @@ impl Component for TerminalView {
             return (None, CursorKind::Hidden);
         }
         if self.input_mode != TerminalInputMode::Terminal {
-            return (Some(Position::new((pane.y + self.navigation_row.min(pane.height - 1)) as usize,
-                (pane.x + self.navigation_col.min(pane.width - 1)) as usize)), CursorKind::Block);
+            return (
+                Some(Position::new(
+                    (pane.y + self.navigation_row.min(pane.height - 1)) as usize,
+                    (pane.x + self.navigation_col.min(pane.width - 1)) as usize,
+                )),
+                CursorKind::Block,
+            );
         }
         let screen = self.terminal.screen().screen();
         if screen.hide_cursor() {
@@ -541,15 +591,27 @@ impl Component for TerminalView {
         );
         if self.input_mode == TerminalInputMode::Select {
             if let Some((anchor_row, anchor_col)) = self.selection_anchor {
-                let start = (anchor_row, anchor_col).min((self.navigation_row, self.navigation_col));
+                let start =
+                    (anchor_row, anchor_col).min((self.navigation_row, self.navigation_col));
                 let end = (anchor_row, anchor_col).max((self.navigation_row, self.navigation_col));
                 let selection_style = cx.editor.theme.get("ui.selection");
                 for row in start.0..=end.0.min(area.height.saturating_sub(1)) {
                     let first = if row == start.0 { start.1 } else { 0 };
-                    let last = if row == end.0 { end.1 } else { area.width.saturating_sub(1) };
+                    let last = if row == end.0 {
+                        end.1
+                    } else {
+                        area.width.saturating_sub(1)
+                    };
                     if first < area.width {
-                        surface.set_style(Rect::new(area.x + first, area.y + row,
-                            last.min(area.width - 1) - first + 1, 1), selection_style);
+                        surface.set_style(
+                            Rect::new(
+                                area.x + first,
+                                area.y + row,
+                                last.min(area.width - 1) - first + 1,
+                                1,
+                            ),
+                            selection_style,
+                        );
                     }
                 }
             }
@@ -568,7 +630,11 @@ pub(crate) struct TerminalCloseDialog {
 
 impl TerminalCloseDialog {
     pub(crate) fn new(id: helix_view::DocumentId, name: String) -> Self {
-        Self { id, name, selected_close: false }
+        Self {
+            id,
+            name,
+            selected_close: false,
+        }
     }
 }
 
@@ -578,20 +644,29 @@ impl Component for TerminalCloseDialog {
     }
 
     fn handle_event(&mut self, event: &Event, _ctx: &mut Context) -> EventResult {
-        let Event::Key(key) = event else { return EventResult::Consumed(None) };
-        if matches!(key.code, KeyCode::Up | KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('k') | KeyCode::Tab) {
+        let Event::Key(key) = event else {
+            return EventResult::Consumed(None);
+        };
+        if matches!(
+            key.code,
+            KeyCode::Up | KeyCode::Down | KeyCode::Char('j') | KeyCode::Char('k') | KeyCode::Tab
+        ) {
             self.selected_close = !self.selected_close;
             return EventResult::Consumed(None);
         }
-        let confirmed = key.code == KeyCode::Char('y')
-            || (key.code == KeyCode::Enter && self.selected_close);
+        let confirmed =
+            key.code == KeyCode::Char('y') || (key.code == KeyCode::Enter && self.selected_close);
         let cancelled = matches!(key.code, KeyCode::Char('n') | KeyCode::Esc)
             || (key.code == KeyCode::Enter && !self.selected_close);
-        if !confirmed && !cancelled { return EventResult::Consumed(None); }
+        if !confirmed && !cancelled {
+            return EventResult::Consumed(None);
+        }
         let id = self.id;
         EventResult::Consumed(Some(Box::new(move |compositor, cx| {
             compositor.remove(TERMINAL_CLOSE_DIALOG_ID);
-            if !confirmed { return; }
+            if !confirmed {
+                return;
+            }
             if let Some(terminal) = compositor.find_terminal_document(id) {
                 let _ = terminal.terminal_mut().kill();
             }
@@ -601,7 +676,9 @@ impl Component for TerminalCloseDialog {
             compositor.remove_terminal_document(id);
             if !cx.editor.documents().any(|doc| doc.path().is_some())
                 && cx.editor.terminal_documents.is_empty()
-                && compositor.find::<crate::ui::dashboard::Dashboard>().is_none()
+                && compositor
+                    .find::<crate::ui::dashboard::Dashboard>()
+                    .is_none()
             {
                 compositor.push(Box::new(crate::ui::dashboard::Dashboard::new()));
             }
@@ -609,16 +686,21 @@ impl Component for TerminalCloseDialog {
     }
 
     fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
-        use tui::widgets::{Block, BorderType, Widget};
         use helix_view::editor::UiBorderStyle;
+        use tui::widgets::{Block, BorderType, Widget};
         // Fit the dialog to its labels and choices rather than allocating
         // a large fixed popup. Leave room for the border and padding.
-        let content_width = self.name.chars().count()
+        let content_width = self
+            .name
+            .chars()
+            .count()
             .max("Closing stops all running processes.".len())
             .max("Close Terminal".len());
         let width = area.width.saturating_sub(4).min((content_width + 4) as u16);
         let height = area.height.saturating_sub(2).min(9);
-        if width < 12 || height < 7 { return; }
+        if width < 12 || height < 7 {
+            return;
+        }
         let popup = Rect::new(
             area.x + (area.width - width) / 2,
             area.y + (area.height - height) / 2,
@@ -639,18 +721,41 @@ impl Component for TerminalCloseDialog {
         let text_style = cx.editor.theme.get("ui.text");
         let selected_style = cx.editor.theme.get("ui.text.focus");
         surface.set_string(popup.x + 2, popup.y + 2, &self.name, text_style);
-        surface.set_string(popup.x + 2, popup.y + 3, "Closing stops all running processes.", text_style);
+        surface.set_string(
+            popup.x + 2,
+            popup.y + 3,
+            "Closing stops all running processes.",
+            text_style,
+        );
         let row_width = popup.width.saturating_sub(4);
         for (index, (label, selected)) in [
             ("Cancel", !self.selected_close),
             ("Close Terminal", self.selected_close),
-        ].iter().enumerate() {
+        ]
+        .iter()
+        .enumerate()
+        {
             let y = popup.y + 5 + index as u16;
-            let style = if *selected { selected_style } else { text_style };
+            let style = if *selected {
+                selected_style
+            } else {
+                text_style
+            };
             if *selected {
-                surface.set_stringn(popup.x + 2, y, &" ".repeat(row_width as usize), row_width as usize, style);
+                surface.set_stringn(
+                    popup.x + 2,
+                    y,
+                    &" ".repeat(row_width as usize),
+                    row_width as usize,
+                    style,
+                );
             }
-            surface.set_string(popup.x + 3, y, &format!("{} {label}", if *selected { ">" } else { " " }), style);
+            surface.set_string(
+                popup.x + 3,
+                y,
+                &format!("{} {label}", if *selected { ">" } else { " " }),
+                style,
+            );
         }
     }
 }
@@ -670,7 +775,10 @@ impl TerminalRenameDialog {
 
 impl Component for TerminalRenameDialog {
     fn cursor(&self, area: Rect, _editor: &helix_view::Editor) -> (Option<Position>, CursorKind) {
-        let width = area.width.saturating_sub(4).min((self.name.chars().count() + 8).max(32).min(88) as u16);
+        let width = area
+            .width
+            .saturating_sub(4)
+            .min((self.name.chars().count() + 8).max(32).min(88) as u16);
         let height = area.height.saturating_sub(2).min(5);
         if width < 12 || height < 5 {
             return (None, CursorKind::Hidden);
@@ -680,7 +788,10 @@ impl Component for TerminalRenameDialog {
         let max = width.saturating_sub(4) as usize;
         let visible_width = self.name.chars().count().min(max);
         (
-            Some(Position::new((y + 1) as usize, (x + 2 + visible_width.min(max) as u16) as usize)),
+            Some(Position::new(
+                (y + 1) as usize,
+                (x + 2 + visible_width.min(max) as u16) as usize,
+            )),
             CursorKind::Bar,
         )
     }
@@ -690,7 +801,9 @@ impl Component for TerminalRenameDialog {
     }
 
     fn handle_event(&mut self, event: &Event, _ctx: &mut Context) -> EventResult {
-        let Event::Key(key) = event else { return EventResult::Consumed(None) };
+        let Event::Key(key) = event else {
+            return EventResult::Consumed(None);
+        };
         match key.code {
             KeyCode::Esc => EventResult::Consumed(Some(Box::new(|compositor, _| {
                 compositor.remove(TERMINAL_RENAME_DIALOG_ID);
@@ -711,7 +824,10 @@ impl Component for TerminalRenameDialog {
                 self.name.pop();
                 EventResult::Consumed(None)
             }
-            KeyCode::Char(c) if key.modifiers.is_empty() || key.modifiers == helix_view::keyboard::KeyModifiers::SHIFT => {
+            KeyCode::Char(c)
+                if key.modifiers.is_empty()
+                    || key.modifiers == helix_view::keyboard::KeyModifiers::SHIFT =>
+            {
                 if self.name.chars().count() < 80 {
                     self.name.push(c);
                 }
@@ -722,11 +838,16 @@ impl Component for TerminalRenameDialog {
     }
 
     fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
-        use tui::widgets::{Block, BorderType, Widget};
         use helix_view::editor::UiBorderStyle;
-        let width = area.width.saturating_sub(4).min((self.name.chars().count() + 8).max(32).min(88) as u16);
+        use tui::widgets::{Block, BorderType, Widget};
+        let width = area
+            .width
+            .saturating_sub(4)
+            .min((self.name.chars().count() + 8).max(32).min(88) as u16);
         let height = area.height.saturating_sub(2).min(5);
-        if width < 12 || height < 5 { return; }
+        if width < 12 || height < 5 {
+            return;
+        }
         let popup = Rect::new(
             area.x + (area.width - width) / 2,
             area.y + (area.height - height) / 2,
@@ -746,9 +867,27 @@ impl Component for TerminalRenameDialog {
             .render(popup, surface);
         let style = cx.editor.theme.get("ui.text");
         let max = width.saturating_sub(4) as usize;
-        let visible: String = self.name.chars().rev().take(max).collect::<Vec<_>>().into_iter().rev().collect();
+        let visible: String = self
+            .name
+            .chars()
+            .rev()
+            .take(max)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
         surface.set_string(popup.x + 2, popup.y + 1, &visible, style);
-        surface.set_string(popup.x + 1, popup.y + 2, &"─".repeat(width.saturating_sub(2) as usize), cx.editor.theme.get("ui.window"));
-        surface.set_string(popup.x + 2, popup.y + 3, "Enter: Save    Esc: Cancel", style);
+        surface.set_string(
+            popup.x + 1,
+            popup.y + 2,
+            &"─".repeat(width.saturating_sub(2) as usize),
+            cx.editor.theme.get("ui.window"),
+        );
+        surface.set_string(
+            popup.x + 2,
+            popup.y + 3,
+            "Enter: Save    Esc: Cancel",
+            style,
+        );
     }
 }
