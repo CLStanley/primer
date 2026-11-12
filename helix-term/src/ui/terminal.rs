@@ -8,7 +8,7 @@ use crate::keymap::KeyTrie;
 use crate::terminal::input::encode_key;
 use crate::terminal::TerminalInputMode;
 use crate::terminal::{render::render_terminal, runtime::RunningTerminal};
-use helix_core::Position;
+use helix_core::{Position, Range, Rope, Selection};
 use helix_view::document::Mode;
 use helix_view::graphics::{Color, CursorKind, Rect};
 use helix_view::input::KeyEvent;
@@ -28,6 +28,8 @@ pub struct TerminalView {
     navigation_row: u16,
     navigation_col: u16,
     selection_anchor: Option<(u16, u16)>,
+    /// Native Helix selection over a read-only snapshot of the VT grid.
+    terminal_selection: Option<Selection>,
 }
 
 impl TerminalView {
@@ -44,7 +46,41 @@ impl TerminalView {
             navigation_row: 0,
             navigation_col: 0,
             selection_anchor: None,
+            terminal_selection: None,
         }
+    }
+
+    /// Convert the visible VT grid to a Rope with one line per screen row.
+    /// Keep padding so screen coordinates map to character offsets.
+    fn selection_snapshot(&self) -> Rope {
+        let screen = self.terminal.screen().screen();
+        let (columns, rows) = self.terminal.screen().size();
+        let mut text = String::new();
+        for row in 0..rows {
+            if row != 0 { text.push('\\n'); }
+            for col in 0..columns {
+                if let Some(cell) = screen.cell(row, col) {
+                    let content = cell.contents();
+                    if content.is_empty() { text.push(' '); }
+                    else { text.push_str(&content); }
+                } else { text.push(' '); }
+            }
+        }
+        Rope::from(text)
+    }
+
+    fn update_terminal_selection(&mut self) {
+        let Some((anchor_row, anchor_col)) = self.selection_anchor else { return; };
+        let text = self.selection_snapshot();
+        let offset = |row: u16, col: u16| {
+            let line = (row as usize).min(text.len_lines().saturating_sub(1));
+            (text.line_to_char(line) + col as usize)
+                .min(text.len_chars().saturating_sub(1))
+        };
+        self.terminal_selection = Some(Selection::single(
+            Range::new(offset(anchor_row, anchor_col),
+                offset(self.navigation_row, self.navigation_col)),
+        ));
     }
 
     /// Advance through editor documents, including terminal-backed buffers.
@@ -87,6 +123,7 @@ impl TerminalView {
         self.input_mode = mode;
         if mode != TerminalInputMode::Select {
             self.selection_anchor = None;
+            self.terminal_selection = None;
         }
         if mode == TerminalInputMode::Terminal {
             self.terminal.screen_mut().set_scrollback_offset(0);
@@ -127,6 +164,9 @@ impl Component for TerminalView {
                             .clamp(0, cols.saturating_sub(1) as i32) as u16;
                         self.navigation_row = (self.navigation_row as i32 + dy)
                             .clamp(0, rows.saturating_sub(1) as i32) as u16;
+                        if self.input_mode == TerminalInputMode::Select {
+                            self.update_terminal_selection();
+                        }
                         return EventResult::Consumed(None);
                     }
                     if key.code == KeyCode::Char('y') && self.input_mode == TerminalInputMode::Select {
@@ -176,6 +216,7 @@ impl Component for TerminalView {
                     if key.code == KeyCode::Char('v') {
                         self.set_input_mode(TerminalInputMode::Select);
                         self.selection_anchor = Some((self.navigation_row, self.navigation_col));
+                        self.update_terminal_selection();
                         ctx.editor.mode = Mode::Select;
                         return EventResult::Consumed(None);
                     }
