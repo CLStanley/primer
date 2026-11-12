@@ -589,29 +589,34 @@ impl Component for TerminalView {
             surface,
             cx.editor.theme.get("ui.text").fg(Color::LightGray),
         );
-        if self.input_mode == TerminalInputMode::Select {
-            if let Some((anchor_row, anchor_col)) = self.selection_anchor {
-                let start =
-                    (anchor_row, anchor_col).min((self.navigation_row, self.navigation_col));
-                let end = (anchor_row, anchor_col).max((self.navigation_row, self.navigation_col));
-                let selection_style = cx.editor.theme.get("ui.selection");
-                for row in start.0..=end.0.min(area.height.saturating_sub(1)) {
-                    let first = if row == start.0 { start.1 } else { 0 };
-                    let last = if row == end.0 {
-                        end.1
+        // Paint from the same native Selection used for yanking. This keeps
+        // visual feedback and copied text in agreement (including reversed
+        // selections), rather than maintaining a second selection algorithm.
+        if self.input_mode == TerminalInputMode::Select && area.width > 0 && area.height > 0 {
+            if let Some(selection) = &self.terminal_selection {
+                let snapshot = self.selection_snapshot();
+                let range = selection.primary();
+                let start = range.from();
+                let end = range.to();
+                let style = cx.editor.theme.get("ui.selection");
+                for row in 0..area.height {
+                    let line = row as usize;
+                    if line >= snapshot.len_lines() { break; }
+                    let line_start = snapshot.line_to_char(line);
+                    let line_end = if line + 1 < snapshot.len_lines() {
+                        snapshot.line_to_char(line + 1).saturating_sub(1)
                     } else {
-                        area.width.saturating_sub(1)
+                        snapshot.len_chars()
                     };
-                    if first < area.width {
-                        surface.set_style(
-                            Rect::new(
-                                area.x + first,
-                                area.y + row,
-                                last.min(area.width - 1) - first + 1,
-                                1,
-                            ),
-                            selection_style,
-                        );
+                    let first = start.max(line_start);
+                    let last = end.min(line_end);
+                    if first < last {
+                        let x = (first - line_start).min(area.width as usize);
+                        let width = (last - first).min(area.width as usize - x);
+                        if width > 0 {
+                            surface.set_style(Rect::new(area.x + x as u16, area.y + row,
+                                width as u16, 1), style);
+                        }
                     }
                 }
             }
