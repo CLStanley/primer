@@ -183,6 +183,35 @@ impl Component for TerminalView {
                         }
                         return EventResult::Consumed(None);
                     }
+                    // Use Primer's existing word-motion engine against the
+                    // read-only terminal snapshot, in both Normal and Select.
+                    // Keep screen coordinates only as the VT rendering cursor.
+                    let word_motion: Option<fn(helix_core::RopeSlice<'_>, helix_core::Range, usize) -> helix_core::Range> = match key.code {
+                        KeyCode::Char('w') => Some(helix_core::movement::move_next_word_start),
+                        KeyCode::Char('b') => Some(helix_core::movement::move_prev_word_start),
+                        KeyCode::Char('e') => Some(helix_core::movement::move_next_word_end),
+                        _ => None,
+                    };
+                    if let Some(motion) = word_motion {
+                        let snapshot = self.selection_snapshot();
+                        let line = (self.navigation_row as usize).min(snapshot.len_lines().saturating_sub(1));
+                        let cursor = (snapshot.line_to_char(line) + self.navigation_col as usize)
+                            .min(snapshot.len_chars().saturating_sub(1));
+                        let anchor = self.terminal_selection.as_ref()
+                            .map(|selection| selection.primary().anchor)
+                            .unwrap_or(cursor);
+                        let range = helix_core::Range::new(cursor, cursor);
+                        let moved = motion(snapshot.slice(..), range, 1);
+                        let new_cursor = moved.cursor(snapshot.slice(..));
+                        let new_line = snapshot.char_to_line(new_cursor);
+                        self.navigation_row = new_line.min(u16::MAX as usize) as u16;
+                        self.navigation_col = (new_cursor - snapshot.line_to_char(new_line))
+                            .min(u16::MAX as usize) as u16;
+                        if self.input_mode == TerminalInputMode::Select {
+                            self.terminal_selection = Some(Selection::single(anchor, new_cursor));
+                        }
+                        return EventResult::Consumed(None);
+                    }
                     if key.code == KeyCode::Char('y')
                         && self.input_mode == TerminalInputMode::Select
                     {
