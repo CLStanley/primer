@@ -115,13 +115,34 @@ fn quit(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow
         return Ok(());
     }
 
+    let id = view!(cx.editor).doc;
+    if cx.editor.terminal_documents.contains(&id) {
+        let name = cx.editor.terminal_names.get(&id)
+            .cloned().unwrap_or_else(|| "terminal".to_owned());
+        cx.jobs.callback(async move {
+            Ok(crate::job::Callback::EditorCompositor(Box::new(move |_editor, compositor| {
+                compositor.push(Box::new(crate::ui::terminal::TerminalCloseDialog::new(id, name)));
+            })))
+        });
+        return Ok(());
+    }
+
     // last view and we have unsaved changes
     if cx.editor.tree.views().count() == 1 {
         buffers_remaining_impl(cx.editor)?
     }
 
     cx.block_try_flush_writes()?;
-    cx.editor.close(view!(cx.editor).id);
+    if cx.editor.tree.views().count() == 1 && cx.editor.documents().count() > 1 {
+        let id = view!(cx.editor).doc;
+        cx.editor.close_document(id, false).map_err(|err| match err {
+            CloseError::BufferModified(name) => anyhow::anyhow!("Unsaved changes in {name}"),
+            CloseError::DoesNotExist => anyhow::anyhow!("Buffer no longer exists"),
+            CloseError::SaveError(err) => err,
+        })?;
+    } else {
+        cx.editor.close(view!(cx.editor).id);
+    }
 
     Ok(())
 }
@@ -3003,7 +3024,78 @@ const WRITE_NO_CODE_ACTIONS_FLAG: Flag = Flag {
     ..Flag::DEFAULT
 };
 
+/// Create a PTY-backed editor document with its own terminal session.
+fn open_terminal(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    open_terminal_with_action(cx, args, event, Action::Replace)
+}
+
+fn open_terminal_vsplit(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    open_terminal_with_action(cx, args, event, Action::VerticalSplit)
+}
+
+fn open_terminal_hsplit(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    open_terminal_with_action(cx, args, event, Action::HorizontalSplit)
+}
+
+fn open_terminal_with_action(
+    cx: &mut compositor::Context,
+    _args: Args,
+    event: PromptEvent,
+    action: Action,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+
+    let directory = current_workspace(cx);
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".to_owned());
+    cx.jobs.callback(async move {
+        Ok(job::Callback::EditorCompositor(Box::new(
+            move |editor: &mut Editor, compositor: &mut Compositor| {
+                match crate::terminal::runtime::RunningTerminal::spawn(
+                    &shell, &[], &directory, 80, 24, 1000,
+                ) {
+                    Ok(terminal) => {
+                        let id = editor.new_file(action);
+                        editor.terminal_documents.insert(id);
+                        let shell_name = std::path::Path::new(&shell).file_name().and_then(|name| name.to_str()).unwrap_or("terminal");
+                        let number = editor.terminal_names.len() + 1;
+                        editor.terminal_names.insert(id, format!("{shell_name} {number}"));
+                        compositor.push(Box::new(crate::ui::terminal::TerminalView::new(terminal, id)));
+                    },
+                    Err(err) => editor.set_error(format!("Unable to open terminal: {err}")),
+                }
+            },
+        )))
+    });
+    Ok(())
+}
+
 pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
+    TypableCommand {
+        name: "terminal",
+        aliases: &["term"],
+        doc: "Create a new interactive terminal buffer.",
+        fun: open_terminal,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "terminal-vsplit",
+        aliases: &[],
+        doc: "Open a new terminal in a vertical editor split.",
+        fun: open_terminal_vsplit,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "terminal-hsplit",
+        aliases: &[],
+        doc: "Open a new terminal in a horizontal editor split.",
+        fun: open_terminal_hsplit,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
     TypableCommand {
         name: "exit",
         aliases: &["x", "xit"],

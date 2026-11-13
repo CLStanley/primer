@@ -83,6 +83,11 @@ impl EditorView {
         surface: &mut Surface,
         is_focused: bool,
     ) {
+        // A terminal document is a pane occupant, not a text document.
+        // Its PTY is drawn by the compositor after the editor chrome.
+        if editor.terminal_documents.contains(&doc.id()) {
+            return;
+        }
         let inner = view.inner_area(doc);
         let area = view.area;
         let theme = &editor.theme;
@@ -690,13 +695,13 @@ impl EditorView {
             .unwrap_or_else(|| editor.theme.get("ui.statusline"));
 
         for doc in editor.documents() {
-            let fname = doc
-                .path()
-                .unwrap_or(&scratch)
-                .file_name()
-                .unwrap_or_default()
-                .to_str()
-                .unwrap_or_default();
+            let fname = if editor.terminal_documents.contains(&doc.id()) {
+                editor.terminal_names.get(&doc.id()).cloned().unwrap_or_else(|| "terminal".to_owned())
+            } else {
+                doc.path().unwrap_or(&scratch)
+                    .file_name().unwrap_or_default()
+                    .to_string_lossy().into_owned()
+            };
 
             let active = current_doc == doc.id();
             // Buffer tabs use color and weight for selection, not underlining.
@@ -1674,7 +1679,8 @@ impl Component for EditorView {
             self.render_view(cx.editor, doc, view, area, surface, is_focused);
         }
 
-        if config.auto_info {
+        if config.auto_info && !cx.editor.tree.try_get(cx.editor.tree.focus)
+            .is_some_and(|view| cx.editor.terminal_documents.contains(&view.doc)) {
             if let Some(mut info) = cx.editor.autoinfo.take() {
                 info.render(area, surface, cx);
                 cx.editor.autoinfo = Some(info)

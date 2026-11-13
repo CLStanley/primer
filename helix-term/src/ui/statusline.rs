@@ -22,6 +22,8 @@ pub struct RenderContext<'a> {
     pub focused: bool,
     pub spinners: &'a ProgressSpinners,
     pub parts: RenderBuffer<'a>,
+    /// Optional terminal session details for a PTY-backed document.
+    pub terminal: Option<TerminalStatus<'a>>,
 }
 
 impl<'a> RenderContext<'a> {
@@ -39,8 +41,17 @@ impl<'a> RenderContext<'a> {
             focused,
             spinners,
             parts: RenderBuffer::default(),
+            terminal: None,
         }
     }
+}
+
+/// Information supplied by the active PTY, rendered with the editor's theme.
+pub struct TerminalStatus<'a> {
+    pub name: &'a str,
+    pub input_mode: bool,
+    pub columns: u16,
+    pub rows: u16,
 }
 
 #[derive(Default)]
@@ -66,7 +77,29 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
 
     let config = context.editor.config();
 
+    // PTY buffers have no text selection, encoding or line endings. Keep
+    // the user's configured layout while omitting inapplicable elements.
+    let is_terminal = context.terminal.is_some();
+    let applicable = |element: &StatusLineElementID| {
+        if !is_terminal { return true; }
+        !matches!(
+            element,
+            StatusLineElementID::Selections
+                | StatusLineElementID::PrimarySelectionLength
+                | StatusLineElementID::FileLineEnding
+                | StatusLineElementID::FileEncoding
+                | StatusLineElementID::FileIndentStyle
+                | StatusLineElementID::FileModificationIndicator
+                | StatusLineElementID::ReadOnlyIndicator
+                | StatusLineElementID::Diagnostics
+                | StatusLineElementID::WorkspaceDiagnostics
+                | StatusLineElementID::TotalLineNumbers
+                | StatusLineElementID::PositionPercentage
+        )
+    };
+
     for element_id in &config.statusline.left {
+        if !applicable(element_id) { continue; }
         let render = get_render_function(*element_id);
         (render)(context, |context, span| {
             append(&mut context.parts.left, span, base_style)
@@ -94,6 +127,7 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
     // Right side of the status line.
 
     for element_id in &config.statusline.right {
+        if !applicable(element_id) { continue; }
         let render = get_render_function(*element_id);
         (render)(context, |context, span| {
             append(&mut context.parts.right, span, base_style)
@@ -113,6 +147,7 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
     // Center of the status line.
 
     for element_id in &config.statusline.center {
+        if !applicable(element_id) { continue; }
         let render = get_render_function(*element_id);
         (render)(context, |context, span| {
             append(&mut context.parts.center, span, base_style)
@@ -182,10 +217,16 @@ where
     let visible = context.focused;
     let config = context.editor.config();
     let modenames = &config.statusline.mode;
-    let mode_str = match context.editor.mode() {
-        Mode::Insert => &modenames.insert,
-        Mode::Select => &modenames.select,
-        Mode::Normal => &modenames.normal,
+    let terminal_mode = context.terminal.as_ref().map(|terminal| terminal.input_mode);
+    let terminal_label = modenames.terminal.clone();
+    let mode_str = if terminal_mode == Some(true) {
+        &terminal_label
+    } else {
+        match context.editor.mode() {
+            Mode::Insert => &modenames.insert,
+            Mode::Select => &modenames.select,
+            Mode::Normal => &modenames.normal,
+        }
     };
     let content = if visible {
         format!(" {mode_str} ")
@@ -195,6 +236,7 @@ where
     };
     let style = if visible && config.color_modes {
         match context.editor.mode() {
+            _ if terminal_mode == Some(true) => context.editor.theme.try_get("ui.statusline.terminal").unwrap_or_else(|| context.editor.theme.get("ui.statusline.insert")),
             Mode::Insert => context.editor.theme.get("ui.statusline.insert"),
             Mode::Select => context.editor.theme.get("ui.statusline.select"),
             Mode::Normal => context.editor.theme.get("ui.statusline.normal"),
@@ -395,11 +437,12 @@ fn render_position<'a, F>(context: &mut RenderContext<'a>, write: F)
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
+    if let Some(terminal) = &context.terminal {
+        write(context, format!(" {}×{} ", terminal.columns, terminal.rows).into());
+        return;
+    }
     let position = get_position(context);
-    write(
-        context,
-        format!(" {}:{} ", position.row + 1, position.col + 1).into(),
-    );
+    write(context, format!(" {}:{} ", position.row + 1, position.col + 1).into());
 }
 
 fn render_total_line_numbers<'a, F>(context: &mut RenderContext<'a>, write: F)
@@ -463,7 +506,7 @@ fn render_file_type<'a, F>(context: &mut RenderContext<'a>, write: F)
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
-    let file_type = context.doc.language_name().unwrap_or(DEFAULT_LANGUAGE_NAME);
+    let file_type = if context.terminal.is_some() { "terminal" } else { context.doc.language_name().unwrap_or(DEFAULT_LANGUAGE_NAME) };
 
     // Use the theme's normal-mode accent for the pill, and its informational
     // foreground (typically blue) for the language label.
@@ -485,7 +528,9 @@ fn render_file_name<'a, F>(context: &mut RenderContext<'a>, write: F)
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
-    let title = {
+    let title = if let Some(terminal) = &context.terminal {
+        format!("  {} ", terminal.name)
+    } else {
         let rel_path = context.doc.relative_path();
         let path = rel_path
             .as_ref()

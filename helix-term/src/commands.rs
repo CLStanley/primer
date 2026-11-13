@@ -456,6 +456,10 @@ impl MappableCommand {
         goto_window_top, "Goto window top",
         goto_window_center, "Goto window center",
         goto_window_bottom, "Goto window bottom",
+        primer_terminal, "Open a terminal buffer",
+        primer_terminal_hsplit, "Open terminal in horizontal split",
+        primer_terminal_vsplit, "Open terminal in vertical split",
+        primer_terminal_rename, "Rename terminal tab",
         primer_buffer_previous, "Previous buffer",
         primer_buffer_next, "Next buffer",
         primer_buffer_new, "New empty buffer",
@@ -4487,6 +4491,39 @@ fn goto_column_impl(cx: &mut Context, movement: Movement) {
     doc.set_selection(view.id, selection);
 }
 
+fn primer_terminal(cx: &mut Context) {
+    MappableCommand::Typable {
+        name: "terminal".to_owned(),
+        args: String::new(),
+        doc: "Open or return to the terminal".to_owned(),
+    }.execute(cx);
+}
+
+fn primer_terminal_hsplit(cx: &mut Context) {
+    MappableCommand::Typable {
+        name: "terminal-hsplit".to_owned(),
+        args: String::new(),
+        doc: "Open terminal in horizontal split".to_owned(),
+    }.execute(cx);
+}
+
+fn primer_terminal_vsplit(cx: &mut Context) {
+    MappableCommand::Typable {
+        name: "terminal-vsplit".to_owned(),
+        args: String::new(),
+        doc: "Open terminal in vertical split".to_owned(),
+    }.execute(cx);
+}
+
+fn primer_terminal_rename(cx: &mut Context) {
+    let id = view!(cx.editor).doc;
+    let Some(name) = cx.editor.terminal_names.get(&id).cloned() else {
+        cx.editor.set_status("Current buffer is not a terminal tab");
+        return;
+    };
+    cx.push_layer(Box::new(crate::ui::terminal::TerminalRenameDialog::new(id, name)));
+}
+
 fn primer_buffer_previous(cx: &mut Context) {
     goto_buffer(cx.editor, Direction::Backward, 1);
 }
@@ -5031,6 +5068,8 @@ fn git_branch_picker(cx: &mut Context) {
         let (marker, name) = line.split_once('|')?;
         Some((marker.trim() == "*", name.to_owned()))
     }).collect();
+    let branch_count = branches.len();
+    let branch_width = branches.iter().map(|(_, name)| name.chars().count()).max().unwrap_or(0);
     let columns = [PickerColumn::new("Git Branches", |branch: &(bool, String), _| {
         format!("{} {}", if branch.0 { "*" } else { " " }, branch.1).into()
     })];
@@ -5154,10 +5193,10 @@ fn git_branch_picker(cx: &mut Context) {
             })))
         });
     });
-    let mut overlay = overlaid(picker.with_title("Git Branches"));
-    overlay.calc_child_size = Box::new(|area| {
-        let width = area.width.min(72).max(1);
-        let height = area.height.min(18).max(1);
+    let mut overlay = overlaid(picker.selection_only().with_title("Git Branches"));
+    overlay.calc_child_size = Box::new(move |area| {
+        let width = area.width.min((branch_width + 18).max(48).min(72) as u16).max(1);
+        let height = area.height.min((branch_count + 4).max(8).min(18) as u16).max(1);
         helix_view::graphics::Rect::new(
             area.x + area.width.saturating_sub(width) / 2,
             area.y + area.height.saturating_sub(height) / 2,

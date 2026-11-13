@@ -136,12 +136,98 @@ impl Compositor {
         Some(self.layers.remove(idx))
     }
 
+    /// Bring an existing session back instead of spawning another PTY.
+    pub fn raise_type<T: 'static>(&mut self) -> bool {
+        let kind = std::any::type_name::<T>();
+        let Some(index) = self.layers.iter().position(|layer| layer.type_name() == kind) else {
+            return false;
+        };
+        let component = self.layers.remove(index);
+        self.layers.push(component);
+        self.need_full_redraw();
+        true
+    }
+
     pub fn remove_type<T: 'static>(&mut self) {
         let type_name = std::any::type_name::<T>();
         self.layers
             .retain(|component| component.type_name() != type_name);
     }
+    /// Look up a PTY by its backing editor document, not layer order.
+    pub fn find_terminal_document(
+        &mut self,
+        id: helix_view::DocumentId,
+    ) -> Option<&mut crate::ui::terminal::TerminalView> {
+        self.layers.iter_mut().find_map(|layer| {
+            let terminal = layer.as_any_mut()
+                .downcast_mut::<crate::ui::terminal::TerminalView>()?;
+            (terminal.document_id() == id).then_some(terminal)
+        })
+    }
+
+    /// Remove only the terminal session associated with the given document.
+    pub fn remove_terminal_document(&mut self, id: helix_view::DocumentId) {
+        self.layers.retain(|layer| {
+            layer.as_any()
+                .downcast_ref::<crate::ui::terminal::TerminalView>()
+                .is_none_or(|terminal| terminal.document_id() != id)
+        });
+        self.need_full_redraw();
+    }
+
+    /// Keep the selected terminal above the editor and every other terminal
+    /// below it. Document selection, not compositor insertion order, owns focus.
+    pub fn sync_terminal_document(&mut self, editor: &Editor) {
+        let Some(active) = editor.tree.try_get(editor.tree.focus).map(|view| view.doc) else {
+            return;
+        };
+        let terminal_kind = std::any::type_name::<crate::ui::terminal::TerminalView>();
+        let editor_kind = std::any::type_name::<crate::ui::EditorView>();
+        let Some(editor_index) = self.layers.iter().position(|layer| layer.type_name() == editor_kind) else {
+            return;
+        };
+        let active_terminal = self.layers.iter().position(|layer| {
+            layer.type_name() == terminal_kind
+                && layer.as_any()
+                    .downcast_ref::<crate::ui::terminal::TerminalView>()
+                    .is_some_and(|terminal| terminal.document_id() == active)
+        });
+        let Some(index) = active_terminal else {
+            // A file is active. Ensure every terminal stays behind EditorView.
+            let mut changed = false;
+            while let Some(index) = self.layers.iter().enumerate().find_map(|(index, layer)| {
+                (index > self.layers.iter().position(|l| l.type_name() == editor_kind)?
+                    && layer.type_name() == terminal_kind).then_some(index)
+            }) {
+                let terminal = self.layers.remove(index);
+                let editor_index = self.layers.iter().position(|l| l.type_name() == editor_kind).unwrap();
+                self.layers.insert(editor_index, terminal);
+                changed = true;
+            }
+            if changed { self.need_full_redraw(); }
+            return;
+        };
+        // Move all inactive terminals behind the editor before raising the
+        // selected session. This keeps input and rendering on one session.
+        let active_is_front = index > editor_index && !self.layers.iter().enumerate().any(|(i, layer)| i > index && layer.type_name() == terminal_kind);
+        let any_inactive_front = self.layers.iter().enumerate().any(|(i, layer)| i > editor_index && i != index && layer.type_name() == terminal_kind);
+        if active_is_front && !any_inactive_front { return; }
+        let active_layer = self.layers.remove(index);
+        while let Some(index) = self.layers.iter().enumerate().find_map(|(index, layer)| {
+            (index > self.layers.iter().position(|l| l.type_name() == editor_kind)?
+                && layer.type_name() == terminal_kind).then_some(index)
+        }) {
+            let layer = self.layers.remove(index);
+            let editor_index = self.layers.iter().position(|l| l.type_name() == editor_kind).unwrap();
+            self.layers.insert(editor_index, layer);
+        }
+        let editor_index = self.layers.iter().position(|l| l.type_name() == editor_kind).unwrap();
+        self.layers.insert(editor_index + 1, active_layer);
+        self.need_full_redraw();
+    }
+
     pub fn handle_event(&mut self, event: &Event, cx: &mut Context) -> bool {
+        self.sync_terminal_document(cx.editor);
         // If it is a key event, a macro is being recorded, and a macro isn't being replayed,
         // push the key event to the recording.
         if let (Event::Key(key), Some((_, keys))) = (event, &mut cx.editor.macro_recording) {
@@ -177,6 +263,7 @@ impl Compositor {
         for callback in callbacks {
             callback(self, cx)
         }
+        self.sync_terminal_document(cx.editor);
 
         // The dashboard remains underneath dashboard-launched pickers so Esc
         // returns home. Once a real file is opened, dismiss that home layer.
@@ -191,13 +278,108 @@ impl Compositor {
     }
 
     pub fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
-        for layer in &mut self.layers {
-            layer.render(area, surface, cx);
+        self.sync_terminal_document(cx.editor);
+        let terminal_kind = std::any::type_name::<crate::ui::terminal::TerminalView>();
+        let editor_kind = std::any::type_name::<crate::ui::EditorView>();
+
+        // Draw the editor's real split tree first, including the shared
+        // bufferline, pane borders and statuslines.
+        for layer in self.layers.iter_mut() {
+            if layer.type_name() == editor_kind {
+                layer.render(area, surface, cx);
+            }
+        }
+
+        // Paint every visible terminal in its own editor view. A terminal
+        // document may be displayed in more than one split.
+        let panes: Vec<_> = cx.editor.tree.views()
+            .filter(|(view, _)| cx.editor.terminal_documents.contains(&view.doc))
+            .map(|(view, focused)| (view.doc, view.area, focused))
+            .collect();
+        for (id, pane, focused) in panes {
+            if let Some(terminal) = self.find_terminal_document(id) {
+                // The editor reserves the bottom row of each view for its
+                // statusline. Paint only the terminal's content area.
+                let content = pane.clip_bottom(1);
+                terminal.render(content, surface, cx);
+                if focused {
+                    // The terminal statusline reflects PTY input mode and size.
+                    let (columns, rows) = terminal.terminal().screen().size();
+                    let input_mode = terminal.input_mode() == crate::terminal::TerminalInputMode::Terminal;
+                    let name = cx.editor.terminal_names.get(&id).map(String::as_str).unwrap_or("terminal");
+                    if let Some(view) = cx.editor.tree.views().find(|(view, _)| view.doc == id).map(|(view, _)| view) {
+                        if let Some(doc) = cx.editor.documents.get(&id) {
+                            let spinners = crate::ui::ProgressSpinners::default();
+                            let mut context = crate::ui::statusline::RenderContext::new(cx.editor, doc, view, true, &spinners);
+                            context.terminal = Some(crate::ui::statusline::TerminalStatus {
+                                name, input_mode, columns, rows,
+                            });
+                            let status = pane.clip_top(pane.height.saturating_sub(1));
+                            crate::ui::statusline::render(&mut context, status, surface);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Split geometry can reserve a separator column/row between view
+        // rectangles. Match nearby edges rather than requiring exact contact.
+        let views: Vec<_> = cx.editor.tree.views().map(|(view, _)| view.area).collect();
+        let separator_style = cx.editor.theme.get("ui.window");
+        for pane in &views {
+            if pane.x > area.x && views.iter().any(|other| {
+                let right = other.x.saturating_add(other.width);
+                right <= pane.x && pane.x.saturating_sub(right) <= 2
+                    && other.y < pane.y.saturating_add(pane.height)
+                    && pane.y < other.y.saturating_add(other.height)
+            }) {
+                let x = pane.x - 1;
+                for y in pane.y..pane.y.saturating_add(pane.height) {
+                    surface.set_string(x, y, "│", separator_style);
+                }
+            }
+            if pane.y > area.y && views.iter().any(|other| {
+                let bottom = other.y.saturating_add(other.height);
+                // A touching pane has its statusline on the preceding row.
+                // Only draw a separator when the layout reserves a real gap.
+                bottom < pane.y && pane.y.saturating_sub(bottom) <= 2
+                    && other.x < pane.x.saturating_add(pane.width)
+                    && pane.x < other.x.saturating_add(other.width)
+            }) {
+                let y = pane.y - 1;
+                for x in pane.x..pane.x.saturating_add(pane.width) {
+                    surface.set_string(x, y, "─", separator_style);
+                }
+            }
+        }
+
+        // Dialogs, prompts and other overlays remain above the editor panes.
+        for layer in self.layers.iter_mut() {
+            if layer.type_name() != editor_kind && layer.type_name() != terminal_kind {
+                layer.render(area, surface, cx);
+            }
+        }
+
+        // EditorView draws its Which-Key popup before terminal pane surfaces.
+        // Repaint the shared popup above PTYs while a terminal has focus.
+        if let Some(pane) = cx.editor.tree.try_get(cx.editor.tree.focus)
+            .filter(|view| cx.editor.terminal_documents.contains(&view.doc))
+            .map(|view| view.area)
+        {
+            if let Some(mut info) = cx.editor.autoinfo.take() {
+                info.render(pane, surface, cx);
+                cx.editor.autoinfo = Some(info);
+            }
         }
     }
 
     pub fn cursor(&self, area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
         for layer in self.layers.iter().rev() {
+            if let Some(terminal) = layer.as_any().downcast_ref::<crate::ui::terminal::TerminalView>() {
+                let Some(view) = editor.tree.try_get(editor.tree.focus) else { continue };
+                if view.doc != terminal.document_id() { continue; }
+                return terminal.cursor(view.area.clip_bottom(1), editor);
+            }
             if let (Some(pos), kind) = layer.cursor(area, editor) {
                 return (Some(pos), kind);
             }

@@ -19,6 +19,7 @@ pub enum DashboardAction {
     Help,
     NewFile,
     Quit,
+    Terminal,
 }
 
 pub struct Dashboard {
@@ -81,6 +82,7 @@ impl Dashboard {
                 DashboardAction::OpenProject => DashboardAction::FindFile,
                 DashboardAction::Help => DashboardAction::Quit,
                 DashboardAction::Quit => DashboardAction::Help,
+                DashboardAction::Terminal => DashboardAction::Help,
             }
         } else {
             let column: &[DashboardAction] = match current {
@@ -103,7 +105,7 @@ impl Dashboard {
                     DashboardAction::Agenda,
                     DashboardAction::Help,
                 ],
-                DashboardAction::OpenProject | DashboardAction::Quit => {
+                DashboardAction::OpenProject | DashboardAction::Quit | DashboardAction::Terminal => {
                     &[DashboardAction::OpenProject, DashboardAction::Quit]
                 }
             };
@@ -171,7 +173,8 @@ impl Component for Dashboard {
             | key!('p')
             | key!('?')
             | key!('n')
-            | key!('q') => {
+            | key!('q')
+            | key!('t') => {
                 let action = match key {
                     key!('f') => Some(DashboardAction::FindFile),
                     key!('r') => Some(DashboardAction::FileExplorer),
@@ -184,6 +187,7 @@ impl Component for Dashboard {
                     key!('?') => Some(DashboardAction::Help),
                     key!('n') => Some(DashboardAction::NewFile),
                     key!('q') => Some(DashboardAction::Quit),
+                    key!('t') => Some(DashboardAction::Terminal),
                     _ => self.selected_action(),
                 };
                 EventResult::Consumed(Some(Box::new(move |compositor, cx| {
@@ -194,6 +198,9 @@ impl Component for Dashboard {
                         return;
                     }
                     if matches!(action, Some(DashboardAction::Quit)) {
+                        compositor.remove_type::<Dashboard>();
+                    }
+                    if action == Some(DashboardAction::Terminal) {
                         compositor.remove_type::<Dashboard>();
                     }
                     let command = match action {
@@ -209,6 +216,11 @@ impl Component for Dashboard {
                         }
                         Some(DashboardAction::Help) => MappableCommand::command_palette,
                         Some(DashboardAction::NewFile) => return,
+                        Some(DashboardAction::Terminal) => MappableCommand::Typable {
+                            name: "terminal".to_owned(),
+                            args: String::new(),
+                            doc: "Open terminal".to_owned(),
+                        },
                         Some(DashboardAction::Quit) => MappableCommand::Typable {
                             name: "quit-all".to_owned(),
                             args: String::new(),
