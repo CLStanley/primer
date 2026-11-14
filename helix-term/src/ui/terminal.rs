@@ -153,35 +153,57 @@ impl Component for TerminalView {
                 // Navigate the visible VT grid without sending input to the PTY.
                 if key.modifiers.is_empty() {
                     let (cols, rows) = self.terminal.screen().size();
-                    let movement = match key.code {
-                        KeyCode::Char('h') | KeyCode::Left => Some((-1i32, 0i32)),
-                        KeyCode::Char('l') | KeyCode::Right => Some((1, 0)),
-                        KeyCode::Char('j') | KeyCode::Down => Some((0, 1)),
-                        KeyCode::Char('k') | KeyCode::Up => Some((0, -1)),
-                        _ => None,
-                    };
-                    if let Some((dx, dy)) = movement {
-                        if dy < 0 && self.navigation_row == 0 {
-                            let offset = self.terminal.screen().scrollback_offset();
-                            self.terminal
-                                .screen_mut()
-                                .set_scrollback_offset(offset.saturating_add(1));
-                        } else if dy > 0 && self.navigation_row >= rows.saturating_sub(1) {
-                            let offset = self.terminal.screen().scrollback_offset();
-                            self.terminal
-                                .screen_mut()
-                                .set_scrollback_offset(offset.saturating_sub(1));
-                        }
-                        self.navigation_col = (self.navigation_col as i32 + dx)
-                            .clamp(0, cols.saturating_sub(1) as i32)
-                            as u16;
-                        self.navigation_row = (self.navigation_row as i32 + dy)
-                            .clamp(0, rows.saturating_sub(1) as i32)
-                            as u16;
-                        if self.input_mode == TerminalInputMode::Select {
-                            self.update_terminal_selection();
-                        }
-                        return EventResult::Consumed(None);
+                    // Route the four basic movement keys through Primer's active
+                    // Enzyme keymap. Terminal Mode continues sending keys to PTY;
+                    // only Normal/Select resolve editor navigation bindings.
+                    if matches!(key.code,
+                        KeyCode::Char('h') | KeyCode::Char('j') |
+                        KeyCode::Char('k') | KeyCode::Char('l') |
+                        KeyCode::Left | KeyCode::Right |
+                        KeyCode::Up | KeyCode::Down)
+                    {
+                        let key = *key;
+                        let document_id = self.document_id;
+                        return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+                            let binding = compositor.find::<crate::ui::EditorView>()
+                                .and_then(|view| {
+                                    view.keymaps.map()[&cx.editor.mode]
+                                        .search(&[key]).cloned()
+                                });
+                            let movement = match binding {
+                                Some(KeyTrie::MappableCommand(command)) => match command.name() {
+                                    "move_char_left" | "extend_char_left" => Some((-1i32, 0i32)),
+                                    "move_char_right" | "extend_char_right" => Some((1, 0)),
+                                    "move_visual_line_down" | "extend_visual_line_down" |
+                                    "move_line_down" | "extend_line_down" => Some((0, 1)),
+                                    "move_visual_line_up" | "extend_visual_line_up" |
+                                    "move_line_up" | "extend_line_up" => Some((0, -1)),
+                                    _ => None,
+                                },
+                                _ => None,
+                            };
+                            if let Some((dx, dy)) = movement {
+                                if let Some(terminal) = compositor.find_terminal_document(document_id) {
+                                    let (cols, rows) = terminal.terminal.screen().size();
+                                    if dy < 0 && terminal.navigation_row == 0 {
+                                        let offset = terminal.terminal.screen().scrollback_offset();
+                                        terminal.terminal.screen_mut()
+                                            .set_scrollback_offset(offset.saturating_add(1));
+                                    } else if dy > 0 && terminal.navigation_row >= rows.saturating_sub(1) {
+                                        let offset = terminal.terminal.screen().scrollback_offset();
+                                        terminal.terminal.screen_mut()
+                                            .set_scrollback_offset(offset.saturating_sub(1));
+                                    }
+                                    terminal.navigation_col = (terminal.navigation_col as i32 + dx)
+                                        .clamp(0, cols.saturating_sub(1) as i32) as u16;
+                                    terminal.navigation_row = (terminal.navigation_row as i32 + dy)
+                                        .clamp(0, rows.saturating_sub(1) as i32) as u16;
+                                    if terminal.input_mode == TerminalInputMode::Select {
+                                        terminal.update_terminal_selection();
+                                    }
+                                }
+                            }
+                        })));
                     }
                     if key.code == KeyCode::Char('y')
                         && self.input_mode == TerminalInputMode::Select
