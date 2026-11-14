@@ -152,7 +152,6 @@ impl Component for TerminalView {
             if let Event::Key(key) = event {
                 // Navigate the visible VT grid without sending input to the PTY.
                 if key.modifiers.is_empty() {
-                    let (cols, rows) = self.terminal.screen().size();
                     // Route the four basic movement keys through Primer's active
                     // Enzyme keymap. Terminal Mode continues sending keys to PTY;
                     // only Normal/Select resolve editor navigation bindings.
