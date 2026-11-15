@@ -529,6 +529,8 @@ impl Component for TerminalView {
                                                 | "primer_terminal_hsplit"
                                                 | "primer_terminal_vsplit"
                                                 | "primer_terminal_rename"
+                                                | "primer_terminal_lazygit"
+                                                | "primer_terminal_lazydocker"
                                         ) {
                                             let mut command_cx = crate::commands::Context {
                                                 editor: cx.editor,
