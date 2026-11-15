@@ -93,6 +93,8 @@ Primer includes PTY-backed terminal buffers that share the editor's tabs, splits
 | `Space t h` | Open a terminal in a horizontal split |
 | `Space t v` | Open a terminal in a vertical split |
 | `Space t n` | Rename a terminal buffer |
+| `Space t g` | Launch lazygit in a terminal buffer |
+| `Space t d` | Launch lazydocker in a terminal buffer |
 | `Esc` (Terminal Mode) | Switch to read-only Normal Mode |
 | `v` (Normal Mode) | Select terminal output |
 | `y` (Select Mode) | Yank selected output |
