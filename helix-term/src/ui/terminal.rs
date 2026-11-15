@@ -364,7 +364,9 @@ impl Component for TerminalView {
                         // Creating a scratch buffer must work from a PTY even if
                         // the terminal's key-event representation differs from
                         // the editor keymap's representation of uppercase N.
-                        (2, KeyCode::Char('N')) => {
+                        (2, KeyCode::Char('N'))
+                        | (2, KeyCode::Char('n')) if key.modifiers == KeyModifiers::SHIFT
+                            || key.code == KeyCode::Char('N') => {
                             self.close_sequence = 0;
                             self.pending_keys.clear();
                             ctx.editor.autoinfo = None;
