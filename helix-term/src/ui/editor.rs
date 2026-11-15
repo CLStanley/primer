@@ -667,13 +667,14 @@ impl EditorView {
     /// Render bufferline at the top
     pub fn render_bufferline(editor: &Editor, viewport: Rect, surface: &mut Surface) {
         let scratch = PathBuf::from(SCRATCH_BUFFER_NAME); // default filename to use for scratch buffer
-        surface.clear_with(
-            viewport,
-            editor
-                .theme
-                .try_get("ui.bufferline.background")
-                .unwrap_or_else(|| editor.theme.get("ui.statusline")),
-        );
+        // Match the transparent statusline: clear the entire tab row to the
+        // terminal's default background while retaining the active tab pill.
+        let mut bufferline_background = editor
+            .theme
+            .try_get("ui.bufferline.background")
+            .unwrap_or_else(|| editor.theme.get("ui.statusline"));
+        bufferline_background.bg = Some(helix_view::graphics::Color::Reset);
+        surface.clear_with(viewport, bufferline_background);
 
         let bufferline_active = editor
             .theme
@@ -682,18 +683,14 @@ impl EditorView {
             .bg(editor.theme.get("ui.statusline.normal").bg.unwrap_or(helix_view::graphics::Color::Rgb(183, 156, 222)))
             .fg(editor.theme.get("ui.statusline.normal").fg.unwrap_or(helix_view::graphics::Color::Rgb(29, 22, 43)));
 
-        let bufferline_inactive = editor
+        let mut bufferline_inactive = editor
             .theme
             .try_get("ui.bufferline")
             .unwrap_or_else(|| editor.theme.get("ui.statusline.inactive"));
+        bufferline_inactive.bg = Some(helix_view::graphics::Color::Reset);
 
         let mut x = viewport.x;
         let current_doc = view!(editor).doc;
-        let bufferline_background = editor
-            .theme
-            .try_get("ui.bufferline.background")
-            .unwrap_or_else(|| editor.theme.get("ui.statusline"));
-
         for doc in editor.documents() {
             let fname = if editor.terminal_documents.contains(&doc.id()) {
                 editor.terminal_names.get(&doc.id()).cloned().unwrap_or_else(|| "terminal".to_owned())
