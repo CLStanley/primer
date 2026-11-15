@@ -1,8 +1,7 @@
 //! Renders a VT screen into Primer's existing terminal UI surface.
 //!
-//! This is a reusable renderer, not yet a terminal buffer or compositor layer.
-//! It clips all output to the assigned pane and leaves editor focus handling
-//! to the future terminal view integration.
+//! TerminalView uses this renderer to paint PTY-backed terminal buffers.
+//! It clips output to the assigned pane; the compositor handles focus.
 
 use helix_view::graphics::{Color, Modifier, Rect, Style, UnderlineStyle};
 use tui::buffer::Buffer;
@@ -11,9 +10,8 @@ use super::screen::TerminalScreen;
 
 /// Paint the terminal's visible cell grid inside `area`.
 ///
-/// The first version intentionally uses the surrounding Primer text style.
-/// VT cell colors and attributes will be mapped to Primer styles in a
-/// subsequent iteration. This renderer never writes outside `area`.
+/// Uses the surrounding Primer text style as a default, applying VT cell
+/// colors and attributes when present. Never writes outside `area`.
 pub fn render_terminal(
     terminal: &TerminalScreen,
     area: Rect,
