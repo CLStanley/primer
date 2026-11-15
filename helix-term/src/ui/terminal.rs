@@ -400,16 +400,26 @@ impl Component for TerminalView {
                                     },
                                 )));
                             }
-                            let keys = self.pending_keys.clone();
+                            // Look up the canonical buffer prefix instead of relying on
+                            // the raw key events forwarded by the terminal layer.
+                            // Some terminals attach modifiers to character events,
+                            // which can make a valid submenu silently disappear.
                             return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
-                                if let Some(view) = compositor.find::<crate::ui::EditorView>() {
-                                    let keymaps = view.keymaps.map();
-                                    if let Some(KeyTrie::Node(node)) =
-                                        keymaps[&Mode::Normal].search(&keys)
-                                    {
+                                let prefix = [
+                                    KeyEvent { code: KeyCode::Char(' '), modifiers: KeyModifiers::empty() },
+                                    KeyEvent { code: KeyCode::Char('b'), modifiers: KeyModifiers::empty() },
+                                ];
+                                let submenu = compositor.find::<crate::ui::EditorView>()
+                                    .and_then(|view| {
+                                        view.keymaps.map()[&Mode::Normal].search(&prefix).cloned()
+                                    });
+                                match submenu {
+                                    Some(KeyTrie::Node(node)) => {
                                         cx.editor.autoinfo = Some(node.infobox());
-                                    } else {
+                                    }
+                                    _ => {
                                         cx.editor.autoinfo = None;
+                                        cx.editor.set_error("Terminal: Space b buffer submenu not found in active Normal keymap");
                                     }
                                 }
                             })));
