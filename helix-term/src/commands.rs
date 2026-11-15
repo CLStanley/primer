@@ -460,6 +460,8 @@ impl MappableCommand {
         primer_terminal_hsplit, "Open terminal in horizontal split",
         primer_terminal_vsplit, "Open terminal in vertical split",
         primer_terminal_rename, "Rename terminal tab",
+        primer_terminal_lazygit, "Open lazygit in terminal",
+        primer_terminal_lazydocker, "Open lazydocker in terminal",
         primer_buffer_previous, "Previous buffer",
         primer_buffer_next, "Next buffer",
         primer_buffer_new, "New empty buffer",
@@ -4512,6 +4514,22 @@ fn primer_terminal_vsplit(cx: &mut Context) {
         name: "terminal-vsplit".to_owned(),
         args: String::new(),
         doc: "Open terminal in vertical split".to_owned(),
+    }.execute(cx);
+}
+
+fn primer_terminal_lazygit(cx: &mut Context) {
+    MappableCommand::Typable {
+        name: "terminal-lazygit".to_owned(),
+        args: String::new(),
+        doc: "Open lazygit in terminal".to_owned(),
+    }.execute(cx);
+}
+
+fn primer_terminal_lazydocker(cx: &mut Context) {
+    MappableCommand::Typable {
+        name: "terminal-lazydocker".to_owned(),
+        args: String::new(),
+        doc: "Open lazydocker in terminal".to_owned(),
     }.execute(cx);
 }
 
