@@ -204,6 +204,71 @@ impl Component for TerminalView {
                             }
                         })));
                     }
+                    // Resolve word navigation from the same active keymap used
+                    // by editable buffers. Only the read-only motion is applied
+                    // to the VT snapshot; no document mutation is permitted.
+                    if matches!(key.code,
+                        KeyCode::Char('w') | KeyCode::Char('b') |
+                        KeyCode::Char('e') | KeyCode::Char('W') |
+                        KeyCode::Char('B') | KeyCode::Char('E'))
+                    {
+                        let key = *key;
+                        let document_id = self.document_id;
+                        return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+                            let binding = compositor.find::<crate::ui::EditorView>()
+                                .and_then(|view| view.keymaps.map()[&cx.editor.mode]
+                                    .search(&[key]).cloned());
+                            type WordMotion = for<'a> fn(
+                                helix_core::RopeSlice<'a>,
+                                helix_core::Range,
+                                usize,
+                            ) -> helix_core::Range;
+                            let motion: Option<WordMotion> = match binding {
+                                Some(KeyTrie::MappableCommand(command)) => match command.name() {
+                                    "move_next_word_start" | "extend_next_word_start" =>
+                                        Some(helix_core::movement::move_next_word_start),
+                                    "move_prev_word_start" | "extend_prev_word_start" =>
+                                        Some(helix_core::movement::move_prev_word_start),
+                                    "move_next_word_end" | "extend_next_word_end" =>
+                                        Some(helix_core::movement::move_next_word_end),
+                                    "move_prev_word_end" | "extend_prev_word_end" =>
+                                        Some(helix_core::movement::move_prev_word_end),
+                                    "move_next_long_word_start" | "extend_next_long_word_start" =>
+                                        Some(helix_core::movement::move_next_long_word_start),
+                                    "move_prev_long_word_start" | "extend_prev_long_word_start" =>
+                                        Some(helix_core::movement::move_prev_long_word_start),
+                                    "move_next_long_word_end" | "extend_next_long_word_end" =>
+                                        Some(helix_core::movement::move_next_long_word_end),
+                                    _ => None,
+                                },
+                                _ => None,
+                            };
+                            if let Some(motion) = motion {
+                                if let Some(terminal) = compositor.find_terminal_document(document_id) {
+                                    let snapshot = terminal.selection_snapshot();
+                                    if snapshot.len_chars() == 0 { return; }
+                                    let line = (terminal.navigation_row as usize)
+                                        .min(snapshot.len_lines().saturating_sub(1));
+                                    let cursor = (snapshot.line_to_char(line)
+                                        + terminal.navigation_col as usize)
+                                        .min(snapshot.len_chars().saturating_sub(1));
+                                    let target = motion(
+                                        snapshot.slice(..),
+                                        helix_core::Range::point(cursor),
+                                        1,
+                                    ).cursor(snapshot.slice(..));
+                                    let new_line = snapshot.char_to_line(target);
+                                    terminal.navigation_row = new_line.min(u16::MAX as usize) as u16;
+                                    terminal.navigation_col =
+                                        (target - snapshot.line_to_char(new_line))
+                                            .min(u16::MAX as usize) as u16;
+                                    if terminal.input_mode == TerminalInputMode::Select {
+                                        terminal.update_terminal_selection();
+                                    }
+                                }
+                            }
+                        })));
+                    }
                     if key.code == KeyCode::Char('y')
                         && self.input_mode == TerminalInputMode::Select
                     {
