@@ -3037,11 +3037,29 @@ fn open_terminal_hsplit(cx: &mut compositor::Context, args: Args, event: PromptE
     open_terminal_with_action(cx, args, event, Action::HorizontalSplit)
 }
 
+fn open_lazygit(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    open_terminal_program(cx, args, event, Action::Replace, Some("lazygit"))
+}
+
+fn open_lazydocker(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    open_terminal_program(cx, args, event, Action::Replace, Some("lazydocker"))
+}
+
 fn open_terminal_with_action(
     cx: &mut compositor::Context,
     _args: Args,
     event: PromptEvent,
     action: Action,
+) -> anyhow::Result<()> {
+    open_terminal_program(cx, _args, event, action, None)
+}
+
+fn open_terminal_program(
+    cx: &mut compositor::Context,
+    _args: Args,
+    event: PromptEvent,
+    action: Action,
+    program: Option<&'static str>,
 ) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {
         return Ok(());
@@ -3049,16 +3067,17 @@ fn open_terminal_with_action(
 
     let directory = current_workspace(cx);
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".to_owned());
+    let executable = program.unwrap_or(&shell).to_owned();
     cx.jobs.callback(async move {
         Ok(job::Callback::EditorCompositor(Box::new(
             move |editor: &mut Editor, compositor: &mut Compositor| {
                 match crate::terminal::runtime::RunningTerminal::spawn(
-                    &shell, &[], &directory, 80, 24, 1000,
+                    &executable, &[], &directory, 80, 24, 1000,
                 ) {
                     Ok(terminal) => {
                         let id = editor.new_file(action);
                         editor.terminal_documents.insert(id);
-                        let shell_name = std::path::Path::new(&shell).file_name().and_then(|name| name.to_str()).unwrap_or("terminal");
+                        let shell_name = std::path::Path::new(&executable).file_name().and_then(|name| name.to_str()).unwrap_or("terminal");
                         let number = editor.terminal_names.len() + 1;
                         editor.terminal_names.insert(id, format!("{shell_name} {number}"));
                         compositor.push(Box::new(crate::ui::terminal::TerminalView::new(terminal, id)));
@@ -3072,6 +3091,22 @@ fn open_terminal_with_action(
 }
 
 pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
+    TypableCommand {
+        name: "terminal-lazygit",
+        aliases: &[],
+        doc: "Open lazygit in a terminal buffer.",
+        fun: open_lazygit,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "terminal-lazydocker",
+        aliases: &[],
+        doc: "Open lazydocker in a terminal buffer.",
+        fun: open_lazydocker,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
     TypableCommand {
         name: "terminal",
         aliases: &["term"],
