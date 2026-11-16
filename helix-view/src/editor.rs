@@ -728,6 +728,7 @@ pub struct ModeConfig {
     pub normal: String,
     pub insert: String,
     pub select: String,
+    pub terminal: String,
 }
 
 impl Default for ModeConfig {
@@ -736,6 +737,7 @@ impl Default for ModeConfig {
             normal: String::from("NOR"),
             insert: String::from("INS"),
             select: String::from("SEL"),
+            terminal: String::from("TERMINAL"),
         }
     }
 }
@@ -1299,6 +1301,10 @@ pub struct Editor {
     pub tree: Tree,
     pub next_document_id: DocumentId,
     pub documents: BTreeMap<DocumentId, Document>,
+    /// Documents backed by live terminal sessions rather than editable text.
+    pub terminal_documents: std::collections::BTreeSet<DocumentId>,
+    /// Display names for PTY-backed buffers.
+    pub terminal_names: BTreeMap<DocumentId, String>,
 
     // We Flatten<> to resolve the inner DocumentSavedEventFuture. For that we need a stream of streams, hence the Once<>.
     // https://stackoverflow.com/a/66875668
@@ -1453,6 +1459,8 @@ impl Editor {
             tree: Tree::new(area),
             next_document_id: DocumentId::default(),
             documents: BTreeMap::new(),
+            terminal_documents: std::collections::BTreeSet::new(),
+            terminal_names: BTreeMap::new(),
             saves: HashMap::new(),
             save_queue: SelectAll::new(),
             write_count: 0,
@@ -1975,7 +1983,8 @@ impl Editor {
                 // If the current view is an empty scratch buffer and is not displayed in any other views, delete it.
                 // Boolean value is determined before the call to `view_mut` because the operation requires a borrow
                 // of `self.tree`, which is mutably borrowed when `view_mut` is called.
-                let remove_empty_scratch = !doc.is_modified()
+                let remove_empty_scratch = !self.terminal_documents.contains(&doc.id)
+                    && !doc.is_modified()
                     // If the buffer has no path and is not modified, it is an empty scratch buffer.
                     && doc.path().is_none()
                     // If the buffer we are changing to is not this buffer
@@ -2225,6 +2234,8 @@ impl Editor {
             }
         }
 
+        self.terminal_documents.remove(&doc_id);
+        self.terminal_names.remove(&doc_id);
         let doc = self.documents.remove(&doc_id).unwrap();
 
         // If the document we removed was visible in all views, we will have no more views. We don't

@@ -325,6 +325,10 @@ impl Application {
             tokio::select! {
                 biased;
 
+                _ = tokio::time::sleep(std::time::Duration::from_millis(33)), if self.compositor.find::<ui::terminal::TerminalView>().is_some() => {
+                    // Poll PTY output while a terminal is visible, even without key input.
+                    self.render().await;
+                }
                 Some(signal) = self.signals.next() => {
                     if !self.handle_signals(signal).await {
                         return false;

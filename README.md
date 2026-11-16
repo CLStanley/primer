@@ -83,4 +83,21 @@ The UI uses terminal characters for rounded corners (╭ ╮ ╰ ╯), not pixel
 | `Space b N` | New empty buffer |
 | `Space b q` | Close current buffer (respects unsaved changes); show dashboard when the last buffer closes |
 
-Embedded terminal buffers are **not yet implemented**; `Space b t` is reserved for future work.
+### Embedded terminal
+
+Primer includes PTY-backed terminal buffers that share the editor's tabs, splits, and statusline.
+
+| Key | Action |
+| --- | --- |
+| `Space t t` | Open a terminal buffer |
+| `Space t h` | Open a terminal in a horizontal split |
+| `Space t v` | Open a terminal in a vertical split |
+| `Space t n` | Rename a terminal buffer |
+| `Space t g` | Launch lazygit in a terminal buffer |
+| `Space t d` | Launch lazydocker in a terminal buffer |
+| `Esc` (Terminal Mode) | Switch to read-only Normal Mode |
+| `v` (Normal Mode) | Select terminal output |
+| `y` (Select Mode) | Yank selected output |
+| `Esc` (Normal Mode) | Return to Terminal Mode |
+
+Terminal Normal/Select modes support basic output navigation and copying; they are not full editable documents. Interactive applications such as lazygit and lazydocker have been tested. `btop` currently has a known rendering issue in the embedded terminal.

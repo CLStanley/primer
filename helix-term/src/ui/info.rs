@@ -17,9 +17,11 @@ impl Component for Info {
         // which evaluate to the most bottom right coordinate.
         let width = self.width + 2 + 2; // +2 for border, +2 for margin
         let height = self.height + 2; // +2 for border
+        // Rect coordinates are absolute. Account for the pane origin when
+        // anchoring the popup to its bottom-right corner.
         let area = viewport.intersection(Rect::new(
-            viewport.width.saturating_sub(width),
-            viewport.height.saturating_sub(height + 2), // +2 for statusline
+            viewport.x.saturating_add(viewport.width.saturating_sub(width)),
+            viewport.y.saturating_add(viewport.height.saturating_sub(height + 2)),
             width,
             height,
         ));

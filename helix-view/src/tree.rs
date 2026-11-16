@@ -383,7 +383,12 @@ impl Tree {
                         Layout::Horizontal => {
                             let len = container.children.len();
 
-                            let height = area.height / len as u16;
+                            // Reserve one dedicated separator row between panes.
+                            // Without a gap, drawing a border overwrites the
+                            // preceding pane's statusline.
+                            let gap = if area.height >= (len as u16).saturating_mul(2).saturating_sub(1) { 1u16 } else { 0u16 };
+                            let available = area.height.saturating_sub(gap * (len as u16).saturating_sub(1));
+                            let height = available / len as u16;
 
                             let mut child_y = area.y;
 
@@ -394,10 +399,9 @@ impl Tree {
                                     container.area.width,
                                     height,
                                 );
-                                child_y += height;
+                                child_y += height + gap;
 
-                                // last child takes the remaining width because we can get uneven
-                                // space from rounding
+                                // Last child takes any remaining height after rounding.
                                 if i == len - 1 {
                                     area.height = container.area.y + container.area.height - area.y;
                                 }

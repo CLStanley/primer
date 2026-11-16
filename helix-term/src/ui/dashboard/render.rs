@@ -33,6 +33,7 @@ impl DashboardAction {
             Self::Help => "Keybind help",
             Self::NewFile => "New file",
             Self::Quit => "Quit",
+            Self::Terminal => "Terminal",
         }
     }
 
@@ -49,6 +50,7 @@ impl DashboardAction {
             Self::Help => '?',
             Self::NewFile => 'n',
             Self::Quit => 'q',
+            Self::Terminal => 't',
         }
     }
 }
@@ -258,7 +260,7 @@ pub fn render_dashboard(
         let footer_left = area.x + area.width.saturating_sub(footer_width) / 2;
         let third = footer_width / 3;
         let footer = [
-            ("t", "Terminal [todo]", None),
+            ("t", "Terminal", Some(DashboardAction::Terminal)),
             ("?", "Keybind help", Some(DashboardAction::Help)),
             ("q", "Quit", Some(DashboardAction::Quit)),
         ]
