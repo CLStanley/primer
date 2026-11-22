@@ -3649,7 +3649,7 @@ fn primer_project_initialize(cx: &mut Context) {
 
 /// Add an already initialized project to the local picker without changing its marker.
 /// Browse directories and select the explicit marker, without guessing a root.
-fn primer_project_register_picker(editor: &Editor, directory: PathBuf) -> anyhow::Result<Picker<(PathBuf, bool), PathBuf>> {
+fn primer_project_register_picker(directory: PathBuf) -> anyhow::Result<Picker<(PathBuf, bool), PathBuf>> {
     let directory = std::fs::canonicalize(directory)?;
     let mut entries: Vec<(PathBuf, bool)> = Vec::new();
     if let Some(parent) = directory.parent() {
@@ -3679,7 +3679,7 @@ fn primer_project_register_picker(editor: &Editor, directory: PathBuf) -> anyhow
             let next = entry.0.clone();
             cx.jobs.callback(async move {
                 Ok(Callback::EditorCompositor(Box::new(move |editor, compositor| {
-                    match primer_project_register_picker(editor, next) {
+                    match primer_project_register_picker(next) {
                         Ok(picker) => compositor.push(Box::new(overlaid(picker.with_title("Register Project")))),
                         Err(error) => editor.set_error(format!("Cannot browse directory: {error}")),
                     }
@@ -3708,7 +3708,7 @@ fn primer_project_register_picker(editor: &Editor, directory: PathBuf) -> anyhow
 
 fn primer_project_register(cx: &mut Context) {
     let directory = active_buffer_directory(cx.editor);
-    match primer_project_register_picker(cx.editor, directory) {
+    match primer_project_register_picker(directory) {
         Ok(picker) => cx.push_layer(Box::new(overlaid(picker.with_title("Register Project")))),
         Err(error) => cx.editor.set_error(format!("Cannot browse project directories: {error}")),
     }
