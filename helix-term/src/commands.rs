@@ -543,6 +543,7 @@ impl MappableCommand {
         indent, "Indent selection",
         unindent, "Unindent selection",
         format_selections, "Format selection",
+        format_document, "Format entire document",
         join_selections, "Join lines inside selection",
         join_selections_space, "Join lines inside selection and select spaces",
         keep_selections, "Keep selections matching regex",
@@ -6655,6 +6656,14 @@ fn unindent(cx: &mut Context) {
 
     doc.apply(&transaction, view.id);
     exit_select_mode(cx);
+}
+
+fn format_document(cx: &mut Context) {
+    cx.callback.push(Box::new(|_, cx| {
+        if let Err(err) = typed::format_document(cx) {
+            cx.editor.set_error(err.to_string());
+        }
+    }));
 }
 
 fn format_selections(cx: &mut Context) {
