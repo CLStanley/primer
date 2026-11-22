@@ -404,6 +404,8 @@ impl MappableCommand {
         primer_project_picker, "Open initialized Primer projects",
         primer_project_initialize, "Initialize a Primer project in the current directory",
         primer_project_register, "Register an existing Primer project",
+        primer_project_clear, "Clear the active project context",
+        primer_project_forget, "Forget the active project without deleting files",
         file_picker_in_current_buffer_directory, "Open file picker at current buffer's directory",
         file_picker_in_current_directory, "Open file picker at current working directory",
         file_explorer, "Open file explorer in workspace root",
@@ -3646,6 +3648,53 @@ fn primer_project_register(cx: &mut Context) {
             match result {
                 Ok(name) => cx.editor.set_status(format!("Registered project {name} · Space p p to browse")),
                 Err(error) => cx.editor.set_error(format!("Could not register project: {error}")),
+            }
+        },
+    );
+    prompt.recalculate_completion(cx.editor);
+    cx.push_layer(Box::new(prompt));
+}
+
+/// Clear project scoping without closing or modifying any buffers.
+fn primer_project_clear(cx: &mut Context) {
+    if cx.editor.active_project_root.take().is_some() {
+        cx.editor.set_status("Project context cleared; using normal workspace directories");
+    } else {
+        cx.editor.set_status("No active project");
+    }
+}
+
+/// Forget the active project in the local registry, without deleting its files or marker.
+fn primer_project_forget(cx: &mut Context) {
+    use crate::projects::registry::ProjectRegistry;
+    let Some(root) = cx.editor.active_project_root.clone() else {
+        cx.editor.set_error("Select a project with Space p p before forgetting it");
+        return;
+    };
+    let mut prompt = Prompt::new(
+        "Forget active project? Type yes: ".into(),
+        None,
+        ui::completers::none,
+        move |cx, input, event| {
+            if event != PromptEvent::Validate { return; }
+            if input.trim() != "yes" {
+                cx.editor.set_status("Forget project cancelled");
+                return;
+            }
+            let result = (|| -> anyhow::Result<()> {
+                let registry_path = ProjectRegistry::default_path()?;
+                let mut registry = ProjectRegistry::read(&registry_path)?;
+                registry.forget(&root);
+                registry.save(&registry_path)
+            })();
+            match result {
+                Ok(()) => {
+                    if cx.editor.active_project_root.as_ref() == Some(&root) {
+                        cx.editor.active_project_root = None;
+                    }
+                    cx.editor.set_status("Project forgotten locally; .primer.toml and files preserved");
+                }
+                Err(error) => cx.editor.set_error(format!("Could not forget project: {error}")),
             }
         },
     );
