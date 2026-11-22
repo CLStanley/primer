@@ -315,6 +315,8 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             },
             "p" => { "Projects"
                 "p" => primer_project_picker,
+                "i" => primer_project_initialize,
+                "a" => primer_project_register,
             },
             "j" => jumplist_picker,
             "s" => { "Search"
