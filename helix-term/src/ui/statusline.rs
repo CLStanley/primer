@@ -113,7 +113,7 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
         && !config.statusline.right.contains(&StatusLineElementID::VersionControl)
     {
         render_version_control(context, |context, span| {
-            append(&mut context.parts.right, span, base_style)
+            append(&mut context.parts.left, span, base_style)
         });
     }
 
@@ -125,6 +125,15 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
     );
 
     // Right side of the status line.
+    // Show active project even when a custom statusline layout omits it.
+    if !config.statusline.left.contains(&StatusLineElementID::ActiveProject)
+        && !config.statusline.center.contains(&StatusLineElementID::ActiveProject)
+        && !config.statusline.right.contains(&StatusLineElementID::ActiveProject)
+    {
+        render_active_project(context, |context, span| {
+            append(&mut context.parts.right, span, base_style)
+        });
+    }
 
     for element_id in &config.statusline.right {
         if !applicable(element_id) { continue; }
@@ -204,6 +213,7 @@ where
         helix_view::editor::StatusLineElement::Separator => render_separator,
         helix_view::editor::StatusLineElement::Spacer => render_spacer,
         helix_view::editor::StatusLineElement::VersionControl => render_version_control,
+        helix_view::editor::StatusLineElement::ActiveProject => render_active_project,
         helix_view::editor::StatusLineElement::Register => render_register,
         helix_view::editor::StatusLineElement::CurrentWorkingDirectory => render_cwd,
         helix_view::editor::StatusLineElement::CodeActionHint => render_code_action_hint,
@@ -616,6 +626,40 @@ where
     write(context, " ".into());
 }
 
+/// Render a rounded pill using a theme-generated accent color.
+fn render_accent_pill<'a, F>(context: &mut RenderContext<'a>, label: String, accent_key: &str, write: F)
+where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    let accent = context.editor.theme.get(accent_key);
+    let background = accent.fg.or(accent.bg);
+    let mut style = context.editor.theme.get("ui.statusline.normal");
+    if let Some(color) = background {
+        style.bg = Some(color);
+        style.fg = Some(Color::Black);
+    }
+    if context.editor.config().statusline_powerline {
+        if let Some(background) = style.bg {
+            write(context, Span::from(" "));
+            write(context, Span::styled("", Style::default().fg(background)));
+            write(context, Span::styled(format!(" {label} "), style));
+            write(context, Span::styled("", Style::default().fg(background)));
+            return;
+        }
+    }
+    write(context, Span::styled(format!(" {label} "), style));
+}
+
+fn render_active_project<'a, F>(context: &mut RenderContext<'a>, write: F)
+where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    let Some(root) = context.editor.active_project_root.as_ref() else { return; };
+    // The registry marker is authoritative, but rendering should never block on disk IO.
+    let name = root.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    render_accent_pill(context, format!("󰏗 {name}"), "ui.text.success", write);
+}
+
 fn render_version_control<'a, F>(context: &mut RenderContext<'a>, write: F)
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
@@ -627,17 +671,7 @@ where
         .to_string();
 
     if !head.is_empty() {
-        let style = context.editor.theme.get("ui.statusline.normal");
-        if context.editor.config().statusline_powerline {
-            if let Some(background) = style.bg {
-                write(context, Span::from(" "));
-                write(context, Span::styled("", Style::default().fg(background)));
-                write(context, Span::styled(format!("  {head} "), style));
-                write(context, Span::styled("", Style::default().fg(background)));
-                return;
-            }
-        }
-        write(context, Span::styled(format!("   {head} "), style));
+        render_accent_pill(context, format!(" {head}"), "ui.text.info", write);
     }
 }
 
