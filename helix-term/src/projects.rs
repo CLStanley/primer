@@ -3,6 +3,8 @@
 //! Projects are never inferred from Git, language servers, or directory layout.
 //! Only a valid `.primer.toml` at the root makes a directory a project.
 
+pub mod registry;
+
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
