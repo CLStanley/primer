@@ -401,6 +401,7 @@ impl MappableCommand {
         append_mode, "Append after selection",
         command_mode, "Enter command mode",
         file_picker, "Open file picker",
+        primer_project_picker, "Open initialized Primer projects",
         file_picker_in_current_buffer_directory, "Open file picker at current buffer's directory",
         file_picker_in_current_directory, "Open file picker at current working directory",
         file_explorer, "Open file explorer in workspace root",
@@ -3563,6 +3564,64 @@ fn primer_notes_inbox(cx: &mut Context) { primer_notes_picker(cx, Some("00 Inbox
 fn primer_notes_projects(cx: &mut Context) { primer_notes_picker(cx, Some("02 Projects")); }
 fn primer_notes_knowledge(cx: &mut Context) { primer_notes_picker(cx, Some("03 Knowledge")); }
 fn primer_notes_reference(cx: &mut Context) { primer_notes_picker(cx, Some("04 Reference")); }
+
+/// Pick a previously initialized project. Only explicit .primer.toml markers count.
+fn primer_project_picker(cx: &mut Context) {
+    use crate::projects::registry::ProjectRegistry;
+
+    let registry_path = match ProjectRegistry::default_path() {
+        Ok(path) => path,
+        Err(error) => {
+            cx.editor.set_error(format!("Project registry unavailable: {error}"));
+            return;
+        }
+    };
+    let registry = match ProjectRegistry::read(&registry_path) {
+        Ok(registry) => registry,
+        Err(error) => {
+            cx.editor.set_error(format!("Could not read projects: {error}"));
+            return;
+        }
+    };
+    let projects = match registry.projects() {
+        Ok(projects) => projects,
+        Err(error) => {
+            cx.editor.set_error(format!("Could not load project: {error}"));
+            return;
+        }
+    };
+    if projects.is_empty() {
+        cx.editor.set_error("No registered projects. Initialize a directory with .primer.toml first");
+        return;
+    }
+    let columns = [
+        PickerColumn::new("Project", |project: &crate::projects::Project, _| {
+            project.settings.project.name.clone().into()
+        }),
+        PickerColumn::new("Root", |project: &crate::projects::Project, _| {
+            project.root.display().to_string().into()
+        }),
+    ];
+    let picker = Picker::new(columns, 0, projects, (), move |cx, project: &crate::projects::Project, _| {
+        let mut registry = match ProjectRegistry::read(&registry_path) {
+            Ok(registry) => registry,
+            Err(error) => {
+                cx.editor.set_error(format!("Could not read projects: {error}"));
+                return;
+            }
+        };
+        if let Err(error) = registry.register(&project.root).and_then(|_| registry.save(&registry_path)) {
+            cx.editor.set_error(format!("Could not update recent projects: {error}"));
+            return;
+        }
+        // The project-root picker works without changing the process CWD or
+        // closing unrelated buffers. Dedicated active-root integration follows.
+        let picker = ui::file_picker(cx.editor, project.root.clone());
+        cx.push_layer(Box::new(overlaid(picker)));
+        cx.editor.set_status(format!("Project: {}", project.settings.project.name));
+    });
+    cx.push_layer(Box::new(overlaid(picker.with_title("Projects"))));
+}
 
 fn file_picker(cx: &mut Context) {
     let root = find_workspace().0;
