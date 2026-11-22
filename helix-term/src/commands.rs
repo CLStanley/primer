@@ -402,6 +402,8 @@ impl MappableCommand {
         command_mode, "Enter command mode",
         file_picker, "Open file picker",
         primer_project_picker, "Open initialized Primer projects",
+        primer_project_initialize, "Initialize a Primer project in the current directory",
+        primer_project_register, "Register an existing Primer project",
         file_picker_in_current_buffer_directory, "Open file picker at current buffer's directory",
         file_picker_in_current_directory, "Open file picker at current working directory",
         file_explorer, "Open file explorer in workspace root",
@@ -3564,6 +3566,92 @@ fn primer_notes_inbox(cx: &mut Context) { primer_notes_picker(cx, Some("00 Inbox
 fn primer_notes_projects(cx: &mut Context) { primer_notes_picker(cx, Some("02 Projects")); }
 fn primer_notes_knowledge(cx: &mut Context) { primer_notes_picker(cx, Some("03 Knowledge")); }
 fn primer_notes_reference(cx: &mut Context) { primer_notes_picker(cx, Some("04 Reference")); }
+
+/// Initialize the current directory as an explicit Primer project.
+fn primer_project_initialize(cx: &mut Context) {
+    use crate::projects::{initialize, registry::ProjectRegistry};
+    let root = helix_stdx::env::current_working_dir();
+    if !root.is_dir() {
+        cx.editor.set_error("Current directory is unavailable");
+        return;
+    }
+    if root.join(crate::projects::MARKER).exists() {
+        cx.editor.set_error("Project configuration already exists; use Projects to register it");
+        return;
+    }
+    let default_name = root.file_name().and_then(|name| name.to_str()).unwrap_or("Project").to_owned();
+    let mut prompt = Prompt::new(
+        "Project Name: ".into(),
+        None,
+        ui::completers::none,
+        move |cx, input, event| {
+            if event != PromptEvent::Validate { return; }
+            let name = if input.trim().is_empty() { default_name.as_str() } else { input.trim() };
+            let project = match initialize(&root, name) {
+                Ok(project) => project,
+                Err(error) => {
+                    cx.editor.set_error(format!("Project initialization failed: {error}"));
+                    return;
+                }
+            };
+            let registry_path = match ProjectRegistry::default_path() {
+                Ok(path) => path,
+                Err(error) => {
+                    cx.editor.set_error(format!("Project created, but registry unavailable: {error}"));
+                    return;
+                }
+            };
+            let result = ProjectRegistry::read(&registry_path).and_then(|mut registry| {
+                registry.register(&project.root)?;
+                registry.save(&registry_path)
+            });
+            match result {
+                Ok(()) => cx.editor.set_status(format!("Initialized project {} · Space p p to browse", project.settings.project.name)),
+                Err(error) => cx.editor.set_error(format!("Project created, but registration failed: {error}")),
+            }
+        },
+    );
+    prompt.doc_fn = Box::new(|_| Some("Initialize the current working directory with .primer.toml. Empty input uses the directory name. Existing project files are never overwritten.".into()));
+    prompt.recalculate_completion(cx.editor);
+    cx.push_layer(Box::new(prompt));
+}
+
+/// Add an already initialized project to the local picker without changing its marker.
+fn primer_project_register(cx: &mut Context) {
+    use crate::projects::registry::ProjectRegistry;
+    let mut prompt = Prompt::new(
+        "Project Directory: ".into(),
+        None,
+        ui::completers::directory,
+        move |cx, input, event| {
+            if event != PromptEvent::Validate { return; }
+            let input = input.trim();
+            if input.is_empty() {
+                cx.editor.set_error("Enter a directory containing .primer.toml");
+                return;
+            }
+            let expanded = helix_stdx::path::expand(input);
+            let path = if expanded.is_absolute() {
+                expanded.into_owned()
+            } else {
+                helix_stdx::env::current_working_dir().join(expanded.as_ref())
+            };
+            let result = (|| -> anyhow::Result<String> {
+                let registry_path = ProjectRegistry::default_path()?;
+                let mut registry = ProjectRegistry::read(&registry_path)?;
+                let project = registry.register(&path)?;
+                registry.save(&registry_path)?;
+                Ok(project.settings.project.name)
+            })();
+            match result {
+                Ok(name) => cx.editor.set_status(format!("Registered project {name} · Space p p to browse")),
+                Err(error) => cx.editor.set_error(format!("Could not register project: {error}")),
+            }
+        },
+    );
+    prompt.recalculate_completion(cx.editor);
+    cx.push_layer(Box::new(prompt));
+}
 
 /// Pick a previously initialized project. Only explicit .primer.toml markers count.
 fn primer_project_picker(cx: &mut Context) {
