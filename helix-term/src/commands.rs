@@ -3572,25 +3572,46 @@ fn primer_notes_reference(cx: &mut Context) { primer_notes_picker(cx, Some("04 R
 /// Initialize the current directory as an explicit Primer project.
 fn primer_project_initialize(cx: &mut Context) {
     use crate::projects::{initialize, registry::ProjectRegistry};
-    // Initialize beside the focused file, not in Primer's launch directory.
-    // A buffer without a path falls back to the process working directory.
-    let root = active_buffer_directory(cx.editor);
-    if !root.is_dir() {
-        cx.editor.set_error("Current file directory is unavailable");
-        return;
-    }
-    if root.join(crate::projects::MARKER).exists() {
-        cx.editor.set_error("Project configuration already exists; use Projects to register it");
-        return;
-    }
-    let default_name = root.file_name().and_then(|name| name.to_str()).unwrap_or("Project").to_owned();
+
+    // Never silently choose a root from the focused buffer or launch directory.
+    // The user must explicitly provide the project directory before any file is written.
+    let suggested_root = active_buffer_directory(cx.editor);
     let mut prompt = Prompt::new(
-        "Project Name: ".into(),
+        "Project Directory | Project Name: ".into(),
         None,
         ui::completers::none,
         move |cx, input, event| {
             if event != PromptEvent::Validate { return; }
-            let name = if input.trim().is_empty() { default_name.as_str() } else { input.trim() };
+            let Some((directory, name)) = input.split_once('|') else {
+                cx.editor.set_error("Enter: absolute project directory | project name");
+                return;
+            };
+            let directory = directory.trim();
+            let name = name.trim();
+            if directory.is_empty() || name.is_empty() {
+                cx.editor.set_error("Both the project directory and name are required");
+                return;
+            }
+            let expanded = helix_stdx::path::expand(directory);
+            if !expanded.is_absolute() {
+                cx.editor.set_error("Use an absolute project directory to avoid initializing the wrong location");
+                return;
+            }
+            let root = match std::fs::canonicalize(expanded.as_ref()) {
+                Ok(root) if root.is_dir() => root,
+                Ok(_) => {
+                    cx.editor.set_error("Project directory is not a directory");
+                    return;
+                }
+                Err(error) => {
+                    cx.editor.set_error(format!("Cannot resolve project directory: {error}"));
+                    return;
+                }
+            };
+            if root.join(crate::projects::MARKER).exists() {
+                cx.editor.set_error(format!("Project already initialized at {}", root.display()));
+                return;
+            }
             let project = match initialize(&root, name) {
                 Ok(project) => project,
                 Err(error) => {
@@ -3601,7 +3622,7 @@ fn primer_project_initialize(cx: &mut Context) {
             let registry_path = match ProjectRegistry::default_path() {
                 Ok(path) => path,
                 Err(error) => {
-                    cx.editor.set_error(format!("Project created, but registry unavailable: {error}"));
+                    cx.editor.set_error(format!("Project created at {}, but registry unavailable: {error}", root.display()));
                     return;
                 }
             };
@@ -3612,13 +3633,16 @@ fn primer_project_initialize(cx: &mut Context) {
             match result {
                 Ok(()) => {
                     cx.editor.active_project_root = Some(project.root.clone());
-                    cx.editor.set_status(format!("Initialized and activated project {}", project.settings.project.name));
-                },
-                Err(error) => cx.editor.set_error(format!("Project created, but registration failed: {error}")),
+                    cx.editor.set_status(format!("Initialized {} at {}", project.settings.project.name, project.root.display()));
+                }
+                Err(error) => cx.editor.set_error(format!("Project created at {}, but registration failed: {error}", root.display())),
             }
         },
     );
-    prompt.doc_fn = Box::new(|_| Some("Initialize the current working directory with .primer.toml. Empty input uses the directory name. Existing project files are never overwritten.".into()));
+    let suggestion = suggested_root.display().to_string();
+    prompt.doc_fn = Box::new(move |_| Some(format!(
+        "Enter an absolute directory and project name separated by |. Example: {suggestion} | My Project. Nothing is created until you submit both fields."
+    )));
     prompt.recalculate_completion(cx.editor);
     cx.push_layer(Box::new(prompt));
 }
