@@ -342,6 +342,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             },
             "a" => code_action,
             "l" => { "Language"
+                "f" => format_document,
                 "a" => code_action,
                 "r" => rename_symbol,
                 "h" => hover,
