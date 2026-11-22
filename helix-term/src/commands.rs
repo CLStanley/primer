@@ -3650,38 +3650,58 @@ fn primer_project_initialize(cx: &mut Context) {
 /// Add an already initialized project to the local picker without changing its marker.
 fn primer_project_register(cx: &mut Context) {
     use crate::projects::registry::ProjectRegistry;
-    let mut prompt = Prompt::new(
-        "Project Directory: ".into(),
-        None,
-        ui::completers::none,
-        move |cx, input, event| {
-            if event != PromptEvent::Validate { return; }
-            let input = input.trim();
-            if input.is_empty() {
-                cx.editor.set_error("Enter a directory containing .primer.toml");
-                return;
+
+    // Search from the parent of the focused file's directory, so a file in
+    // src/components can still discover the marker at the project root.
+    // This also exposes sibling projects when editing a root-level file.
+    let focused_dir = active_buffer_directory(cx.editor);
+    let search_root = focused_dir.parent().unwrap_or(&focused_dir).to_path_buf();
+    let mut markers = Vec::new();
+    let walker = ignore::WalkBuilder::new(&search_root)
+        .hidden(false)
+        .git_ignore(false)
+        .git_global(false)
+        .git_exclude(false)
+        .ignore(false)
+        .parents(false)
+        .max_depth(Some(7))
+        .build();
+    for entry in walker.flatten() {
+        if entry.file_type().is_some_and(|kind| kind.is_file())
+            && entry.file_name() == std::ffi::OsStr::new(crate::projects::MARKER)
+        {
+            markers.push(entry.into_path());
+        }
+        if markers.len() >= 500 { break; }
+    }
+    if markers.is_empty() {
+        cx.editor.set_error(format!("No .primer.toml found under {}", search_root.display()));
+        return;
+    }
+    let columns = [PickerColumn::new("Project Configuration", |path: &PathBuf, _| {
+        path.display().to_string().into()
+    })];
+    let picker = Picker::new(columns, 0, markers, (), move |cx, marker: &PathBuf, _| {
+        let Some(root) = marker.parent() else {
+            cx.editor.set_error("Invalid project marker path");
+            return;
+        };
+        let result = (|| -> anyhow::Result<crate::projects::Project> {
+            let registry_path = ProjectRegistry::default_path()?;
+            let mut registry = ProjectRegistry::read(&registry_path)?;
+            let project = registry.register(root)?;
+            registry.save(&registry_path)?;
+            Ok(project)
+        })();
+        match result {
+            Ok(project) => {
+                cx.editor.active_project_root = Some(project.root.clone());
+                cx.editor.set_status(format!("Registered and activated project {} at {}", project.settings.project.name, project.root.display()));
             }
-            let expanded = helix_stdx::path::expand(input);
-            let path = if expanded.is_absolute() {
-                expanded.into_owned()
-            } else {
-                helix_stdx::env::current_working_dir().join(expanded.as_ref())
-            };
-            let result = (|| -> anyhow::Result<String> {
-                let registry_path = ProjectRegistry::default_path()?;
-                let mut registry = ProjectRegistry::read(&registry_path)?;
-                let project = registry.register(&path)?;
-                registry.save(&registry_path)?;
-                Ok(project.settings.project.name)
-            })();
-            match result {
-                Ok(name) => cx.editor.set_status(format!("Registered project {name} · Space p p to browse")),
-                Err(error) => cx.editor.set_error(format!("Could not register project: {error}")),
-            }
-        },
-    );
-    prompt.recalculate_completion(cx.editor);
-    cx.push_layer(Box::new(prompt));
+            Err(error) => cx.editor.set_error(format!("Could not register project: {error}")),
+        }
+    });
+    cx.push_layer(Box::new(overlaid(picker.with_title("Register Project"))));
 }
 
 /// Clear project scoping without closing or modifying any buffers.
