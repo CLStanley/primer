@@ -701,16 +701,17 @@ impl Default for StatusLineConfig {
                 E::Mode,
                 E::Spinner,
                 E::FileName,
+                E::VersionControl,
                 E::ReadOnlyIndicator,
                 E::FileModificationIndicator,
             ],
             center: vec![],
             right: vec![
+                E::ActiveProject,
                 E::Diagnostics,
                 E::Selections,
                 E::Register,
                 E::Position,
-                E::VersionControl,
                 E::FileType,
                 E::FileEncoding,
             ],
@@ -807,6 +808,9 @@ pub enum StatusLineElement {
 
     /// Current version control information
     VersionControl,
+
+    /// Explicitly selected Primer project
+    ActiveProject,
 
     /// Indicator for selected register
     Register,
