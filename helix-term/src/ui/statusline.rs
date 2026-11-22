@@ -680,9 +680,14 @@ where
             .find_map(|key| context.editor.theme.try_get_exact(key).and_then(|style| style.fg.or(style.bg)))
     } else {
         // Prefer the theme's actual blue scopes, not the normal-mode purple.
-        ["ui.text.info", "diagnostic.info", "diff.delta", "ui.statusline.branch"]
+        // Generated themes commonly expose their soft blue as a syntax color
+        // rather than an informational UI scope. Prefer explicit branch styling,
+        // then link/type blue, and never inherit the normal-mode purple.
+        ["ui.statusline.branch", "markup.link.url", "markup.link", "type",
+         "ui.text.info", "diagnostic.info", "diff.delta"]
             .iter()
             .find_map(|key| context.editor.theme.try_get_exact(key).and_then(|style| style.fg.or(style.bg)))
+            .or(Some(Color::Rgb(167, 199, 239)))
     };
     let mut style = context.editor.theme.get("ui.statusline.normal");
     if let Some(color) = background {
