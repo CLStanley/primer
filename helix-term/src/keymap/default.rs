@@ -342,9 +342,12 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             },
             "a" => code_action,
             "l" => { "Language"
-                    "r" => rename_symbol,
+                "a" => code_action,
+                "r" => rename_symbol,
                 "h" => hover,
-                        "s" => lsp_or_syntax_symbol_picker,
+                "d" => diagnostics_picker,
+                "D" => workspace_diagnostics_picker,
+                "s" => lsp_or_syntax_symbol_picker,
             },
             "'" => last_picker,
             "G" => { "Debug (experimental)" sticky=true
