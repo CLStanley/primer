@@ -656,7 +656,9 @@ where
 {
     let Some(root) = context.editor.active_project_root.as_ref() else { return; };
     // The registry marker is authoritative, but rendering should never block on disk IO.
-    let name = root.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let name = context.editor.active_project_name.as_deref()
+        .map(str::to_owned)
+        .unwrap_or_else(|| root.file_name().unwrap_or_default().to_string_lossy().into_owned());
     render_accent_pill(context, format!("󰏗 {name}"), "ui.text.success", write);
 }
 
