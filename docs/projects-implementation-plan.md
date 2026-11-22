@@ -52,19 +52,3 @@ Switching projects replaces the active project context rather than opening multi
 
 ## Implementation notes
 Audit the existing dashboard, keymaps, file picker, grep, Git working-directory resolution, terminal startup, and config/state paths before coding. Land changes in small independently testable commits. Run Rust formatting, targeted tests, and release build before merging.
-
-## Future enhancement: Git fetch/pull and live buffer synchronization
-
-Track separately from the initial Projects implementation; this is a future Git integration milestone.
-
-- Add Git **Fetch** to update remote-tracking refs without modifying the working tree.
-- Add Git **Pull** for the current branch (with clear indication of its upstream and configurable merge/rebase/fast-forward policy); optionally support fetching another branch without switching to it.
-- When Git operations change on-disk files, detect those changes and refresh corresponding open buffers automatically when they have no unsaved edits.
-- Preserve cursor/selection and viewport positions as far as practical, clamping them when the updated file is shorter.
-- Never silently discard unsaved edits; prompt to compare/reload or resolve conflicts when both the buffer and disk have changed.
-- Handle removed/renamed files, merge conflicts, failed pulls, and changes from external Git processes.
-- Refresh Git decorations, branch/status indicators, diagnostics, and file explorer after successful operations.
-- Consider a file watcher plus existing editor disk-change/reload mechanisms instead of implementing a separate synchronization path.
-- Test behavior across clean buffers, dirty buffers, multiple open views, and terminal-initiated Git commands.
-
-**Desired experience:** fetch/pull from within Primer and see the open files update around the user without having to reopen them manually.
