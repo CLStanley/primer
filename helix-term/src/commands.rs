@@ -3572,9 +3572,11 @@ fn primer_notes_reference(cx: &mut Context) { primer_notes_picker(cx, Some("04 R
 /// Initialize the current directory as an explicit Primer project.
 fn primer_project_initialize(cx: &mut Context) {
     use crate::projects::{initialize, registry::ProjectRegistry};
-    let root = helix_stdx::env::current_working_dir();
+    // Initialize beside the focused file, not in Primer's launch directory.
+    // A buffer without a path falls back to the process working directory.
+    let root = active_buffer_directory(cx.editor);
     if !root.is_dir() {
-        cx.editor.set_error("Current directory is unavailable");
+        cx.editor.set_error("Current file directory is unavailable");
         return;
     }
     if root.join(crate::projects::MARKER).exists() {
@@ -3608,7 +3610,10 @@ fn primer_project_initialize(cx: &mut Context) {
                 registry.save(&registry_path)
             });
             match result {
-                Ok(()) => cx.editor.set_status(format!("Initialized project {} · Space p p to browse", project.settings.project.name)),
+                Ok(()) => {
+                    cx.editor.active_project_root = Some(project.root.clone());
+                    cx.editor.set_status(format!("Initialized and activated project {}", project.settings.project.name));
+                },
                 Err(error) => cx.editor.set_error(format!("Project created, but registration failed: {error}")),
             }
         },
