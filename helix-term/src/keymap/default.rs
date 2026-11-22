@@ -407,7 +407,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "d" => primer_terminal_lazydocker,
             },
             "c" => { "Comments"
-                "c" => toggle_comments,
                 "l" => toggle_line_comments,
                 "b" => toggle_block_comments,
             },
