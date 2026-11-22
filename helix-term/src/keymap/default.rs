@@ -340,7 +340,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "u" => git_unstage_hunk,
                 "r" => git_revert_hunk,
             },
-            "a" => code_action,
             "l" => { "Language"
                 "f" => format_document,
                 "a" => code_action,
