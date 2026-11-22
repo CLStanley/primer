@@ -115,7 +115,7 @@ mod tests {
         let dir = test_directory();
         assert!(initialize(&dir, "   ").is_err());
         assert!(!dir.join(MARKER).exists());
-        fs::write(dir.join(MARKER), "[project]\\nname = 123\\n").unwrap();
+        fs::write(dir.join(MARKER), "[project]\nname = 123\n").unwrap();
         assert!(load(&dir).is_err());
         fs::remove_dir_all(dir).unwrap();
     }
