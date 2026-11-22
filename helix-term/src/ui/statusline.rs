@@ -161,7 +161,7 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
                 let suffix_budget = budget.saturating_sub(1);
                 // Walk from the end, keeping Unicode display widths intact.
                 for ch in original.chars().rev() {
-                    let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+                    let ch_width = UnicodeWidthStr::width(ch.to_string().as_str());
                     if UnicodeWidthStr::width(suffix.as_str()) + ch_width > suffix_budget {
                         break;
                     }
