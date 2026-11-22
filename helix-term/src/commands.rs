@@ -3622,7 +3622,7 @@ fn primer_project_register(cx: &mut Context) {
     let mut prompt = Prompt::new(
         "Project Directory: ".into(),
         None,
-        ui::completers::directory,
+        ui::completers::none,
         move |cx, input, event| {
             if event != PromptEvent::Validate { return; }
             let input = input.trim();
