@@ -3633,6 +3633,7 @@ fn primer_project_initialize(cx: &mut Context) {
             match result {
                 Ok(()) => {
                     cx.editor.active_project_root = Some(project.root.clone());
+                    cx.editor.active_project_name = Some(project.settings.project.name.clone());
                     cx.editor.set_status(format!("Initialized {} at {}", project.settings.project.name, project.root.display()));
                 }
                 Err(error) => cx.editor.set_error(format!("Project created at {}, but registration failed: {error}", root.display())),
@@ -3699,6 +3700,7 @@ fn primer_project_register_picker(directory: PathBuf) -> anyhow::Result<Picker<(
         match result {
             Ok(project) => {
                 cx.editor.active_project_root = Some(project.root.clone());
+                    cx.editor.active_project_name = Some(project.settings.project.name.clone());
                 cx.editor.set_status(format!("Registered and activated {} at {}", project.settings.project.name, project.root.display()));
             }
             Err(error) => cx.editor.set_error(format!("Could not register project: {error}")),
@@ -3717,6 +3719,7 @@ fn primer_project_register(cx: &mut Context) {
 /// Clear project scoping without closing or modifying any buffers.
 fn primer_project_clear(cx: &mut Context) {
     if cx.editor.active_project_root.take().is_some() {
+        cx.editor.active_project_name = None;
         cx.editor.set_status("Project context cleared; using normal workspace directories");
     } else {
         cx.editor.set_status("No active project");
@@ -3750,6 +3753,7 @@ fn primer_project_forget(cx: &mut Context) {
                 Ok(()) => {
                     if cx.editor.active_project_root.as_ref() == Some(&root) {
                         cx.editor.active_project_root = None;
+                        cx.editor.active_project_name = None;
                     }
                     cx.editor.set_status("Project forgotten locally; .primer.toml and files preserved");
                 }
@@ -3812,6 +3816,7 @@ fn primer_project_picker(cx: &mut Context) {
         }
         // Switching project context leaves unrelated buffers and terminals intact.
         cx.editor.active_project_root = Some(project.root.clone());
+                    cx.editor.active_project_name = Some(project.settings.project.name.clone());
         cx.editor.set_status(format!("Active project: {} · Space f f to browse files", project.settings.project.name));
     });
     cx.push_layer(Box::new(overlaid(picker.with_title("Projects"))));
