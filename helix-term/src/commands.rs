@@ -3642,7 +3642,7 @@ fn primer_project_initialize(cx: &mut Context) {
     let suggestion = suggested_root.display().to_string();
     prompt.doc_fn = Box::new(move |_| Some(format!(
         "Enter an absolute directory and project name separated by |. Example: {suggestion} | My Project. Nothing is created until you submit both fields."
-    )));
+    ).into()));
     prompt.recalculate_completion(cx.editor);
     cx.push_layer(Box::new(prompt));
 }
