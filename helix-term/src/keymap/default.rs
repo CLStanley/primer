@@ -281,10 +281,10 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "f" => file_picker,
                 "F" => file_picker_in_current_directory,
                 "e" => file_explorer,
+                "d" => file_explorer_in_current_buffer_directory,
                 "g" => global_search,
                 "h" => command_palette,
             },
-            "." => file_explorer_in_current_buffer_directory,
             "b" => { "Buffers"
                 "b" => buffer_picker,
                 "p" => primer_buffer_previous,
@@ -393,7 +393,11 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                     "C-v" | "v" => vsplit_new,
                 },
             },
-            "y" => yank_to_clipboard,
+            "m" => { "Multi-selection"
+                "y" => yank_to_clipboard,
+                    "k" => keep_primary_selection,
+                "r" => remove_primary_selection,
+            },
             "t" => { "Tools"
                 "t" => primer_terminal,
                 "h" => primer_terminal_hsplit,
