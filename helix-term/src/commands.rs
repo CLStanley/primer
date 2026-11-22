@@ -3648,44 +3648,47 @@ fn primer_project_initialize(cx: &mut Context) {
 }
 
 /// Add an already initialized project to the local picker without changing its marker.
-fn primer_project_register(cx: &mut Context) {
-    use crate::projects::registry::ProjectRegistry;
-
-    // Search from the parent of the focused file's directory, so a file in
-    // src/components can still discover the marker at the project root.
-    // This also exposes sibling projects when editing a root-level file.
-    let focused_dir = active_buffer_directory(cx.editor);
-    let search_root = focused_dir.parent().unwrap_or(&focused_dir).to_path_buf();
-    let mut markers = Vec::new();
-    let walker = ignore::WalkBuilder::new(&search_root)
-        .hidden(false)
-        .git_ignore(false)
-        .git_global(false)
-        .git_exclude(false)
-        .ignore(false)
-        .parents(false)
-        .max_depth(Some(7))
-        .build();
-    for entry in walker.flatten() {
-        if entry.file_type().is_some_and(|kind| kind.is_file())
-            && entry.file_name() == std::ffi::OsStr::new(crate::projects::MARKER)
-        {
-            markers.push(entry.into_path());
+/// Browse directories and select the explicit marker, without guessing a root.
+fn primer_project_register_picker(editor: &Editor, directory: PathBuf) -> anyhow::Result<Picker<(PathBuf, bool), PathBuf>> {
+    let directory = std::fs::canonicalize(directory)?;
+    let mut entries: Vec<(PathBuf, bool)> = Vec::new();
+    if let Some(parent) = directory.parent() {
+        entries.push((parent.to_path_buf(), true));
+    }
+    for entry in std::fs::read_dir(&directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            entries.push((path, true));
+        } else if entry.file_name() == std::ffi::OsStr::new(crate::projects::MARKER) && path.is_file() {
+            entries.push((path, false));
         }
-        if markers.len() >= 500 { break; }
     }
-    if markers.is_empty() {
-        cx.editor.set_error(format!("No .primer.toml found under {}", search_root.display()));
-        return;
-    }
-    let columns = [PickerColumn::new("Project Configuration", |path: &PathBuf, _| {
-        path.display().to_string().into()
+    let offset = usize::from(directory.parent().is_some());
+    entries[offset..].sort_by(|a, b| (!a.1, &a.0).cmp(&(!b.1, &b.0)));
+    let columns = [PickerColumn::new("Directory / Marker", |entry: &(PathBuf, bool), root: &PathBuf| {
+        if entry.1 && entry.0 == root.parent().unwrap_or(root) {
+            "../".into()
+        } else {
+            let label = entry.0.file_name().unwrap_or_default().to_string_lossy();
+            format!("{}{}", label, if entry.1 { "/" } else { "" }).into()
+        }
     })];
-    let picker = Picker::new(columns, 0, markers, (), move |cx, marker: &PathBuf, _| {
-        let Some(root) = marker.parent() else {
-            cx.editor.set_error("Invalid project marker path");
+    Ok(Picker::new(columns, 0, entries, directory.clone(), move |cx, entry: &(PathBuf, bool), _| {
+        if entry.1 {
+            let next = entry.0.clone();
+            cx.jobs.callback(async move {
+                Ok(Callback::EditorCompositor(Box::new(move |editor, compositor| {
+                    match primer_project_register_picker(editor, next) {
+                        Ok(picker) => compositor.push(Box::new(overlaid(picker.with_title("Register Project")))),
+                        Err(error) => editor.set_error(format!("Cannot browse directory: {error}")),
+                    }
+                })))
+            });
             return;
-        };
+        }
+        use crate::projects::registry::ProjectRegistry;
+        let Some(root) = entry.0.parent() else { return; };
         let result = (|| -> anyhow::Result<crate::projects::Project> {
             let registry_path = ProjectRegistry::default_path()?;
             let mut registry = ProjectRegistry::read(&registry_path)?;
@@ -3696,12 +3699,19 @@ fn primer_project_register(cx: &mut Context) {
         match result {
             Ok(project) => {
                 cx.editor.active_project_root = Some(project.root.clone());
-                cx.editor.set_status(format!("Registered and activated project {} at {}", project.settings.project.name, project.root.display()));
+                cx.editor.set_status(format!("Registered and activated {} at {}", project.settings.project.name, project.root.display()));
             }
             Err(error) => cx.editor.set_error(format!("Could not register project: {error}")),
         }
-    });
-    cx.push_layer(Box::new(overlaid(picker.with_title("Register Project"))));
+    }))
+}
+
+fn primer_project_register(cx: &mut Context) {
+    let directory = active_buffer_directory(cx.editor);
+    match primer_project_register_picker(cx.editor, directory) {
+        Ok(picker) => cx.push_layer(Box::new(overlaid(picker.with_title("Register Project")))),
+        Err(error) => cx.editor.set_error(format!("Cannot browse project directories: {error}")),
+    }
 }
 
 /// Clear project scoping without closing or modifying any buffers.
