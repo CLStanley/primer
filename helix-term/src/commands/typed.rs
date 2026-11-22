@@ -3069,7 +3069,7 @@ fn open_terminal_program(
         return Ok(());
     }
 
-    let directory = current_workspace(cx);
+    let directory = cx.editor.active_project_root.clone().unwrap_or_else(|| current_workspace(cx));
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".to_owned());
     let executable = program.unwrap_or(&shell).to_owned();
     cx.jobs.callback(async move {
