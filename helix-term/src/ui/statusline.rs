@@ -98,12 +98,20 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
         )
     };
 
+    // Track only the filename span so it can yield space to the branch pill.
+    let mut filename_span = None;
     for element_id in &config.statusline.left {
         if !applicable(element_id) { continue; }
+        let start = context.parts.left.0.len();
         let render = get_render_function(*element_id);
         (render)(context, |context, span| {
             append(&mut context.parts.left, span, base_style)
         });
+        if matches!(element_id, StatusLineElementID::FileName | StatusLineElementID::FileAbsolutePath | StatusLineElementID::FileBaseName)
+            && context.parts.left.0.len() == start + 1
+        {
+            filename_span = Some(start);
+        }
     }
 
     // Preserve branch visibility for existing user statusline layouts that
@@ -116,13 +124,6 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
             append(&mut context.parts.left, span, base_style)
         });
     }
-
-    surface.set_spans(
-        viewport.x,
-        viewport.y,
-        &context.parts.left,
-        context.parts.left.width() as u16,
-    );
 
     // Right side of the status line.
     // Show active project even when a custom statusline layout omits it.
@@ -142,6 +143,42 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
             append(&mut context.parts.right, span, base_style)
         })
     }
+
+    // The filename is the flexible region. Preserve the complete Git branch
+    // and the right-hand project/status pills when the focused path is long.
+    let available_left = (viewport.width as usize)
+        .saturating_sub(context.parts.right.width())
+        .saturating_sub(1);
+    let overflow = context.parts.left.width().saturating_sub(available_left);
+    if overflow > 0 {
+        if let Some(index) = filename_span {
+            let span = &mut context.parts.left.0[index];
+            let original = span.content.to_string();
+            let width = UnicodeWidthStr::width(original.as_str());
+            let budget = width.saturating_sub(overflow);
+            if budget < width {
+                let mut suffix = String::new();
+                let suffix_budget = budget.saturating_sub(1);
+                // Walk from the end, keeping Unicode display widths intact.
+                for ch in original.chars().rev() {
+                    let ch_width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+                    if UnicodeWidthStr::width(suffix.as_str()) + ch_width > suffix_budget {
+                        break;
+                    }
+                    suffix.insert(0, ch);
+                }
+                let shortened = if budget == 0 { String::new() }
+                    else { format!("…{suffix}") };
+                span.content = shortened.into();
+            }
+        }
+    }
+    surface.set_spans(
+        viewport.x,
+        viewport.y,
+        &context.parts.left,
+        (context.parts.left.width() as u16).min(viewport.width),
+    );
 
     surface.set_spans(
         viewport.x
