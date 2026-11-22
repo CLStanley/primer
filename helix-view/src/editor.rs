@@ -1349,6 +1349,8 @@ pub struct Editor {
     last_motion: Option<Motion>,
     pub last_completion: Option<CompleteAction>,
     pub last_cwd: Option<PathBuf>,
+    /// Explicitly selected Primer project root; never inferred from open buffers.
+    pub active_project_root: Option<PathBuf>,
     pub dir_stack: VecDeque<PathBuf>,
 
     pub exit_code: i32,
@@ -1489,6 +1491,7 @@ impl Editor {
             last_motion: None,
             last_completion: None,
             last_cwd: None,
+            active_project_root: None,
             config,
             auto_pairs,
             exit_code: 0,
