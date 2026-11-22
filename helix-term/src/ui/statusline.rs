@@ -631,8 +631,15 @@ fn render_accent_pill<'a, F>(context: &mut RenderContext<'a>, label: String, acc
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
-    let accent = context.editor.theme.get(accent_key);
-    let background = accent.fg.or(accent.bg);
+    // Use exact semantic colors: theme.get() falls back to "ui.text" and
+    // silently gives both pills the same blue when "ui.text.success" is absent.
+    let background = if accent_key == "ui.text.success" {
+        ["ui.text.success", "diff.plus", "diagnostic.hint", "ui.statusline.project"]
+            .iter()
+            .find_map(|key| context.editor.theme.try_get_exact(key).and_then(|style| style.fg.or(style.bg)))
+    } else {
+        context.editor.theme.try_get_exact(accent_key).and_then(|style| style.fg.or(style.bg))
+    };
     let mut style = context.editor.theme.get("ui.statusline.normal");
     if let Some(color) = background {
         style.bg = Some(color);
