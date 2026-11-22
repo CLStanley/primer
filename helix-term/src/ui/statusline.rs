@@ -578,14 +578,23 @@ where
     let title = if let Some(terminal) = &context.terminal {
         format!("  {} ", terminal.name)
     } else {
-        // Keep the useful file-relative path without repeating the full
-        // repository prefix. Use the focused document's workspace, not the
-        // active project, since buffers from different projects may coexist.
+        // Identify the focused file's own repository even when another
+        // Primer project is active. Keep the root and filename, collapsing
+        // intermediate directories into a single ellipsis.
+        let workspace = context.doc.workspace_root();
+        let root_name = workspace.file_name().unwrap_or_default().to_string_lossy();
         let path = context.doc.path()
-            .and_then(|path| path.strip_prefix(context.doc.workspace_root()).ok()
-                .map(|relative| relative.to_string_lossy().into_owned()))
-            .or_else(|| context.doc.relative_path()
-                .map(|path| path.to_string_lossy().into_owned()))
+            .and_then(|path| path.strip_prefix(workspace).ok())
+            .map(|relative| {
+                let components: Vec<_> = relative.components().collect();
+                if components.len() <= 1 {
+                    format!("{root_name}/{}", relative.display())
+                } else {
+                    let filename = relative.file_name().unwrap_or_default().to_string_lossy();
+                    format!("{root_name}/…/{filename}")
+                }
+            })
+            .or_else(|| context.doc.relative_path().map(|path| path.to_string_lossy().into_owned()))
             .unwrap_or_else(|| SCRATCH_BUFFER_NAME.to_string());
         format!(" {} ", path)
     };
