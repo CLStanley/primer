@@ -1355,6 +1355,8 @@ pub struct Editor {
     pub last_cwd: Option<PathBuf>,
     /// Explicitly selected Primer project root; never inferred from open buffers.
     pub active_project_root: Option<PathBuf>,
+    /// Display name from the selected project's explicit marker.
+    pub active_project_name: Option<String>,
     pub dir_stack: VecDeque<PathBuf>,
 
     pub exit_code: i32,
@@ -1496,6 +1498,7 @@ impl Editor {
             last_completion: None,
             last_cwd: None,
             active_project_root: None,
+            active_project_name: None,
             config,
             auto_pairs,
             exit_code: 0,
