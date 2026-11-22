@@ -3704,9 +3704,7 @@ fn primer_project_picker(cx: &mut Context) {
         }
         // Switching project context leaves unrelated buffers and terminals intact.
         cx.editor.active_project_root = Some(project.root.clone());
-        let picker = ui::file_picker(cx.editor, project.root.clone());
-        cx.push_layer(Box::new(overlaid(picker)));
-        cx.editor.set_status(format!("Project: {}", project.settings.project.name));
+        cx.editor.set_status(format!("Active project: {} · Space f f to browse files", project.settings.project.name));
     });
     cx.push_layer(Box::new(overlaid(picker.with_title("Projects"))));
 }
