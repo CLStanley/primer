@@ -642,6 +642,10 @@ fn format(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyh
         return Ok(());
     }
 
+    format_document(cx)
+}
+
+pub(super) fn format_document(cx: &mut compositor::Context) -> anyhow::Result<()> {
     let (view, doc) = current_ref!(cx.editor);
     let format = doc.format(cx.editor).context(
         "A formatter isn't available, and no language server provides formatting capabilities",

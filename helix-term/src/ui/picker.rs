@@ -258,6 +258,8 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     show_preview: bool,
     /// Render a compact selection-only confirmation without the search input.
     selection_only: bool,
+    /// Hide the visual column header without changing searchable column names.
+    hide_column_headers: bool,
     /// Constraints for tabular formatting
     widths: Vec<Constraint>,
 
@@ -391,6 +393,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             truncate_start: true,
             show_preview: true,
             selection_only: false,
+            hide_column_headers: false,
             callback_fn: Box::new(callback_fn),
             default_action: Action::Replace,
             completion_height: 0,
@@ -421,6 +424,11 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
+        self
+    }
+
+    pub fn without_column_headers(mut self) -> Self {
+        self.hide_column_headers = true;
         self
     }
 
@@ -529,7 +537,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     fn header_height(&self) -> u16 {
-        if self.columns.len() > 1 {
+        if self.columns.len() > 1 && !self.hide_column_headers {
             1
         } else {
             0
@@ -870,7 +878,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             .widths(&self.widths);
 
         // -- Header
-        if self.columns.len() > 1 {
+        if self.columns.len() > 1 && !self.hide_column_headers {
             let active_column = self.query.active_column(self.prompt.position());
             let header_style = cx.editor.theme.get("ui.picker.header");
             let header_column_style = cx.editor.theme.get("ui.picker.header.column");
