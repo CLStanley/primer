@@ -2652,7 +2652,7 @@ fn global_search(cx: &mut Context) {
             return async { Ok(()) }.boxed();
         }
 
-        let search_root = helix_stdx::env::current_working_dir();
+        let search_root = editor.active_project_root.clone().unwrap_or_else(helix_stdx::env::current_working_dir);
         if !search_root.exists() {
             return async { Err(anyhow::anyhow!("Current working directory does not exist")) }
                 .boxed();
@@ -3702,8 +3702,8 @@ fn primer_project_picker(cx: &mut Context) {
             cx.editor.set_error(format!("Could not update recent projects: {error}"));
             return;
         }
-        // The project-root picker works without changing the process CWD or
-        // closing unrelated buffers. Dedicated active-root integration follows.
+        // Switching project context leaves unrelated buffers and terminals intact.
+        cx.editor.active_project_root = Some(project.root.clone());
         let picker = ui::file_picker(cx.editor, project.root.clone());
         cx.push_layer(Box::new(overlaid(picker)));
         cx.editor.set_status(format!("Project: {}", project.settings.project.name));
@@ -3712,7 +3712,7 @@ fn primer_project_picker(cx: &mut Context) {
 }
 
 fn file_picker(cx: &mut Context) {
-    let root = find_workspace().0;
+    let root = cx.editor.active_project_root.clone().unwrap_or_else(|| find_workspace().0);
     if !root.exists() {
         cx.editor.set_error("Workspace directory does not exist");
         return;
@@ -3759,7 +3759,7 @@ fn file_picker_in_current_directory(cx: &mut Context) {
 }
 
 fn file_explorer(cx: &mut Context) {
-    let root = find_workspace().0;
+    let root = cx.editor.active_project_root.clone().unwrap_or_else(|| find_workspace().0);
     if !root.exists() {
         cx.editor.set_error("Workspace directory does not exist");
         return;
@@ -5156,7 +5156,7 @@ fn git_revert_hunk(cx: &mut Context) {
 
 /// Resolve the Git root for the focused buffer without changing the process cwd.
 fn active_git_root(cx: &mut Context) -> Option<PathBuf> {
-    let dir = active_buffer_directory(cx.editor);
+    let dir = cx.editor.active_project_root.clone().unwrap_or_else(|| active_buffer_directory(cx.editor));
     let output = std::process::Command::new("git")
         .arg("-C").arg(&dir).args(["rev-parse", "--show-toplevel"]).output();
     match output {
