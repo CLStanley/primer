@@ -212,7 +212,7 @@ impl Component for Dashboard {
                         Some(DashboardAction::Agenda) => MappableCommand::primer_agenda,
                         Some(DashboardAction::FileExplorer) => MappableCommand::file_explorer,
                         Some(DashboardAction::OpenProject) => {
-                            MappableCommand::file_picker_in_current_directory
+                            MappableCommand::primer_project_picker
                         }
                         Some(DashboardAction::Help) => MappableCommand::command_palette,
                         Some(DashboardAction::NewFile) => return,
