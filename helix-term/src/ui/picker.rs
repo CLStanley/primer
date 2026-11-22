@@ -878,7 +878,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             .widths(&self.widths);
 
         // -- Header
-        if self.columns.len() > 1 {
+        if self.columns.len() > 1 && !self.hide_column_headers {
             let active_column = self.query.active_column(self.prompt.position());
             let header_style = cx.editor.theme.get("ui.picker.header");
             let header_column_style = cx.editor.theme.get("ui.picker.header.column");
