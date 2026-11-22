@@ -406,9 +406,11 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "g" => primer_terminal_lazygit,
                 "d" => primer_terminal_lazydocker,
             },
-            "c" => toggle_comments,
-            "C" => toggle_block_comments,
-            "A-c" => toggle_line_comments,
+            "c" => { "Comments"
+                "c" => toggle_comments,
+                "l" => toggle_line_comments,
+                "b" => toggle_block_comments,
+            },
         },
         "z" => { "View"
             "z" | "c" => align_view_center,
