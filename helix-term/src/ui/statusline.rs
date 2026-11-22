@@ -578,11 +578,15 @@ where
     let title = if let Some(terminal) = &context.terminal {
         format!("  {} ", terminal.name)
     } else {
-        let rel_path = context.doc.relative_path();
-        let path = rel_path
-            .as_ref()
-            .map(|p| p.to_string_lossy())
-            .unwrap_or_else(|| SCRATCH_BUFFER_NAME.into());
+        // Keep the useful file-relative path without repeating the full
+        // repository prefix. Use the focused document's workspace, not the
+        // active project, since buffers from different projects may coexist.
+        let path = context.doc.path()
+            .and_then(|path| path.strip_prefix(context.doc.workspace_root()).ok()
+                .map(|relative| relative.to_string_lossy().into_owned()))
+            .or_else(|| context.doc.relative_path()
+                .map(|path| path.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| SCRATCH_BUFFER_NAME.to_string());
         format!(" {} ", path)
     };
 
@@ -675,7 +679,10 @@ where
             .iter()
             .find_map(|key| context.editor.theme.try_get_exact(key).and_then(|style| style.fg.or(style.bg)))
     } else {
-        context.editor.theme.try_get_exact(accent_key).and_then(|style| style.fg.or(style.bg))
+        // Prefer the theme's actual blue scopes, not the normal-mode purple.
+        ["ui.text.info", "diagnostic.info", "diff.delta", "ui.statusline.branch"]
+            .iter()
+            .find_map(|key| context.editor.theme.try_get_exact(key).and_then(|style| style.fg.or(style.bg)))
     };
     let mut style = context.editor.theme.get("ui.statusline.normal");
     if let Some(color) = background {
