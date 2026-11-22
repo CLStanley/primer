@@ -323,7 +323,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                     "s" => lsp_or_syntax_workspace_symbol_picker,
                 },
             },
-            "S" => lsp_or_syntax_workspace_symbol_picker,
             "d" => diagnostics_picker,
             "D" => workspace_diagnostics_picker,
             "g" => { "Git"
@@ -343,12 +342,9 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             },
             "a" => code_action,
             "l" => { "Language"
-                "a" => code_action,
-                "r" => rename_symbol,
+                    "r" => rename_symbol,
                 "h" => hover,
-                "d" => diagnostics_picker,
-                "D" => workspace_diagnostics_picker,
-                "s" => lsp_or_syntax_symbol_picker,
+                        "s" => lsp_or_syntax_symbol_picker,
             },
             "'" => last_picker,
             "G" => { "Debug (experimental)" sticky=true
@@ -393,12 +389,16 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                     "C-v" | "v" => vsplit_new,
                 },
             },
-            "m" => { "Multi-selection"
+            "m" => { "Selections & Clipboard"
                 "y" => yank_to_clipboard,
-                    "k" => keep_primary_selection,
+                "Y" => yank_main_selection_to_clipboard,
+                "p" => paste_clipboard_after,
+                "P" => paste_clipboard_before,
+                "R" => replace_selections_with_clipboard,
+                "k" => keep_primary_selection,
                 "r" => remove_primary_selection,
             },
-            "t" => { "Tools"
+            "t" => { "Terminal"
                 "t" => primer_terminal,
                 "h" => primer_terminal_hsplit,
                 "v" => primer_terminal_vsplit,
@@ -406,13 +406,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "g" => primer_terminal_lazygit,
                 "d" => primer_terminal_lazydocker,
             },
-            "Y" => yank_main_selection_to_clipboard,
-            "p" => paste_clipboard_after,
-            "P" => paste_clipboard_before,
-            "R" => replace_selections_with_clipboard,
-            "k" => hover,
-            "r" => rename_symbol,
-            "h" => select_references_to_symbol_under_cursor,
             "c" => toggle_comments,
             "C" => toggle_block_comments,
             "A-c" => toggle_line_comments,
