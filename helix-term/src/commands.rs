@@ -3714,8 +3714,7 @@ fn primer_project_forget(cx: &mut Context) {
                     }
                 },
             );
-            prompt.recalculate_completion(cx.editor);
-                    prompt.recalculate_completion(editor);
+                prompt.recalculate_completion(editor);
                 compositor.push(Box::new(prompt));
             })))
         });
