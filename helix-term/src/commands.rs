@@ -401,9 +401,8 @@ impl MappableCommand {
         append_mode, "Append after selection",
         command_mode, "Enter command mode",
         file_picker, "Open file picker",
-        primer_project_picker, "Open initialized Primer projects",
-        primer_project_initialize, "Initialize a Primer project in the current directory",
-        primer_project_register, "Register an existing Primer project",
+        primer_project_picker, "Switch remembered projects",
+        primer_project_register, "Add a directory as a project",
         primer_project_clear, "Clear the active project context",
         primer_project_forget, "Forget the active project without deleting files",
         file_picker_in_current_buffer_directory, "Open file picker at current buffer's directory",
@@ -3676,6 +3675,20 @@ fn primer_project_forget(cx: &mut Context) {
 /// Pick a previously visited Git repository or manually added directory.
 fn primer_project_picker(cx: &mut Context) {
     use crate::projects::registry::ProjectRegistry;
+
+    // Visiting a file in a Git repository makes that repository available
+    // in the picker, without silently changing the active project.
+    if let Ok(Some(project)) = crate::projects::discover(&active_buffer_directory(cx.editor)) {
+        if let Ok(path) = ProjectRegistry::default_path() {
+            if let Ok(mut registry) = ProjectRegistry::read(&path) {
+                if !registry.roots.contains(&project.root) {
+                    if registry.register(&project.root).is_ok() {
+                        let _ = registry.save(&path);
+                    }
+                }
+            }
+        }
+    }
 
     let registry_path = match ProjectRegistry::default_path() {
         Ok(path) => path,
