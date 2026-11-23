@@ -404,6 +404,7 @@ impl MappableCommand {
         primer_project_picker, "Switch remembered projects",
         primer_project_register, "Add a directory as a project",
         primer_project_clear, "Clear the active project context",
+        primer_project_status, "Show active and focused project status",
         primer_project_forget, "Forget the active project without deleting files",
         file_picker_in_current_buffer_directory, "Open file picker at current buffer's directory",
         file_picker_in_current_directory, "Open file picker at current working directory",
@@ -3621,6 +3622,20 @@ fn primer_project_register(cx: &mut Context) {
         Ok(picker) => cx.push_layer(Box::new(overlaid(picker.with_title("Add Project")))),
         Err(error) => cx.editor.set_error(format!("Cannot browse directories: {error}")),
     }
+}
+
+fn primer_project_status(cx: &mut Context) {
+    use crate::projects::registry::ProjectRegistry;
+    let focused = active_buffer_directory(cx.editor);
+    let discovered = crate::projects::discover(&focused).ok().flatten();
+    let active = cx.editor.active_project_name.as_deref().unwrap_or("None");
+    let remembered = discovered.as_ref().and_then(|project| {
+        let path = ProjectRegistry::default_path().ok()?;
+        let registry = ProjectRegistry::read(&path).ok()?;
+        Some(registry.roots.contains(&project.root))
+    }).unwrap_or(false);
+    let current = discovered.as_ref().map(|project| project.name.as_str()).unwrap_or("No Git repository");
+    cx.editor.set_status(format!("Active: {active} | Focused Git project: {current} | Remembered: {remembered}"));
 }
 
 /// Clear project scoping without closing or modifying any buffers.
