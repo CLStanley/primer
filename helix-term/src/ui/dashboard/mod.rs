@@ -318,9 +318,9 @@ mod tests {
         dashboard.next();
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::AddProject));
         dashboard.left();
-        assert_eq!(dashboard.selected_action(), Some(DashboardAction::Help));
+        assert_eq!(dashboard.selected_action(), Some(DashboardAction::FindFile));
         dashboard.right();
-        assert_eq!(dashboard.selected_action(), Some(DashboardAction::Quit));
+        assert_eq!(dashboard.selected_action(), Some(DashboardAction::OpenProject));
     }
 
     #[test]
