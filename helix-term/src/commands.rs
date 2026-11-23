@@ -3626,14 +3626,17 @@ fn primer_project_register(cx: &mut Context) {
 
 fn primer_project_status(cx: &mut Context) {
     use crate::projects::registry::ProjectRegistry;
-    let focused = active_buffer_directory(cx.editor);
-    let discovered = crate::projects::discover(&focused).ok().flatten();
+    let scope = cx.editor.active_project_root.clone()
+        .unwrap_or_else(|| active_buffer_directory(cx.editor));
+    let discovered = crate::projects::discover(&scope).ok().flatten();
     let active_name = cx.editor.active_project_name.as_deref().unwrap_or("None");
     let active_root = cx.editor.active_project_root.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "No active project".to_owned());
-    let remembered = discovered.as_ref().and_then(|project| {
+    let remembered_root = cx.editor.active_project_root.as_ref()
+        .or_else(|| discovered.as_ref().map(|project| &project.root));
+    let remembered = remembered_root.and_then(|root| {
         let path = ProjectRegistry::default_path().ok()?;
         let registry = ProjectRegistry::read(&path).ok()?;
-        Some(registry.roots.contains(&project.root))
+        Some(registry.roots.contains(root))
     }).unwrap_or(false);
     let current = discovered.as_ref().map(|project| project.name.as_str()).unwrap_or("None");
     let detected_root = discovered.as_ref().map(|project| project.root.display().to_string()).unwrap_or_else(|| "No Git repository".to_owned());
