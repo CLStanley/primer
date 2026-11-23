@@ -3570,118 +3570,27 @@ fn primer_notes_knowledge(cx: &mut Context) { primer_notes_picker(cx, Some("03 K
 fn primer_notes_reference(cx: &mut Context) { primer_notes_picker(cx, Some("04 Reference")); }
 
 /// Initialize the current directory as an explicit Primer project.
-fn primer_project_initialize(cx: &mut Context) {
-    use crate::projects::{initialize, registry::ProjectRegistry};
-
-    // Never silently choose a root from the focused buffer or launch directory.
-    // The user must explicitly provide the project directory before any file is written.
-    let suggested_root = active_buffer_directory(cx.editor);
-    let mut prompt = Prompt::new(
-        "Project Directory | Project Name: ".into(),
-        None,
-        ui::completers::none,
-        move |cx, input, event| {
-            if event != PromptEvent::Validate { return; }
-            let Some((directory, name)) = input.split_once('|') else {
-                cx.editor.set_error("Enter: absolute project directory | project name");
-                return;
-            };
-            let directory = directory.trim();
-            let name = name.trim();
-            if directory.is_empty() || name.is_empty() {
-                cx.editor.set_error("Both the project directory and name are required");
-                return;
-            }
-            let expanded = helix_stdx::path::expand(directory);
-            if !expanded.is_absolute() {
-                cx.editor.set_error("Use an absolute project directory to avoid initializing the wrong location");
-                return;
-            }
-            let root = match std::fs::canonicalize(expanded.as_ref()) {
-                Ok(root) if root.is_dir() => root,
-                Ok(_) => {
-                    cx.editor.set_error("Project directory is not a directory");
-                    return;
-                }
-                Err(error) => {
-                    cx.editor.set_error(format!("Cannot resolve project directory: {error}"));
-                    return;
-                }
-            };
-            if root.join(crate::projects::MARKER).exists() {
-                cx.editor.set_error(format!("Project already initialized at {}", root.display()));
-                return;
-            }
-            let project = match initialize(&root, name) {
-                Ok(project) => project,
-                Err(error) => {
-                    cx.editor.set_error(format!("Project initialization failed: {error}"));
-                    return;
-                }
-            };
-            let registry_path = match ProjectRegistry::default_path() {
-                Ok(path) => path,
-                Err(error) => {
-                    cx.editor.set_error(format!("Project created at {}, but registry unavailable: {error}", root.display()));
-                    return;
-                }
-            };
-            let result = ProjectRegistry::read(&registry_path).and_then(|mut registry| {
-                registry.register(&project.root)?;
-                registry.save(&registry_path)
-            });
-            match result {
-                Ok(()) => {
-                    cx.editor.active_project_root = Some(project.root.clone());
-                    cx.editor.active_project_name = Some(project.settings.project.name.clone());
-                    cx.editor.set_status(format!("Initialized {} at {}", project.settings.project.name, project.root.display()));
-                }
-                Err(error) => cx.editor.set_error(format!("Project created at {}, but registration failed: {error}", root.display())),
-            }
-        },
-    );
-    let suggestion = suggested_root.display().to_string();
-    prompt.doc_fn = Box::new(move |_| Some(format!(
-        "Enter an absolute directory and project name separated by |. Example: {suggestion} | My Project. Nothing is created until you submit both fields."
-    ).into()));
-    prompt.recalculate_completion(cx.editor);
-    cx.push_layer(Box::new(prompt));
-}
-
-/// Add an already initialized project to the local picker without changing its marker.
-/// Browse directories and select the explicit marker, without guessing a root.
+/// Browse folders, selecting one to remember and activate as a project.
 fn primer_project_register_picker(directory: PathBuf) -> anyhow::Result<Picker<(PathBuf, bool), PathBuf>> {
     let directory = std::fs::canonicalize(directory)?;
-    let mut entries: Vec<(PathBuf, bool)> = Vec::new();
-    if let Some(parent) = directory.parent() {
-        entries.push((parent.to_path_buf(), true));
-    }
+    let mut entries: Vec<(PathBuf, bool)> = vec![(directory.clone(), false)];
+    if let Some(parent) = directory.parent() { entries.push((parent.to_path_buf(), true)); }
     for entry in std::fs::read_dir(&directory)? {
         let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            entries.push((path, true));
-        } else if entry.file_name() == std::ffi::OsStr::new(crate::projects::MARKER) && path.is_file() {
-            entries.push((path, false));
-        }
+        if entry.path().is_dir() { entries.push((entry.path(), true)); }
     }
-    let offset = usize::from(directory.parent().is_some());
-    entries[offset..].sort_by(|a, b| (!a.1, &a.0).cmp(&(!b.1, &b.0)));
-    let columns = [PickerColumn::new("Directory / Marker", |entry: &(PathBuf, bool), root: &PathBuf| {
-        if entry.1 && entry.0 == root.parent().unwrap_or(root) {
-            "../".into()
-        } else {
-            let label = entry.0.file_name().unwrap_or_default().to_string_lossy();
-            format!("{}{}", label, if entry.1 { "/" } else { "" }).into()
-        }
+    let columns = [PickerColumn::new("Directory", |entry: &(PathBuf, bool), root: &PathBuf| {
+        if !entry.1 { "./  Add this directory".into() }
+        else if entry.0 == root.parent().unwrap_or(root) { "../".into() }
+        else { format!("{}/", entry.0.file_name().unwrap_or_default().to_string_lossy()).into() }
     })];
-    Ok(Picker::new(columns, 0, entries, directory.clone(), move |cx, entry: &(PathBuf, bool), _| {
+    Ok(Picker::new(columns, 0, entries, directory, move |cx, entry: &(PathBuf, bool), _| {
         if entry.1 {
             let next = entry.0.clone();
             cx.jobs.callback(async move {
                 Ok(Callback::EditorCompositor(Box::new(move |editor, compositor| {
                     match primer_project_register_picker(next) {
-                        Ok(picker) => compositor.push(Box::new(overlaid(picker.with_title("Register Project")))),
+                        Ok(picker) => compositor.push(Box::new(overlaid(picker.with_title("Add Project")))),
                         Err(error) => editor.set_error(format!("Cannot browse directory: {error}")),
                     }
                 })))
@@ -3689,21 +3598,20 @@ fn primer_project_register_picker(directory: PathBuf) -> anyhow::Result<Picker<(
             return;
         }
         use crate::projects::registry::ProjectRegistry;
-        let Some(root) = entry.0.parent() else { return; };
         let result = (|| -> anyhow::Result<crate::projects::Project> {
-            let registry_path = ProjectRegistry::default_path()?;
-            let mut registry = ProjectRegistry::read(&registry_path)?;
-            let project = registry.register(root)?;
-            registry.save(&registry_path)?;
+            let path = ProjectRegistry::default_path()?;
+            let mut registry = ProjectRegistry::read(&path)?;
+            let project = registry.register(&entry.0)?;
+            registry.save(&path)?;
             Ok(project)
         })();
         match result {
             Ok(project) => {
                 cx.editor.active_project_root = Some(project.root.clone());
-                    cx.editor.active_project_name = Some(project.settings.project.name.clone());
-                cx.editor.set_status(format!("Registered and activated {} at {}", project.settings.project.name, project.root.display()));
+                cx.editor.active_project_name = Some(project.name.clone());
+                cx.editor.set_status(format!("Active project: {}", project.name));
             }
-            Err(error) => cx.editor.set_error(format!("Could not register project: {error}")),
+            Err(error) => cx.editor.set_error(format!("Could not add project: {error}")),
         }
     }))
 }
@@ -3711,8 +3619,8 @@ fn primer_project_register_picker(directory: PathBuf) -> anyhow::Result<Picker<(
 fn primer_project_register(cx: &mut Context) {
     let directory = active_buffer_directory(cx.editor);
     match primer_project_register_picker(directory) {
-        Ok(picker) => cx.push_layer(Box::new(overlaid(picker.with_title("Register Project")))),
-        Err(error) => cx.editor.set_error(format!("Cannot browse project directories: {error}")),
+        Ok(picker) => cx.push_layer(Box::new(overlaid(picker.with_title("Add Project")))),
+        Err(error) => cx.editor.set_error(format!("Cannot browse directories: {error}")),
     }
 }
 
@@ -3755,7 +3663,7 @@ fn primer_project_forget(cx: &mut Context) {
                         cx.editor.active_project_root = None;
                         cx.editor.active_project_name = None;
                     }
-                    cx.editor.set_status("Project forgotten locally; .primer.toml and files preserved");
+                    cx.editor.set_status("Project forgotten locally; files unchanged");
                 }
                 Err(error) => cx.editor.set_error(format!("Could not forget project: {error}")),
             }
@@ -3765,7 +3673,7 @@ fn primer_project_forget(cx: &mut Context) {
     cx.push_layer(Box::new(prompt));
 }
 
-/// Pick a previously initialized project. Only explicit .primer.toml markers count.
+/// Pick a previously visited Git repository or manually added directory.
 fn primer_project_picker(cx: &mut Context) {
     use crate::projects::registry::ProjectRegistry;
 
@@ -3791,12 +3699,12 @@ fn primer_project_picker(cx: &mut Context) {
         }
     };
     if projects.is_empty() {
-        cx.editor.set_error("No registered projects. Initialize a directory with .primer.toml first");
+        cx.editor.set_error("No remembered projects. Visit a Git repository or use Space p a");
         return;
     }
     let columns = [
         PickerColumn::new("Project", |project: &crate::projects::Project, _| {
-            project.settings.project.name.clone().into()
+            project.name.clone().into()
         }),
         PickerColumn::new("Root", |project: &crate::projects::Project, _| {
             project.root.display().to_string().into()
@@ -3816,8 +3724,8 @@ fn primer_project_picker(cx: &mut Context) {
         }
         // Switching project context leaves unrelated buffers and terminals intact.
         cx.editor.active_project_root = Some(project.root.clone());
-                    cx.editor.active_project_name = Some(project.settings.project.name.clone());
-        cx.editor.set_status(format!("Active project: {} · Space f f to browse files", project.settings.project.name));
+                    cx.editor.active_project_name = Some(project.name.clone());
+        cx.editor.set_status(format!("Active project: {} · Space f f to browse files", project.name));
     });
     cx.push_layer(Box::new(overlaid(picker.with_title("Projects"))));
 }
