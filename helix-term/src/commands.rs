@@ -3714,16 +3714,22 @@ fn primer_project_forget(cx: &mut Context) {
                             cx.jobs.callback(async move {
                                 Ok(Callback::EditorCompositor(Box::new(move |_, compositor| {
                                     let lines = vec![
-                                        ("Project".to_owned(), confirmation, String::new(), String::new()),
-                                        ("Result".to_owned(), "Removed from remembered projects".to_owned(), String::new(), String::new()),
-                                        ("Files".to_owned(), "Unchanged".to_owned(), String::new(), String::new()),
+                                        ("Project:  ".to_owned(), confirmation, String::new(), String::new()),
+                                        ("Files:    ".to_owned(), "Unchanged".to_owned(), String::new(), String::new()),
                                     ];
                                     let popup = Popup::new(
                                         "primer-project-forgotten",
-                                        ui::GitChangePreview::new("Project forgotten".to_owned(), lines)
-                                            .with_title("Project forgotten"),
-                                    ).with_border();
+                                        ui::GitChangePreview::new(
+                                            "Removed from remembered projects".to_owned(), lines,
+                                        ).with_title("Project forgotten"),
+                                    ).with_border().with_scrollbar(false);
                                     compositor.replace_or_push("primer-project-forgotten", popup);
+                                })))
+                            });
+                            cx.jobs.callback(async move {
+                                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                                Ok(Callback::EditorCompositor(Box::new(move |_, compositor| {
+                                    compositor.remove("primer-project-forgotten");
                                 })))
                             });
                         }
