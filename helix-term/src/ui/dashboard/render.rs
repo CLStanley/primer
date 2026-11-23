@@ -320,9 +320,9 @@ pub fn render_dashboard(
             .sum();
         let mut hint_x = left + total_width.saturating_sub(hint_width) / 2;
         for (key, label) in hint {
-            draw_line(key, hint_x, menu_top + 21, key.len() as u16, shortcut);
+            draw_line(key, hint_x, menu_top + 20, key.len() as u16, shortcut);
             hint_x += key.len() as u16;
-            draw_line(label, hint_x, menu_top + 21, label.len() as u16, normal);
+            draw_line(label, hint_x, menu_top + 20, label.len() as u16, normal);
             hint_x += label.len() as u16;
         }
     } else {
