@@ -29,7 +29,11 @@ impl DashboardAction {
             Self::DailyNote => "Daily note",
             Self::Agenda => "Agenda",
             Self::FileExplorer => "File explorer",
-            Self::OpenProject => "Browse workspace",
+            Self::OpenProject => "Switch project",
+            Self::AddProject => "Add directory",
+            Self::ForgetProject => "Forget project",
+            Self::ClearProject => "Clear active project",
+            Self::ProjectStatus => "Project status",
             Self::Help => "Keybind help",
             Self::NewFile => "New file",
             Self::Quit => "Quit",
@@ -47,6 +51,10 @@ impl DashboardAction {
             Self::Agenda => 'e',
             Self::FileExplorer => 'r',
             Self::OpenProject => 'p',
+            Self::AddProject => 'a',
+            Self::ForgetProject => 'f',
+            Self::ClearProject => 'c',
+            Self::ProjectStatus => 's',
             Self::Help => '?',
             Self::NewFile => 'n',
             Self::Quit => 'q',
@@ -118,7 +126,7 @@ pub fn render_dashboard(
     let show_logo = area.width >= logo_width && area.height >= 20;
     let wide = area.width >= WIDE_LAYOUT_WIDTH && area.height >= 19;
     let heading_height: u16 = if show_logo { LOGO.len() as u16 } else { 1 };
-    let menu_height = if wide { 21 } else { 29 };
+    let menu_height = if wide { 22 } else { 31 };
     let content_height = heading_height + 5 + menu_height;
     let top = area.y + area.height.saturating_sub(content_height) / 2;
 
@@ -178,10 +186,11 @@ pub fn render_dashboard(
         (
             "PROJECTS",
             vec![
-                ("p", "Browse workspace", Some(DashboardAction::OpenProject)),
-                ("s", "Switch project", None),
-                ("w", "Sessions", None),
-                ("l", "Recent projects", None),
+                ("p p", "Switch project", Some(DashboardAction::OpenProject)),
+                ("p a", "Add directory", Some(DashboardAction::AddProject)),
+                ("p f", "Forget project", Some(DashboardAction::ForgetProject)),
+                ("p c", "Clear active project", Some(DashboardAction::ClearProject)),
+                ("p s", "Project status", Some(DashboardAction::ProjectStatus)),
             ],
         ),
         (
@@ -210,7 +219,7 @@ pub fn render_dashboard(
         let right = left + COLUMN_WIDTH + COLUMN_GAP;
         for (section_index, (heading, entries)) in sections.iter().enumerate() {
             let x = if section_index % 2 == 0 { left } else { right };
-            let section_top = menu_top + (section_index / 2) as u16 * 7;
+            let section_top = menu_top + (section_index / 2) as u16 * 8;
             let heading_width = heading.len() as u16;
             draw_line(
                 heading,
@@ -229,7 +238,7 @@ pub fn render_dashboard(
                     key,
                     x + 3,
                     y,
-                    1,
+                    key.len() as u16,
                     if active { selected_shortcut } else { shortcut },
                 );
                 let description = if action.is_some() {
@@ -239,9 +248,9 @@ pub fn render_dashboard(
                 };
                 draw_line(
                     &description,
-                    x + 6,
+                    x + 8,
                     y,
-                    COLUMN_WIDTH - 6,
+                    COLUMN_WIDTH - 8,
                     if active {
                         selected
                     } else if action.is_some() {
@@ -252,7 +261,7 @@ pub fn render_dashboard(
                 );
             }
         }
-        let footer_y = menu_top + 16;
+        let footer_y = menu_top + 18;
         // Shared actions form one evenly spaced horizontal footer.
         // Center each footer item in an equal-width third of the menu.
         // This keeps the spacing balanced regardless of label length.
@@ -301,7 +310,7 @@ pub fn render_dashboard(
             .sum();
         let mut hint_x = left + total_width.saturating_sub(hint_width) / 2;
         for (key, label) in hint {
-            draw_line(key, hint_x, menu_top + 19, key.len() as u16, shortcut);
+            draw_line(key, hint_x, menu_top + 21, key.len() as u16, shortcut);
             hint_x += key.len() as u16;
             draw_line(label, hint_x, menu_top + 19, label.len() as u16, normal);
             hint_x += label.len() as u16;
@@ -317,7 +326,7 @@ pub fn render_dashboard(
                 if active {
                     draw_line(">", x, y, 1, accent);
                 }
-                draw_line(key, x + 2, y, 1, shortcut);
+                draw_line(key, x + 2, y, key.len() as u16, shortcut);
                 let description = if action.is_some() {
                     label.to_string()
                 } else {
@@ -325,9 +334,9 @@ pub fn render_dashboard(
                 };
                 draw_line(
                     &description,
-                    x + 4,
+                    x + 6,
                     y,
-                    COLUMN_WIDTH - 4,
+                    COLUMN_WIDTH - 6,
                     if active {
                         selected
                     } else if action.is_some() {
