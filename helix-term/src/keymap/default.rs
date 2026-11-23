@@ -315,10 +315,10 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             },
             "p" => { "Projects"
                 "p" => primer_project_picker,
-                "i" => primer_project_initialize,
                 "a" => primer_project_register,
                 "c" => primer_project_clear,
                 "f" => primer_project_forget,
+                "s" => primer_project_status,
             },
             "j" => jumplist_picker,
             "s" => { "Search"
