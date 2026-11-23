@@ -16,6 +16,10 @@ pub enum DashboardAction {
     Agenda,
     FileExplorer,
     OpenProject,
+    AddProject,
+    ForgetProject,
+    ClearProject,
+    ProjectStatus,
     Help,
     NewFile,
     Quit,
@@ -41,6 +45,10 @@ impl Dashboard {
                 DashboardAction::Agenda,
                 DashboardAction::NewFile,
                 DashboardAction::OpenProject,
+                DashboardAction::AddProject,
+                DashboardAction::ForgetProject,
+                DashboardAction::ClearProject,
+                DashboardAction::ProjectStatus,
                 DashboardAction::Help,
                 DashboardAction::Quit,
             ],
@@ -79,7 +87,7 @@ impl Dashboard {
                 | DashboardAction::NewNote
                 | DashboardAction::DailyNote
                 | DashboardAction::Agenda => DashboardAction::OpenProject,
-                DashboardAction::OpenProject => DashboardAction::FindFile,
+                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::ProjectStatus => DashboardAction::FindFile,
                 DashboardAction::Help => DashboardAction::Quit,
                 DashboardAction::Quit => DashboardAction::Help,
                 DashboardAction::Terminal => DashboardAction::Help,
@@ -105,8 +113,8 @@ impl Dashboard {
                     DashboardAction::Agenda,
                     DashboardAction::Help,
                 ],
-                DashboardAction::OpenProject | DashboardAction::Quit | DashboardAction::Terminal => {
-                    &[DashboardAction::OpenProject, DashboardAction::Quit]
+                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::ProjectStatus | DashboardAction::Quit | DashboardAction::Terminal => {
+                    &[DashboardAction::OpenProject, DashboardAction::AddProject, DashboardAction::ForgetProject, DashboardAction::ClearProject, DashboardAction::ProjectStatus, DashboardAction::Quit]
                 }
             };
             let index = column
@@ -214,6 +222,10 @@ impl Component for Dashboard {
                         Some(DashboardAction::OpenProject) => {
                             MappableCommand::primer_project_picker
                         }
+                        Some(DashboardAction::AddProject) => MappableCommand::primer_project_register,
+                        Some(DashboardAction::ForgetProject) => MappableCommand::primer_project_forget,
+                        Some(DashboardAction::ClearProject) => MappableCommand::primer_project_clear,
+                        Some(DashboardAction::ProjectStatus) => MappableCommand::primer_project_status,
                         Some(DashboardAction::Help) => MappableCommand::command_palette,
                         Some(DashboardAction::NewFile) => return,
                         Some(DashboardAction::Terminal) => MappableCommand::Typable {
@@ -258,7 +270,7 @@ mod tests {
     fn starts_on_browse_files() {
         let dashboard = Dashboard::new();
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::FindFile));
-        assert_eq!(dashboard.actions.len(), 11);
+        assert_eq!(dashboard.actions.len(), 15);
     }
 
     #[test]
@@ -304,7 +316,7 @@ mod tests {
             Some(DashboardAction::OpenProject)
         );
         dashboard.next();
-        assert_eq!(dashboard.selected_action(), Some(DashboardAction::Quit));
+        assert_eq!(dashboard.selected_action(), Some(DashboardAction::AddProject));
         dashboard.left();
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::Help));
         dashboard.right();
