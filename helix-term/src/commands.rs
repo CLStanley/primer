@@ -3687,14 +3687,15 @@ fn primer_project_forget(cx: &mut Context) {
         let path = registry_path.clone();
         cx.jobs.callback(async move {
             Ok(Callback::EditorCompositor(Box::new(move |editor, compositor| {
+            let expected_name = name.clone();
             let mut prompt = Prompt::new(
-                format!("Forget {name}? Type yes: ").into(),
+                format!("Forget project? Type {name}: ").into(),
                 None,
                 ui::completers::none,
                 move |cx, input, event| {
                     if event != PromptEvent::Validate { return; }
-                    if input.trim() != "yes" {
-                        cx.editor.set_status("Forget project cancelled");
+                    if input != expected_name {
+                        cx.editor.set_error(format!("Project name does not match. Type {expected_name} to confirm."));
                         return;
                     }
                     let result = (|| -> anyhow::Result<()> {
