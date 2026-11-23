@@ -3638,16 +3638,16 @@ fn primer_project_status(cx: &mut Context) {
     let current = discovered.as_ref().map(|project| project.name.as_str()).unwrap_or("None");
     let detected_root = discovered.as_ref().map(|project| project.root.display().to_string()).unwrap_or_else(|| "No Git repository".to_owned());
     let lines = vec![
-        ("Active".to_owned(), active_name.to_owned(), String::new(), String::new()),
-        ("Root".to_owned(), active_root, String::new(), String::new()),
-        ("Detected".to_owned(), current.to_owned(), String::new(), String::new()),
-        ("Git root".to_owned(), detected_root, String::new(), String::new()),
-        ("Remembered".to_owned(), if remembered { "Yes" } else { "No" }.to_owned(), String::new(), String::new()),
+        ("Active project  ".to_owned(), active_name.to_owned(), String::new(), String::new()),
+        ("Active root     ".to_owned(), active_root, String::new(), String::new()),
+        ("Detected Git    ".to_owned(), current.to_owned(), String::new(), String::new()),
+        ("Git root        ".to_owned(), detected_root, String::new(), String::new()),
+        ("Remembered      ".to_owned(), if remembered { "Yes" } else { "No" }.to_owned(), String::new(), String::new()),
     ];
     cx.callback.push(Box::new(move |compositor, _| {
         let popup = Popup::new("primer-project-status",
             ui::GitChangePreview::new("Project information".to_owned(), lines)
-                .with_title("Project status"));
+                .with_title("Project status").compact());
         compositor.replace_or_push("primer-project-status", popup.with_border());
     }));
 }
@@ -3721,7 +3721,7 @@ fn primer_project_forget(cx: &mut Context) {
                                         "primer-project-forgotten",
                                         ui::GitChangePreview::new(
                                             "Removed from remembered projects".to_owned(), lines,
-                                        ).with_title("Project forgotten"),
+                                        ).with_title("Project forgotten").compact(),
                                     ).with_border().with_scrollbar(false);
                                     compositor.replace_or_push("primer-project-forgotten", popup);
                                 })))
