@@ -3628,63 +3628,98 @@ fn primer_project_status(cx: &mut Context) {
     use crate::projects::registry::ProjectRegistry;
     let focused = active_buffer_directory(cx.editor);
     let discovered = crate::projects::discover(&focused).ok().flatten();
-    let active = cx.editor.active_project_name.as_deref().unwrap_or("None");
+    let active_name = cx.editor.active_project_name.as_deref().unwrap_or("None");
+    let active_root = cx.editor.active_project_root.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "No active project".to_owned());
     let remembered = discovered.as_ref().and_then(|project| {
         let path = ProjectRegistry::default_path().ok()?;
         let registry = ProjectRegistry::read(&path).ok()?;
         Some(registry.roots.contains(&project.root))
     }).unwrap_or(false);
-    let current = discovered.as_ref().map(|project| project.name.as_str()).unwrap_or("No Git repository");
-    cx.editor.set_status(format!("Active: {active} | Focused Git project: {current} | Remembered: {remembered}"));
+    let current = discovered.as_ref().map(|project| project.name.as_str()).unwrap_or("None");
+    let detected_root = discovered.as_ref().map(|project| project.root.display().to_string()).unwrap_or_else(|| "No Git repository".to_owned());
+    let lines = vec![
+        ("Active".to_owned(), active_name.to_owned(), String::new(), String::new()),
+        ("Root".to_owned(), active_root, String::new(), String::new()),
+        ("Detected".to_owned(), current.to_owned(), String::new(), String::new()),
+        ("Git root".to_owned(), detected_root, String::new(), String::new()),
+        ("Remembered".to_owned(), if remembered { "Yes" } else { "No" }.to_owned(), String::new(), String::new()),
+    ];
+    cx.callback.push(Box::new(move |compositor, _| {
+        let popup = Popup::new("primer-project-status",
+            ui::GitChangePreview::new("Project information".to_owned(), lines)
+                .with_title("Project status"));
+        compositor.replace_or_push("primer-project-status", popup.with_border());
+    }));
 }
 
 /// Clear project scoping without closing or modifying any buffers.
 fn primer_project_clear(cx: &mut Context) {
     if cx.editor.active_project_root.take().is_some() {
         cx.editor.active_project_name = None;
-        cx.editor.set_status("Project context cleared; using normal workspace directories");
+        cx.editor.set_status("Project context cleared");
     } else {
-        cx.editor.set_status("No active project");
+        cx.editor.set_status("No active project to clear");
     }
 }
 
-/// Forget the active project in the local registry, without deleting its files or marker.
+/// Choose any remembered project to forget, regardless of active context.
 fn primer_project_forget(cx: &mut Context) {
     use crate::projects::registry::ProjectRegistry;
-    let Some(root) = cx.editor.active_project_root.clone() else {
-        cx.editor.set_error("Select a project with Space p p before forgetting it");
-        return;
+    let registry_path = match ProjectRegistry::default_path() {
+        Ok(path) => path,
+        Err(error) => { cx.editor.set_error(format!("Project registry unavailable: {error}")); return; }
     };
-    let mut prompt = Prompt::new(
-        "Forget active project? Type yes: ".into(),
-        None,
-        ui::completers::none,
-        move |cx, input, event| {
-            if event != PromptEvent::Validate { return; }
-            if input.trim() != "yes" {
-                cx.editor.set_status("Forget project cancelled");
-                return;
-            }
-            let result = (|| -> anyhow::Result<()> {
-                let registry_path = ProjectRegistry::default_path()?;
-                let mut registry = ProjectRegistry::read(&registry_path)?;
-                registry.forget(&root);
-                registry.save(&registry_path)
-            })();
-            match result {
-                Ok(()) => {
-                    if cx.editor.active_project_root.as_ref() == Some(&root) {
-                        cx.editor.active_project_root = None;
-                        cx.editor.active_project_name = None;
-                    }
-                    cx.editor.set_status("Project forgotten locally; files unchanged");
+    let projects = match ProjectRegistry::read(&registry_path).and_then(|registry| registry.projects()) {
+        Ok(projects) => projects,
+        Err(error) => { cx.editor.set_error(format!("Could not read projects: {error}")); return; }
+    };
+    if projects.is_empty() {
+        cx.editor.set_status("No remembered projects to forget");
+        return;
+    }
+    let columns = [
+        PickerColumn::new("Project", |project: &crate::projects::Project, _| project.name.clone().into()),
+        PickerColumn::new("Root", |project: &crate::projects::Project, _| project.root.display().to_string().into()),
+    ];
+    let picker = Picker::new(columns, 0, projects, (), move |cx, project: &crate::projects::Project, _| {
+        let root = project.root.clone();
+        let name = project.name.clone();
+        let path = registry_path.clone();
+        let mut prompt = Prompt::new(
+            format!("Forget {name}? Type yes: ").into(),
+            None,
+            ui::completers::none,
+            move |cx, input, event| {
+                if event != PromptEvent::Validate { return; }
+                if input.trim() != "yes" {
+                    cx.editor.set_status("Forget project cancelled");
+                    return;
                 }
-                Err(error) => cx.editor.set_error(format!("Could not forget project: {error}")),
-            }
-        },
-    );
-    prompt.recalculate_completion(cx.editor);
-    cx.push_layer(Box::new(prompt));
+                let result = (|| -> anyhow::Result<()> {
+                    let mut registry = ProjectRegistry::read(&path)?;
+                    registry.forget(&root);
+                    registry.save(&path)
+                })();
+                match result {
+                    Ok(()) => {
+                        if cx.editor.active_project_root.as_ref() == Some(&root) {
+                            cx.editor.active_project_root = None;
+                            cx.editor.active_project_name = None;
+                        }
+                        cx.editor.set_status(format!("Forgot {name}; project files unchanged"));
+                    }
+                    Err(error) => cx.editor.set_error(format!("Could not forget project: {error}")),
+                }
+            },
+        );
+        prompt.recalculate_completion(cx.editor);
+        cx.jobs.callback(async move {
+            Ok(Callback::EditorCompositor(Box::new(move |_, compositor| {
+                compositor.push(Box::new(prompt));
+            })))
+        });
+    });
+    cx.push_layer(Box::new(overlaid(picker.with_title("Forget Project"))));
 }
 
 /// Pick a previously visited Git repository or manually added directory.
