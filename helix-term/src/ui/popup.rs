@@ -42,6 +42,7 @@ pub struct Popup<T: Component> {
     id: &'static str,
     has_scrollbar: bool,
     force_border: bool,
+    centered: bool,
 }
 
 impl<T: Component> Popup<T> {
@@ -57,6 +58,7 @@ impl<T: Component> Popup<T> {
             id,
             has_scrollbar: true,
             force_border: false,
+            centered: false,
         }
     }
 
@@ -111,6 +113,11 @@ impl<T: Component> Popup<T> {
     /// Consider disabling the scrollbar in case the child
     /// already has its own.
     /// Draw a border even when the editor's general popup border setting is disabled.
+    pub fn centered(mut self) -> Self {
+        self.centered = true;
+        self
+    }
+
     pub fn with_border(mut self) -> Self {
         self.force_border = true;
         self
@@ -220,6 +227,16 @@ impl<T: Component> Popup<T> {
                 let y_max = viewport.bottom().min(height + rel_y);
                 Rect::new(rel_x, rel_y, width, y_max - rel_y)
             }
+        };
+        let area = if self.centered {
+            Rect::new(
+                viewport.x + viewport.width.saturating_sub(area.width) / 2,
+                viewport.y + viewport.height.saturating_sub(area.height) / 2,
+                area.width,
+                area.height,
+            )
+        } else {
+            area
         };
         RenderInfo {
             area,
