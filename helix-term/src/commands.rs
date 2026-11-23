@@ -3710,6 +3710,22 @@ fn primer_project_forget(cx: &mut Context) {
                                 cx.editor.active_project_name = None;
                             }
                             cx.editor.set_status(format!("Forgot {name}; project files unchanged"));
+                            let confirmation = name.clone();
+                            cx.jobs.callback(async move {
+                                Ok(Callback::EditorCompositor(Box::new(move |_, compositor| {
+                                    let lines = vec![
+                                        ("Project".to_owned(), confirmation, String::new(), String::new()),
+                                        ("Result".to_owned(), "Removed from remembered projects".to_owned(), String::new(), String::new()),
+                                        ("Files".to_owned(), "Unchanged".to_owned(), String::new(), String::new()),
+                                    ];
+                                    let popup = Popup::new(
+                                        "primer-project-forgotten",
+                                        ui::GitChangePreview::new("Project forgotten".to_owned(), lines)
+                                            .with_title("Project forgotten"),
+                                    ).with_border();
+                                    compositor.replace_or_push("primer-project-forgotten", popup);
+                                })))
+                            });
                         }
                         Err(error) => cx.editor.set_error(format!("Could not forget project: {error}")),
                     }
@@ -3726,20 +3742,6 @@ fn primer_project_forget(cx: &mut Context) {
 /// Pick a previously visited Git repository or manually added directory.
 fn primer_project_picker(cx: &mut Context) {
     use crate::projects::registry::ProjectRegistry;
-
-    // Visiting a file in a Git repository makes that repository available
-    // in the picker, without silently changing the active project.
-    if let Ok(Some(project)) = crate::projects::discover(&active_buffer_directory(cx.editor)) {
-        if let Ok(path) = ProjectRegistry::default_path() {
-            if let Ok(mut registry) = ProjectRegistry::read(&path) {
-                if !registry.roots.contains(&project.root) {
-                    if registry.register(&project.root).is_ok() {
-                        let _ = registry.save(&path);
-                    }
-                }
-            }
-        }
-    }
 
     let registry_path = match ProjectRegistry::default_path() {
         Ok(path) => path,
