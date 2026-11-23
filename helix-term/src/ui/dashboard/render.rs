@@ -138,7 +138,7 @@ pub fn render_dashboard(
     let heading_height: u16 = if show_logo { LOGO.len() as u16 } else { 1 };
     let menu_height = if wide { 22 } else { 31 };
     let content_height = heading_height + 5 + menu_height;
-    let top = area.y + area.height.saturating_sub(content_height) / 2;
+    let top = area.y + (area.height.saturating_sub(content_height) / 2).saturating_sub(2);
 
     // A row renderer that never extends beyond the visible terminal.
     let mut draw_line = |line: &str, x: u16, row: u16, width: u16, style| {
@@ -383,19 +383,22 @@ pub fn render_dashboard(
         }
     }
     if let Some(name) = project_footer {
-        if full_area.height > 1 {
-            let label = format!(" Active project: {name} ");
-            let width = label.as_str().width().min(full_area.width as usize) as u16;
-            let x = full_area.x + full_area.width.saturating_sub(width) / 2;
+        if full_area.height > 1 && full_area.width >= 5 {
+            let label = format!(" {name} ");
+            let width = label.as_str().width().min(full_area.width.saturating_sub(2) as usize) as u16;
+            let x = full_area.x + full_area.width.saturating_sub(width + 2) / 2;
+            let y = full_area.bottom() - 1;
             let style = Style::default()
                 .fg(Color::Reset)
                 .bg(accent_color)
                 .add_modifier(Modifier::BOLD);
+            let cap_style = Style::default().fg(accent_color).bg(Color::Reset);
+            surface.set_stringn(x, y, "", 1, cap_style);
             let text = Text::from(label.as_str());
             Paragraph::new(&text)
                 .style(style)
-                .render(Rect::new(x, full_area.bottom() - 1, width, 1), surface);
+                .render(Rect::new(x + 1, y, width, 1), surface);
+            surface.set_stringn(x + width + 1, y, "", 1, cap_style);
         }
     }
-
 }
