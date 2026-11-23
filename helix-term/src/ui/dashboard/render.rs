@@ -1,4 +1,5 @@
 use helix_view::graphics::{Color, Modifier, Rect, Style};
+use helix_core::unicode::width::UnicodeWidthStr;
 use tui::buffer::Buffer as Surface;
 use tui::text::Text;
 use tui::widgets::{Paragraph, Widget};
@@ -121,6 +122,15 @@ pub fn render_dashboard(
         .bg(Color::Reset)
         .add_modifier(Modifier::DIM);
     surface.clear_with(area, Style::reset());
+
+    // Reserve a footer row for the active project, independent of menu selection.
+    let project_footer = ctx.editor.active_project_name.clone();
+    let full_area = area;
+    let area = if project_footer.is_some() && area.height > 1 {
+        area.with_height(area.height - 1)
+    } else {
+        area
+    };
 
     let logo_width = LOGO.iter().map(|line| line.len()).max().unwrap_or(0) as u16;
     let show_logo = area.width >= logo_width && area.height >= 20;
@@ -372,4 +382,20 @@ pub fn render_dashboard(
             y += 1;
         }
     }
+    if let Some(name) = project_footer {
+        if full_area.height > 1 {
+            let label = format!(" Active project: {name} ");
+            let width = label.as_str().width().min(full_area.width as usize) as u16;
+            let x = full_area.x + full_area.width.saturating_sub(width) / 2;
+            let style = Style::default()
+                .fg(Color::Reset)
+                .bg(accent_color)
+                .add_modifier(Modifier::BOLD);
+            let text = Text::from(label.as_str());
+            Paragraph::new(&text)
+                .style(style)
+                .render(Rect::new(x, full_area.bottom() - 1, width, 1), surface);
+        }
+    }
+
 }
