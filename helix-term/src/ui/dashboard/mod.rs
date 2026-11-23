@@ -179,6 +179,10 @@ impl Component for Dashboard {
             | key!('d')
             | key!('e')
             | key!('p')
+            | key!('b')
+            | key!('x')
+            | key!('c')
+            | key!('s')
             | key!('?')
             | key!('n')
             | key!('q')
@@ -192,6 +196,10 @@ impl Component for Dashboard {
                     key!('d') => Some(DashboardAction::DailyNote),
                     key!('e') => Some(DashboardAction::Agenda),
                     key!('p') => Some(DashboardAction::OpenProject),
+                    key!('b') => Some(DashboardAction::AddProject),
+                    key!('x') => Some(DashboardAction::ForgetProject),
+                    key!('c') => Some(DashboardAction::ClearProject),
+                    key!('s') => Some(DashboardAction::ProjectStatus),
                     key!('?') => Some(DashboardAction::Help),
                     key!('n') => Some(DashboardAction::NewFile),
                     key!('q') => Some(DashboardAction::Quit),
