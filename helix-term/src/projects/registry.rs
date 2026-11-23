@@ -1,5 +1,5 @@
-//! Persistent local index of explicitly initialized Primer projects.
-//! This index is a convenience cache; the `.primer.toml` marker is authoritative.
+//! Persistent local index of discovered Git projects and manually added directories.
+//! No files are created in project directories.
 
 use std::fs;
 use std::io;
@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use super::{load, Project};
+use super::{from_directory, Project};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ProjectRegistry {
@@ -36,31 +36,22 @@ impl ProjectRegistry {
         toml::from_str(&source).with_context(|| format!("invalid registry {}", path.display()))
     }
 
-    /// Register only directories with a valid explicit project marker.
-    /// Most recently registered projects appear first.
+    /// Remember an existing directory, most recently visited first.
     pub fn register(&mut self, root: &Path) -> Result<Project> {
-        let project = load(root)?.with_context(|| {
-            format!("{} is not a Primer project; initialize it first", root.display())
-        })?;
+        let project = from_directory(root)?;
         self.roots.retain(|existing| existing != &project.root);
         self.roots.insert(0, project.root.clone());
         Ok(project)
     }
 
-    /// Forgetting a project does not delete its marker or files.
     pub fn forget(&mut self, root: &Path) {
         let canonical = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
         self.roots.retain(|existing| existing != &canonical);
     }
 
-    /// Return valid projects in recent-first order, skipping missing markers.
-    /// Invalid marker contents are reported rather than silently reinterpreted.
+    /// Missing directories are skipped; no marker is required.
     pub fn projects(&self) -> Result<Vec<Project>> {
-        self.roots.iter().filter_map(|root| match load(root) {
-            Ok(Some(project)) => Some(Ok(project)),
-            Ok(None) => None,
-            Err(error) => Some(Err(error)),
-        }).collect()
+        Ok(self.roots.iter().filter_map(|root| from_directory(root).ok()).collect())
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
@@ -84,27 +75,14 @@ impl ProjectRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::projects::initialize;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
     #[test]
-    fn register_requires_marker_and_forget_preserves_files() {
-        let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-        let root = std::env::temp_dir().join(format!("primer-registry-{}-{stamp}", std::process::id()));
-        fs::create_dir_all(&root).unwrap();
+    fn register_without_marker_and_forget() {
+        let root = std::env::temp_dir();
         let mut registry = ProjectRegistry::default();
-        assert!(registry.register(&root).is_err());
-        initialize(&root, "Example").unwrap();
         registry.register(&root).unwrap();
         registry.register(&root).unwrap();
         assert_eq!(registry.roots.len(), 1);
-        let file = root.join("projects.toml");
-        registry.save(&file).unwrap();
-        let mut restored = ProjectRegistry::read(&file).unwrap();
-        assert_eq!(restored.projects().unwrap()[0].settings.project.name, "Example");
-        restored.forget(&root);
-        assert!(restored.roots.is_empty());
-        assert!(root.join(super::super::MARKER).exists());
-        fs::remove_dir_all(root).unwrap();
+        registry.forget(&root);
+        assert!(registry.roots.is_empty());
     }
 }
