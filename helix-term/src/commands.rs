@@ -3648,7 +3648,7 @@ fn primer_project_status(cx: &mut Context) {
         let popup = Popup::new("primer-project-status",
             ui::GitChangePreview::new("Project information".to_owned(), lines)
                 .with_title("Project status").compact());
-        compositor.replace_or_push("primer-project-status", popup.with_border());
+        compositor.replace_or_push("primer-project-status", popup.with_border().centered().with_scrollbar(false));
     }));
 }
 
@@ -3722,12 +3722,12 @@ fn primer_project_forget(cx: &mut Context) {
                                         ui::GitChangePreview::new(
                                             "Removed from remembered projects".to_owned(), lines,
                                         ).with_title("Project forgotten").compact(),
-                                    ).with_border().with_scrollbar(false);
+                                    ).with_border().centered().with_scrollbar(false);
                                     compositor.replace_or_push("primer-project-forgotten", popup);
                                 })))
                             });
                             cx.jobs.callback(async move {
-                                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
                                 Ok(Callback::EditorCompositor(Box::new(move |_, compositor| {
                                     compositor.remove("primer-project-forgotten");
                                 })))
