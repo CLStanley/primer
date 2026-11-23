@@ -216,9 +216,8 @@ impl Component for Dashboard {
                     if matches!(action, Some(DashboardAction::Quit)) {
                         compositor.remove_type::<Dashboard>();
                     }
-                    if matches!(action, Some(DashboardAction::Terminal | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::ProjectStatus)) {
-                        // Status and error messages are otherwise obscured by the dashboard;
-                        // the forget confirmation must also be allowed to take focus.
+                    if action == Some(DashboardAction::Terminal) {
+                        // Terminals replace the startup dashboard; project controls do not.
                         compositor.remove_type::<Dashboard>();
                     }
                     let command = match action {
