@@ -393,7 +393,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             truncate_start: true,
             show_preview: true,
             selection_only: false,
-            hide_column_headers: false,
+            hide_column_headers: true,
             callback_fn: Box::new(callback_fn),
             default_action: Action::Replace,
             completion_height: 0,
