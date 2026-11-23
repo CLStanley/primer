@@ -51,8 +51,8 @@ impl DashboardAction {
             Self::Agenda => 'e',
             Self::FileExplorer => 'r',
             Self::OpenProject => 'p',
-            Self::AddProject => 'a',
-            Self::ForgetProject => 'f',
+            Self::AddProject => 'b',
+            Self::ForgetProject => 'x',
             Self::ClearProject => 'c',
             Self::ProjectStatus => 's',
             Self::Help => '?',
@@ -186,11 +186,11 @@ pub fn render_dashboard(
         (
             "PROJECTS",
             vec![
-                ("p p", "Switch project", Some(DashboardAction::OpenProject)),
-                ("p a", "Add directory", Some(DashboardAction::AddProject)),
-                ("p f", "Forget project", Some(DashboardAction::ForgetProject)),
-                ("p c", "Clear active project", Some(DashboardAction::ClearProject)),
-                ("p s", "Project status", Some(DashboardAction::ProjectStatus)),
+                ("p", "Switch project", Some(DashboardAction::OpenProject)),
+                ("b", "Add directory", Some(DashboardAction::AddProject)),
+                ("x", "Forget project", Some(DashboardAction::ForgetProject)),
+                ("c", "Clear active project", Some(DashboardAction::ClearProject)),
+                ("s", "Project status", Some(DashboardAction::ProjectStatus)),
             ],
         ),
         (
