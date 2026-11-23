@@ -3685,36 +3685,37 @@ fn primer_project_forget(cx: &mut Context) {
         let root = project.root.clone();
         let name = project.name.clone();
         let path = registry_path.clone();
-        let mut prompt = Prompt::new(
-            format!("Forget {name}? Type yes: ").into(),
-            None,
-            ui::completers::none,
-            move |cx, input, event| {
-                if event != PromptEvent::Validate { return; }
-                if input.trim() != "yes" {
-                    cx.editor.set_status("Forget project cancelled");
-                    return;
-                }
-                let result = (|| -> anyhow::Result<()> {
-                    let mut registry = ProjectRegistry::read(&path)?;
-                    registry.forget(&root);
-                    registry.save(&path)
-                })();
-                match result {
-                    Ok(()) => {
-                        if cx.editor.active_project_root.as_ref() == Some(&root) {
-                            cx.editor.active_project_root = None;
-                            cx.editor.active_project_name = None;
-                        }
-                        cx.editor.set_status(format!("Forgot {name}; project files unchanged"));
-                    }
-                    Err(error) => cx.editor.set_error(format!("Could not forget project: {error}")),
-                }
-            },
-        );
-        prompt.recalculate_completion(cx.editor);
         cx.jobs.callback(async move {
-            Ok(Callback::EditorCompositor(Box::new(move |_, compositor| {
+            Ok(Callback::EditorCompositor(Box::new(move |editor, compositor| {
+            let mut prompt = Prompt::new(
+                format!("Forget {name}? Type yes: ").into(),
+                None,
+                ui::completers::none,
+                move |cx, input, event| {
+                    if event != PromptEvent::Validate { return; }
+                    if input.trim() != "yes" {
+                        cx.editor.set_status("Forget project cancelled");
+                        return;
+                    }
+                    let result = (|| -> anyhow::Result<()> {
+                        let mut registry = ProjectRegistry::read(&path)?;
+                        registry.forget(&root);
+                        registry.save(&path)
+                    })();
+                    match result {
+                        Ok(()) => {
+                            if cx.editor.active_project_root.as_ref() == Some(&root) {
+                                cx.editor.active_project_root = None;
+                                cx.editor.active_project_name = None;
+                            }
+                            cx.editor.set_status(format!("Forgot {name}; project files unchanged"));
+                        }
+                        Err(error) => cx.editor.set_error(format!("Could not forget project: {error}")),
+                    }
+                },
+            );
+            prompt.recalculate_completion(cx.editor);
+                    prompt.recalculate_completion(editor);
                 compositor.push(Box::new(prompt));
             })))
         });
