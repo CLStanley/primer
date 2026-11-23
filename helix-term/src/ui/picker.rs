@@ -538,7 +538,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     fn header_height(&self) -> u16 {
         if self.columns.len() > 1 && !self.hide_column_headers {
-            1
+            2
         } else {
             0
         }
@@ -898,7 +898,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                         Cell::from(Span::styled(Cow::from(&*column.name), style))
                     }
                 }))
-                .style(header_style),
+                .style(header_style)
+                .bottom_margin(1),
             );
         }
 
@@ -913,6 +914,15 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             },
             self.truncate_start,
         );
+        if self.header_height() > 0 && inner.height > 1 {
+            let separator_style = cx.editor.theme.get("ui.background.separator");
+            let horizontal = BorderType::line_symbols(BorderType::Plain).horizontal;
+            for x in inner.left()..inner.right() {
+                if let Some(cell) = surface.get_mut(x, inner.y + 1) {
+                    cell.set_symbol(horizontal).set_style(separator_style);
+                }
+            }
+        }
     }
 
     fn render_preview(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
