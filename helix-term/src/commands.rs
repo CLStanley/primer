@@ -3725,7 +3725,7 @@ fn primer_project_forget(cx: &mut Context) {
                                         ui::GitChangePreview::new(
                                             "Removed from remembered projects".to_owned(), lines,
                                         ).with_title("Project forgotten").compact(),
-                                    ).with_border().centered().with_scrollbar(false);
+                                    ).with_border().top_right().with_scrollbar(false).auto_close(true);
                                     compositor.replace_or_push("primer-project-forgotten", popup);
                                 })))
                             });
