@@ -266,6 +266,11 @@ impl Application {
     }
 
     async fn render(&mut self) {
+        if self.editor.active_project_root.as_ref().is_some_and(|root| !root.is_dir()) {
+            self.editor.active_project_root = None;
+            self.editor.active_project_name = None;
+            self.editor.set_error("Active project directory is unavailable; project context cleared");
+        }
         if self.compositor.full_redraw {
             self.terminal.clear().expect("Cannot clear the terminal");
             self.compositor.full_redraw = false;
