@@ -3095,6 +3095,42 @@ fn open_terminal_program(
 }
 
 #[cfg(target_os = "linux")]
+fn active_remote() -> &'static std::sync::Mutex<Option<crate::remote::registry::RemoteLocation>> {
+    static ACTIVE: std::sync::Mutex<Option<crate::remote::registry::RemoteLocation>> = std::sync::Mutex::new(None);
+    &ACTIVE
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ssh_dashboard_indicator() -> Option<String> {
+    let active = active_remote().try_lock().ok()?.clone()?;
+    let registry = match remote_registry().try_lock() {
+        Ok(registry) => registry,
+        Err(_) => return Some(format!("SSH: {} (busy)", active.destination)),
+    };
+    let state = if registry.mounted_path(&active).is_ok() { "Mounted" } else { "Disconnected" };
+    Some(format!("SSH: {} ({state})", active.destination))
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ssh_browse(cx: &mut compositor::Context) {
+    cx.jobs.callback(async move {
+        let result = tokio::task::spawn_blocking(|| -> anyhow::Result<PathBuf> {
+            let active = active_remote().lock().map_err(|_| anyhow::anyhow!("Remote context unavailable"))?
+                .clone().ok_or_else(|| anyhow::anyhow!("Connect to an SSH host first"))?;
+            let registry = remote_registry().lock().map_err(|_| anyhow::anyhow!("Remote registry unavailable"))?;
+            Ok(registry.mounted_path(&active)?.to_owned())
+        }).await;
+        Ok(job::Callback::EditorCompositor(Box::new(move |editor, compositor| {
+            match result {
+                Ok(Ok(path)) => compositor.push(Box::new(overlaid(ui::file_picker(editor, path)))),
+                Ok(Err(err)) => remote_feedback(compositor, format!("Remote files\n\n{err:#}")),
+                Err(err) => remote_feedback(compositor, format!("SSH worker failed\n\n{err}")),
+            }
+        })))
+    });
+}
+
+#[cfg(target_os = "linux")]
 fn remote_registry() -> &'static std::sync::Mutex<crate::remote::registry::ConnectionRegistry> {
     static REGISTRY: std::sync::OnceLock<std::sync::Mutex<crate::remote::registry::ConnectionRegistry>> =
         std::sync::OnceLock::new();
@@ -3124,14 +3160,16 @@ pub(crate) fn ssh_connect_location(cx: &mut compositor::Context, location: crate
         let result = tokio::task::spawn_blocking(move || {
             remote_registry().lock()
                 .map_err(|_| anyhow::anyhow!("Remote registry unavailable"))?
-                .connect(&runtime, location)
+                .connect(&runtime, location.clone())?;
+            Ok::<_, anyhow::Error>(location)
         }).await;
         Ok(job::Callback::EditorCompositor(Box::new(move |editor, compositor| {
             match result {
-                Ok(Ok(path)) => {
+                Ok(Ok(location)) => {
+                    if let Ok(mut active) = active_remote().lock() {
+                        *active = Some(location);
+                    }
                     editor.set_status("Remote filesystem mounted");
-                    let picker = ui::file_picker(editor, path);
-                    compositor.push(Box::new(overlaid(picker)));
                 }
                 Ok(Err(err)) => remote_feedback(compositor, format!("SSH connection failed\n\n{err:#}")),
                 Err(err) => remote_feedback(compositor, format!("SSH worker failed\n\n{err}")),
@@ -3178,7 +3216,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "ssh-connect",
         aliases: &[],
-        doc: "Mount an SSH host and absolute remote directory, then open the file picker.",
+        doc: "Mount an SSH host and absolute remote directory, and select the remote context.",
         fun: ssh_connect,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (2, Some(2)), ..Signature::DEFAULT },
