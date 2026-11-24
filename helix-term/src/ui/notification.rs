@@ -114,7 +114,15 @@ pub(crate) fn notify(jobs: &mut job::Jobs, severity: Severity, title: impl Into<
     let title = title.into();
     let message = message.into();
     jobs.spawn(async move {
-        job::dispatch(move |_, compositor| {
+        dispatch_notification(severity, title, message).await;
+        Ok(())
+    });
+}
+
+pub(crate) async fn dispatch_notification(severity: Severity, title: impl Into<String>, message: impl Into<String>) {
+    let title = title.into();
+    let message = message.into();
+    job::dispatch(move |_, compositor| {
             let generation = GENERATION.fetch_add(1, Ordering::Relaxed) + 1;
             let popup = Popup::new(ID, Notification { severity, title, message })
                 .with_border().with_border_scope(severity.scope()).top_right().with_scrollbar(false);
@@ -141,8 +149,6 @@ pub(crate) fn notify(jobs: &mut job::Jobs, severity: Severity, title: impl Into<
                 });
             }
         }).await;
-        Ok(())
-    });
 }
 
 #[cfg(test)]
