@@ -31,6 +31,7 @@ pub enum DashboardAction {
     RemoteBrowse,
     RemoteDisconnect,
     RemoteDirectory,
+    RemoteSavedHosts,
 }
 
 pub struct Dashboard {
@@ -66,6 +67,7 @@ impl Dashboard {
                 DashboardAction::RemoteBrowse,
                 DashboardAction::RemoteDisconnect,
                 DashboardAction::RemoteDirectory,
+                DashboardAction::RemoteSavedHosts,
             ],
         }
     }
@@ -102,7 +104,7 @@ impl Dashboard {
                 | DashboardAction::NewNote
                 | DashboardAction::DailyNote
                 | DashboardAction::Agenda => DashboardAction::OpenProject,
-                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::ProjectStatus | DashboardAction::RemoteConnect | DashboardAction::RemoteConnections | DashboardAction::RemoteBrowse | DashboardAction::RemoteDisconnect | DashboardAction::RemoteDirectory => DashboardAction::FindFile,
+                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::ProjectStatus | DashboardAction::RemoteConnect | DashboardAction::RemoteConnections | DashboardAction::RemoteBrowse | DashboardAction::RemoteDisconnect | DashboardAction::RemoteDirectory | DashboardAction::RemoteSavedHosts => DashboardAction::FindFile,
                 DashboardAction::Terminal | DashboardAction::LazyGit | DashboardAction::LazyDocker | DashboardAction::Help | DashboardAction::Quit => {
                     let footer = [DashboardAction::Terminal, DashboardAction::LazyGit, DashboardAction::LazyDocker, DashboardAction::Help, DashboardAction::Quit];
                     let i = footer.iter().position(|a| *a == current).unwrap_or(0);
@@ -133,8 +135,8 @@ impl Dashboard {
                     DashboardAction::LazyGit,
                     DashboardAction::LazyDocker,
                 ],
-                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::ProjectStatus | DashboardAction::RemoteConnect | DashboardAction::RemoteConnections | DashboardAction::RemoteBrowse | DashboardAction::RemoteDisconnect | DashboardAction::RemoteDirectory | DashboardAction::Quit => {
-                    &[DashboardAction::OpenProject, DashboardAction::AddProject, DashboardAction::ForgetProject, DashboardAction::ClearProject, DashboardAction::ProjectStatus, DashboardAction::RemoteConnect, DashboardAction::RemoteConnections, DashboardAction::RemoteBrowse, DashboardAction::RemoteDisconnect, DashboardAction::RemoteDirectory, DashboardAction::Quit]
+                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::ProjectStatus | DashboardAction::RemoteConnect | DashboardAction::RemoteConnections | DashboardAction::RemoteBrowse | DashboardAction::RemoteDisconnect | DashboardAction::RemoteDirectory | DashboardAction::RemoteSavedHosts | DashboardAction::Quit => {
+                    &[DashboardAction::OpenProject, DashboardAction::AddProject, DashboardAction::ForgetProject, DashboardAction::ClearProject, DashboardAction::ProjectStatus, DashboardAction::RemoteConnect, DashboardAction::RemoteConnections, DashboardAction::RemoteBrowse, DashboardAction::RemoteDisconnect, DashboardAction::RemoteDirectory, DashboardAction::RemoteSavedHosts, DashboardAction::Quit]
                 }
             };
             let index = column
@@ -218,8 +220,9 @@ impl Component for Dashboard {
             | key!('?')
             | key!('n')
             | key!('q')
-            | key!('y') | key!('w') | key!('v') | key!('u') | key!('i') | key!('t') | key!('G') | key!('D') => {
+            | key!('z') | key!('y') | key!('w') | key!('v') | key!('u') | key!('i') | key!('t') | key!('G') | key!('D') => {
                 let action = match key {
+                    key!('z') => Some(DashboardAction::RemoteSavedHosts),
                     key!('y') => Some(DashboardAction::RemoteDirectory),
                     key!('w') => Some(DashboardAction::RemoteDisconnect),
                     key!('v') => Some(DashboardAction::RemoteBrowse),
@@ -266,6 +269,21 @@ impl Component for Dashboard {
                                 compositor.push(Box::new(crate::ui::popup::Popup::new(
                                     "ssh-disconnect-confirm", DisconnectConfirmation { disconnect: false },
                                 ).centered().with_border()));
+                            }
+                            #[cfg(not(target_os = "linux"))]
+                            cx.editor.set_error("Remote SSH currently requires Linux");
+                            return;
+                        }
+                        Some(DashboardAction::RemoteSavedHosts) => {
+                            #[cfg(target_os = "linux")]
+                            {
+                                match commands::ssh_saved_hosts() {
+                                    Ok(hosts) if !hosts.is_empty() => compositor.push(Box::new(crate::ui::popup::Popup::new(
+                                        "ssh-saved-hosts", SavedHosts { hosts, selected: 0 },
+                                    ).centered().with_border())),
+                                    Ok(_) => ssh_input_error(cx, "No saved hosts yet. Connect to a host first.".into()),
+                                    Err(err) => ssh_input_error(cx, format!("Could not load saved hosts: {err:#}")),
+                                }
                             }
                             #[cfg(not(target_os = "linux"))]
                             cx.editor.set_error("Remote SSH currently requires Linux");
@@ -392,7 +410,7 @@ mod tests {
     fn starts_on_browse_files() {
         let dashboard = Dashboard::new();
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::FindFile));
-        assert_eq!(dashboard.actions.len(), 23);
+        assert_eq!(dashboard.actions.len(), 24);
     }
 
     #[test]
@@ -502,6 +520,53 @@ impl Component for DisconnectConfirmation {
                 }
                 key!(Enter) => {
                     if self.disconnect { commands::ssh_disconnect_dashboard(cx); }
+                    EventResult::Consumed(Some(Box::new(|compositor, _| { compositor.pop(); })))
+                }
+                key!(Esc) => EventResult::Consumed(Some(Box::new(|compositor, _| { compositor.pop(); }))),
+                _ => EventResult::Consumed(None),
+            },
+            Event::Mouse(_) => EventResult::Consumed(None),
+            _ => EventResult::Ignored(None),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+struct SavedHosts {
+    hosts: Vec<crate::remote::registry::RemoteLocation>,
+    selected: usize,
+}
+
+#[cfg(target_os = "linux")]
+impl Component for SavedHosts {
+    fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
+        Some((90.min(viewport.0), (self.hosts.len().min(15) as u16 + 3).min(viewport.1)))
+    }
+
+    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+        let normal = cx.editor.theme.get("ui.text");
+        let selected = cx.editor.theme.get("ui.menu.selected");
+        if area.height < 3 { return; }
+        surface.set_stringn(area.x, area.y, "Saved SSH Hosts", area.width as usize, normal);
+        let visible = (area.height - 2) as usize;
+        let offset = self.selected.saturating_sub(visible.saturating_sub(1));
+        for (i, host) in self.hosts.iter().enumerate().skip(offset).take(visible) {
+            let label = format!("{} {}:{}", if i == self.selected { ">" } else { " " }, host.destination, host.remote_path);
+            surface.set_stringn(area.x, area.y + 1 + (i - offset) as u16, &label, area.width as usize,
+                if i == self.selected { selected } else { normal });
+        }
+        surface.set_stringn(area.x, area.bottom() - 1, "j/k or arrows · Enter to connect · Esc to cancel", area.width as usize, normal);
+    }
+
+    fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
+        match event {
+            Event::Key(event) => match *event {
+                key!('j') | key!(Down) => { self.selected = (self.selected + 1) % self.hosts.len(); EventResult::Consumed(None) }
+                key!('k') | key!(Up) => { self.selected = (self.selected + self.hosts.len() - 1) % self.hosts.len(); EventResult::Consumed(None) }
+                key!(Enter) => {
+                    if let Err(err) = commands::ssh_connect_location(cx, self.hosts[self.selected].clone()) {
+                        ssh_input_error(cx, format!("{err:#}"));
+                    }
                     EventResult::Consumed(Some(Box::new(|compositor, _| { compositor.pop(); })))
                 }
                 key!(Esc) => EventResult::Consumed(Some(Box::new(|compositor, _| { compositor.pop(); }))),
