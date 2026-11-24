@@ -3094,7 +3094,92 @@ fn open_terminal_program(
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+fn remote_registry() -> &'static std::sync::Mutex<crate::remote::registry::ConnectionRegistry> {
+    static REGISTRY: std::sync::OnceLock<std::sync::Mutex<crate::remote::registry::ConnectionRegistry>> =
+        std::sync::OnceLock::new();
+    REGISTRY.get_or_init(Default::default)
+}
+
+#[cfg(target_os = "linux")]
+fn ssh_connect(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    let location = crate::remote::registry::RemoteLocation {
+        destination: args[0].to_string(),
+        remote_path: args[1].to_string(),
+    };
+    crate::remote::mount_source(&location.destination, &location.remote_path)?;
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .ok_or_else(|| anyhow::anyhow!("XDG_RUNTIME_DIR is not set"))?;
+    cx.editor.set_status("Connecting to remote host...");
+    cx.jobs.callback(async move {
+        let result = tokio::task::spawn_blocking(move || {
+            remote_registry().lock()
+                .map_err(|_| anyhow::anyhow!("Remote registry unavailable"))?
+                .connect(&runtime, location)
+        }).await;
+        Ok(job::Callback::EditorCompositor(Box::new(move |editor, compositor| {
+            match result {
+                Ok(Ok(path)) => {
+                    editor.set_status("Remote filesystem mounted");
+                    let picker = ui::file_picker(editor, path);
+                    compositor.push(Box::new(overlaid(picker)));
+                }
+                Ok(Err(err)) => editor.set_error(format!("SSH connection failed: {err:#}")),
+                Err(err) => editor.set_error(format!("SSH worker failed: {err}")),
+            }
+        })))
+    });
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn ssh_connections(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    cx.jobs.callback(async move {
+        let result = tokio::task::spawn_blocking(|| -> anyhow::Result<String> {
+            let registry = remote_registry().lock()
+                .map_err(|_| anyhow::anyhow!("Remote registry unavailable"))?;
+            let entries: Vec<_> = registry.entries().map(|(location, mount)| {
+                format!("{}:{} ({:?})", location.destination, location.remote_path, mount.state())
+            }).collect();
+            Ok(if entries.is_empty() { "No remote connections".into() } else { entries.join(" | ") })
+        }).await;
+        Ok(job::Callback::EditorCompositor(Box::new(move |editor, _| {
+            match result {
+                Ok(Ok(status)) => editor.set_status(status),
+                Ok(Err(err)) => editor.set_error(err.to_string()),
+                Err(err) => editor.set_error(err.to_string()),
+            }
+        })))
+    });
+    Ok(())
+}
+
 pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
+    #[cfg(target_os = "linux")]
+    TypableCommand {
+        name: "ssh-connect",
+        aliases: &[],
+        doc: "Mount an SSH host and absolute remote directory, then open the file picker.",
+        fun: ssh_connect,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (2, Some(2)), ..Signature::DEFAULT },
+    },
+    #[cfg(target_os = "linux")]
+    TypableCommand {
+        name: "ssh-connections",
+        aliases: &[],
+        doc: "Show registered remote SSH connections.",
+        fun: ssh_connections,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
     TypableCommand {
         name: "terminal-lazygit",
         aliases: &[],
