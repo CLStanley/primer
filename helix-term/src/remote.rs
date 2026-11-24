@@ -1,4 +1,7 @@
 //! OpenSSH connection metadata. Authentication remains the responsibility of OpenSSH.
+#[cfg(target_os = "linux")]
+pub mod mount;
+
 use std::collections::BTreeSet;
 use std::path::Path;
 use anyhow::{ensure, Result};
