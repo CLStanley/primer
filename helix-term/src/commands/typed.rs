@@ -3387,6 +3387,7 @@ fn ssh_connect_confirmed(cx: &mut compositor::Context, location: crate::remote::
     cx.jobs.callback(async move {
         let result = tokio::task::spawn_blocking(move || {
             crate::remote::tailscale_preflight(&location.destination)?;
+            crate::remote::ssh_auth_preflight(&location.destination)?;
             remote_registry().lock()
                 .map_err(|_| anyhow::anyhow!("Remote registry unavailable"))?
                 .connect(&runtime, location.clone())?;
@@ -3410,9 +3411,10 @@ fn ssh_connect_confirmed(cx: &mut compositor::Context, location: crate::remote::
                         *active = Some(location);
                     }
                     editor.set_status("Remote filesystem mounted");
+                    ui::notification::show(compositor, ui::notification::Severity::Success, "SSH connected", "Remote filesystem mounted");
                 }
-                Ok(Err(err)) => remote_feedback(compositor, format!("SSH connection failed\n\n{err:#}")),
-                Err(err) => remote_feedback(compositor, format!("SSH worker failed\n\n{err}")),
+                Ok(Err(err)) => ui::notification::show(compositor, ui::notification::Severity::Error, "SSH connection failed", format!("{err:#}")),
+                Err(err) => ui::notification::show(compositor, ui::notification::Severity::Error, "SSH worker failed", err.to_string()),
             }
         })))
     });
