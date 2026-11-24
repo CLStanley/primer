@@ -3199,14 +3199,31 @@ pub(crate) fn ssh_disconnect_dashboard(cx: &mut compositor::Context) {
         if let Ok(mut directory) = remote_directory().lock() { directory.clear(); }
         Ok(())
     })();
-    cx.jobs.callback(async move {
-        Ok(job::Callback::EditorCompositor(Box::new(move |_, compositor| {
-            match result {
-                Ok(()) => remote_feedback(compositor, "SSH disconnected\n\nLocal environment restored".into()),
-                Err(err) => remote_feedback(compositor, format!("SSH disconnect failed\n\n{err:#}")),
-            }
-        })))
-    });
+    match result {
+        Ok(()) => {
+            cx.jobs.callback(async move {
+                Ok(job::Callback::EditorCompositor(Box::new(move |_, compositor| {
+                    let popup = crate::ui::popup::Popup::new(
+                        "ssh-disconnected",
+                        ui::GitChangePreview::new("Local environment restored".to_owned(), Vec::new())
+                            .with_title("SSH disconnected").compact(),
+                    ).with_border().top_right().with_scrollbar(false).auto_close(true);
+                    compositor.replace_or_push("ssh-disconnected", popup);
+                })))
+            });
+            cx.jobs.callback(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                Ok(job::Callback::EditorCompositor(Box::new(move |_, compositor| {
+                    compositor.remove("ssh-disconnected");
+                })))
+            });
+        }
+        Err(err) => cx.jobs.callback(async move {
+            Ok(job::Callback::EditorCompositor(Box::new(move |_, compositor| {
+                remote_feedback(compositor, format!("SSH disconnect failed\n\n{err:#}"));
+            })))
+        }),
+    };
 }
 
 #[cfg(target_os = "linux")]
@@ -3293,7 +3310,7 @@ pub(crate) fn ssh_connections(cx: &mut compositor::Context, _args: Args, event: 
             let registry = remote_registry().lock()
                 .map_err(|_| anyhow::anyhow!("Remote registry unavailable"))?;
             let entries: Vec<_> = registry.entries().map(|(location, mount)| {
-                format!("{}:{} ({:?})", location.destination, location.remote_path, mount.state())
+                format!("{}:{}\nStatus: {}", location.destination, location.remote_path, match mount.state() { Ok(state) => format!("{state:?}"), Err(err) => format!("Unavailable: {err}") })
             }).collect();
             Ok(if entries.is_empty() { "No remote connections".into() } else { entries.join("\n") })
         }).await;
@@ -3310,7 +3327,9 @@ pub(crate) fn ssh_connections(cx: &mut compositor::Context, _args: Args, event: 
 
 #[cfg(target_os = "linux")]
 fn remote_feedback(compositor: &mut Compositor, message: String) {
-    let content = crate::ui::Text::new(format!("{message}\n\nEsc to close"));
+    let (title, body) = message.split_once("\n\n").unwrap_or((&message, ""));
+    let lines = body.lines().map(|line| (line.to_owned(), String::new(), String::new(), String::new())).collect();
+    let content = ui::GitChangePreview::new("Esc to close".to_owned(), lines).with_title(title).compact();
     compositor.push(Box::new(crate::ui::popup::Popup::new("remote-ssh-feedback", content)
         .centered().with_border()));
 }
