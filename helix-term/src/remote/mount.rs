@@ -58,10 +58,17 @@ impl RemoteMount {
     /// separately in an interactive OpenSSH session before retrying.
     pub fn connect(&self) -> Result<()> {
         ensure!(self.state()? == MountState::Unmounted, "Mount directory is already mounted");
+        // FUSE requires owner write access to the underlying mountpoint.
+        // Restore protection on failure, but never chmod a mounted remote directory.
+        std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o700))?;
         let output = Command::new("sshfs")
             .arg(&self.source).arg(&self.path)
             .args(["-o", "BatchMode=yes,StrictHostKeyChecking=yes,ConnectTimeout=10,ServerAliveInterval=15,ServerAliveCountMax=2"])
-            .stdin(Stdio::null()).output().context("Launching sshfs (is it installed?)")?;
+            .stdin(Stdio::null()).output();
+        if self.state()? == MountState::Unmounted {
+            std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o500))?;
+        }
+        let output = output.context("Launching sshfs (is it installed?)")?;
         ensure!(output.status.success(), "SSHFS failed: {}", String::from_utf8_lossy(&output.stderr).trim());
         ensure!(self.state()? == MountState::Mounted, "SSHFS did not establish the expected mount");
         Ok(())
@@ -71,7 +78,10 @@ impl RemoteMount {
     /// check for open buffers, unsaved changes and active filesystem jobs.
     pub fn disconnect(&self) -> Result<()> {
         match self.state()? {
-            MountState::Unmounted => return Ok(()),
+            MountState::Unmounted => {
+                std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o500))?;
+                return Ok(());
+            },
             MountState::UnexpectedFilesystem => bail!("Refusing to unmount an unexpected filesystem"),
             MountState::Mounted => {}
         }
@@ -79,6 +89,7 @@ impl RemoteMount {
             .stdin(Stdio::null()).output().context("Launching fusermount3")?;
         ensure!(output.status.success(), "Unmount failed: {}", String::from_utf8_lossy(&output.stderr).trim());
         ensure!(self.state()? == MountState::Unmounted, "Mount is still present");
+        std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o500))?;
         Ok(())
     }
 
