@@ -3245,11 +3245,8 @@ pub(crate) fn ssh_disconnect_dashboard(cx: &mut compositor::Context) {
     match result {
         Ok(()) => ui::notification::notify(cx.jobs, ui::notification::Severity::Success,
             "SSH disconnected", "Local environment restored"),
-        Err(err) => cx.jobs.callback(async move {
-            Ok(job::Callback::EditorCompositor(Box::new(move |_, compositor| {
-                remote_feedback(compositor, format!("SSH disconnect failed\n\n{err:#}"));
-            })))
-        }),
+        Err(err) => ui::notification::notify(cx.jobs, ui::notification::Severity::Warning,
+            "SSH disconnect failed", format!("{err:#}")),
     };
 }
 
