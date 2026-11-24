@@ -99,7 +99,7 @@ Primer includes PTY-backed terminal buffers that share the editor's tabs, splits
 | `Esc` (Terminal Mode) | Send Escape to the running application |
 | `v` (Normal Mode) | Select terminal output |
 | `y` (Select Mode) | Yank selected output |
-| `Esc` (Normal Mode) | Return to Terminal Mode |
+| `i` (Normal Mode) | Return to Terminal Mode |
 
 Terminal Normal/Select modes support basic output navigation and copying; they are not full editable documents. Interactive applications such as lazygit and lazydocker have been tested. `btop` currently has a known rendering issue in the embedded terminal.
 
