@@ -1,4 +1,5 @@
 use helix_view::graphics::{Color, Modifier, Rect, Style};
+use helix_core::unicode::width::UnicodeWidthStr;
 use tui::buffer::Buffer as Surface;
 use tui::text::Text;
 use tui::widgets::{Paragraph, Widget};
@@ -29,11 +30,17 @@ impl DashboardAction {
             Self::DailyNote => "Daily note",
             Self::Agenda => "Agenda",
             Self::FileExplorer => "File explorer",
-            Self::OpenProject => "Browse workspace",
+            Self::OpenProject => "Switch project",
+            Self::AddProject => "Add directory",
+            Self::ForgetProject => "Forget project",
+            Self::ClearProject => "Clear active project",
+            Self::ProjectStatus => "Project status",
             Self::Help => "Keybind help",
             Self::NewFile => "New file",
             Self::Quit => "Quit",
             Self::Terminal => "Terminal",
+            Self::LazyGit => "LazyGit",
+            Self::LazyDocker => "LazyDocker",
         }
     }
 
@@ -47,10 +54,16 @@ impl DashboardAction {
             Self::Agenda => 'e',
             Self::FileExplorer => 'r',
             Self::OpenProject => 'p',
+            Self::AddProject => 'b',
+            Self::ForgetProject => 'x',
+            Self::ClearProject => 'c',
+            Self::ProjectStatus => 's',
             Self::Help => '?',
             Self::NewFile => 'n',
             Self::Quit => 'q',
             Self::Terminal => 't',
+            Self::LazyGit => 'G',
+            Self::LazyDocker => 'D',
         }
     }
 }
@@ -114,13 +127,22 @@ pub fn render_dashboard(
         .add_modifier(Modifier::DIM);
     surface.clear_with(area, Style::reset());
 
+    // Reserve a footer row for the active project, independent of menu selection.
+    let project_footer = ctx.editor.active_project_name.clone();
+    let full_area = area;
+    let area = if project_footer.is_some() && area.height > 1 {
+        area.with_height(area.height - 1)
+    } else {
+        area
+    };
+
     let logo_width = LOGO.iter().map(|line| line.len()).max().unwrap_or(0) as u16;
     let show_logo = area.width >= logo_width && area.height >= 20;
     let wide = area.width >= WIDE_LAYOUT_WIDTH && area.height >= 19;
     let heading_height: u16 = if show_logo { LOGO.len() as u16 } else { 1 };
-    let menu_height = if wide { 21 } else { 29 };
+    let menu_height = if wide { 22 } else { 33 };
     let content_height = heading_height + 5 + menu_height;
-    let top = area.y + area.height.saturating_sub(content_height) / 2;
+    let top = area.y + (area.height.saturating_sub(content_height) / 2).saturating_sub(2);
 
     // A row renderer that never extends beyond the visible terminal.
     let mut draw_line = |line: &str, x: u16, row: u16, width: u16, style| {
@@ -178,10 +200,11 @@ pub fn render_dashboard(
         (
             "PROJECTS",
             vec![
-                ("p", "Browse workspace", Some(DashboardAction::OpenProject)),
-                ("s", "Switch project", None),
-                ("w", "Sessions", None),
-                ("l", "Recent projects", None),
+                ("p", "Switch project", Some(DashboardAction::OpenProject)),
+                ("b", "Add directory", Some(DashboardAction::AddProject)),
+                ("x", "Forget project", Some(DashboardAction::ForgetProject)),
+                ("c", "Clear active project", Some(DashboardAction::ClearProject)),
+                ("s", "Project status", Some(DashboardAction::ProjectStatus)),
             ],
         ),
         (
@@ -210,7 +233,7 @@ pub fn render_dashboard(
         let right = left + COLUMN_WIDTH + COLUMN_GAP;
         for (section_index, (heading, entries)) in sections.iter().enumerate() {
             let x = if section_index % 2 == 0 { left } else { right };
-            let section_top = menu_top + (section_index / 2) as u16 * 7;
+            let section_top = menu_top + (section_index / 2) as u16 * 8;
             let heading_width = heading.len() as u16;
             draw_line(
                 heading,
@@ -229,7 +252,7 @@ pub fn render_dashboard(
                     key,
                     x + 3,
                     y,
-                    1,
+                    key.len() as u16,
                     if active { selected_shortcut } else { shortcut },
                 );
                 let description = if action.is_some() {
@@ -239,9 +262,9 @@ pub fn render_dashboard(
                 };
                 draw_line(
                     &description,
-                    x + 6,
+                    x + 8,
                     y,
-                    COLUMN_WIDTH - 6,
+                    COLUMN_WIDTH - 8,
                     if active {
                         selected
                     } else if action.is_some() {
@@ -252,15 +275,17 @@ pub fn render_dashboard(
                 );
             }
         }
-        let footer_y = menu_top + 16;
+        let footer_y = menu_top + 18;
         // Shared actions form one evenly spaced horizontal footer.
-        // Center each footer item in an equal-width third of the menu.
+        // Center each footer item in an equal-width slot of the menu.
         // This keeps the spacing balanced regardless of label length.
-        let footer_width = total_width + 20;
+        let footer_width = (total_width + 20).min(area.width);
         let footer_left = area.x + area.width.saturating_sub(footer_width) / 2;
-        let third = footer_width / 3;
+        let third = footer_width / 5;
         let footer = [
             ("t", "Terminal", Some(DashboardAction::Terminal)),
+            ("G", "LazyGit", Some(DashboardAction::LazyGit)),
+            ("D", "LazyDocker", Some(DashboardAction::LazyDocker)),
             ("?", "Keybind help", Some(DashboardAction::Help)),
             ("q", "Quit", Some(DashboardAction::Quit)),
         ]
@@ -301,9 +326,9 @@ pub fn render_dashboard(
             .sum();
         let mut hint_x = left + total_width.saturating_sub(hint_width) / 2;
         for (key, label) in hint {
-            draw_line(key, hint_x, menu_top + 19, key.len() as u16, shortcut);
+            draw_line(key, hint_x, menu_top + 20, key.len() as u16, shortcut);
             hint_x += key.len() as u16;
-            draw_line(label, hint_x, menu_top + 19, label.len() as u16, normal);
+            draw_line(label, hint_x, menu_top + 20, label.len() as u16, normal);
             hint_x += label.len() as u16;
         }
     } else {
@@ -317,7 +342,7 @@ pub fn render_dashboard(
                 if active {
                     draw_line(">", x, y, 1, accent);
                 }
-                draw_line(key, x + 2, y, 1, shortcut);
+                draw_line(key, x + 2, y, key.len() as u16, shortcut);
                 let description = if action.is_some() {
                     label.to_string()
                 } else {
@@ -325,9 +350,9 @@ pub fn render_dashboard(
                 };
                 draw_line(
                     &description,
-                    x + 4,
+                    x + 6,
                     y,
-                    COLUMN_WIDTH - 4,
+                    COLUMN_WIDTH - 6,
                     if active {
                         selected
                     } else if action.is_some() {
@@ -341,7 +366,9 @@ pub fn render_dashboard(
             y += 1;
         }
         for (key, label, action) in [
-            ("t", "Terminal [todo]", None),
+            ("t", "Terminal", Some(DashboardAction::Terminal)),
+            ("G", "LazyGit", Some(DashboardAction::LazyGit)),
+            ("D", "LazyDocker", Some(DashboardAction::LazyDocker)),
             ("?", "Keybind help", Some(DashboardAction::Help)),
             ("q", "Quit", Some(DashboardAction::Quit)),
         ] {
@@ -361,6 +388,25 @@ pub fn render_dashboard(
                 },
             );
             y += 1;
+        }
+    }
+    if let Some(name) = project_footer {
+        if full_area.height > 1 && full_area.width >= 5 {
+            let label = format!(" {name} ");
+            let width = label.as_str().width().min(full_area.width.saturating_sub(2) as usize) as u16;
+            let x = full_area.x + full_area.width.saturating_sub(width + 2) / 2;
+            let y = full_area.bottom() - 1;
+            let style = Style::default()
+                .fg(Color::Reset)
+                .bg(accent_color)
+                .add_modifier(Modifier::BOLD);
+            let cap_style = Style::default().fg(accent_color).bg(Color::Reset);
+            surface.set_stringn(x, y, "", 1, cap_style);
+            let text = Text::from(label.as_str());
+            Paragraph::new(&text)
+                .style(style)
+                .render(Rect::new(x + 1, y, width, 1), surface);
+            surface.set_stringn(x + width + 1, y, "", 1, cap_style);
         }
     }
 }

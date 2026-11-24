@@ -701,16 +701,17 @@ impl Default for StatusLineConfig {
                 E::Mode,
                 E::Spinner,
                 E::FileName,
+                E::VersionControl,
                 E::ReadOnlyIndicator,
                 E::FileModificationIndicator,
             ],
             center: vec![],
             right: vec![
+                E::ActiveProject,
                 E::Diagnostics,
                 E::Selections,
                 E::Register,
                 E::Position,
-                E::VersionControl,
                 E::FileType,
                 E::FileEncoding,
             ],
@@ -807,6 +808,9 @@ pub enum StatusLineElement {
 
     /// Current version control information
     VersionControl,
+
+    /// Explicitly selected Primer project
+    ActiveProject,
 
     /// Indicator for selected register
     Register,
@@ -1349,6 +1353,10 @@ pub struct Editor {
     last_motion: Option<Motion>,
     pub last_completion: Option<CompleteAction>,
     pub last_cwd: Option<PathBuf>,
+    /// Explicitly selected Primer project root; never inferred from open buffers.
+    pub active_project_root: Option<PathBuf>,
+    /// Display name from the selected project's explicit marker.
+    pub active_project_name: Option<String>,
     pub dir_stack: VecDeque<PathBuf>,
 
     pub exit_code: i32,
@@ -1489,6 +1497,8 @@ impl Editor {
             last_motion: None,
             last_completion: None,
             last_cwd: None,
+            active_project_root: None,
+            active_project_name: None,
             config,
             auto_pairs,
             exit_code: 0,

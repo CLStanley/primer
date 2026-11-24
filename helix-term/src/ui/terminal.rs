@@ -595,7 +595,7 @@ impl Component for TerminalView {
         }
         match event {
             Event::Key(key) => {
-                if key.code == KeyCode::Esc && key.modifiers.is_empty() {
+                if key.code == KeyCode::Char(' ') && key.modifiers == KeyModifiers::CONTROL {
                     self.set_input_mode(TerminalInputMode::Normal);
                     ctx.editor.mode = Mode::Normal;
                     return EventResult::Consumed(None);

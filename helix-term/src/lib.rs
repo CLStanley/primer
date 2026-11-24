@@ -11,6 +11,7 @@ pub mod health;
 pub mod job;
 pub mod keymap;
 pub mod logging;
+pub mod projects;
 pub mod terminal;
 pub mod ui;
 

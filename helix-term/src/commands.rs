@@ -401,6 +401,11 @@ impl MappableCommand {
         append_mode, "Append after selection",
         command_mode, "Enter command mode",
         file_picker, "Open file picker",
+        primer_project_picker, "Switch remembered projects",
+        primer_project_register, "Add a directory as a project",
+        primer_project_clear, "Clear the active project context",
+        primer_project_status, "Show active and focused project status",
+        primer_project_forget, "Forget the active project without deleting files",
         file_picker_in_current_buffer_directory, "Open file picker at current buffer's directory",
         file_picker_in_current_directory, "Open file picker at current working directory",
         file_explorer, "Open file explorer in workspace root",
@@ -2649,7 +2654,7 @@ fn global_search(cx: &mut Context) {
             return async { Ok(()) }.boxed();
         }
 
-        let search_root = helix_stdx::env::current_working_dir();
+        let search_root = editor.active_project_root.clone().unwrap_or_else(helix_stdx::env::current_working_dir);
         if !search_root.exists() {
             return async { Err(anyhow::anyhow!("Current working directory does not exist")) }
                 .boxed();
@@ -3564,8 +3569,256 @@ fn primer_notes_projects(cx: &mut Context) { primer_notes_picker(cx, Some("02 Pr
 fn primer_notes_knowledge(cx: &mut Context) { primer_notes_picker(cx, Some("03 Knowledge")); }
 fn primer_notes_reference(cx: &mut Context) { primer_notes_picker(cx, Some("04 Reference")); }
 
+/// Initialize the current directory as an explicit Primer project.
+/// Browse folders, selecting one to remember and activate as a project.
+fn primer_project_register_picker(directory: PathBuf) -> anyhow::Result<Picker<(PathBuf, bool), PathBuf>> {
+    let directory = std::fs::canonicalize(directory)?;
+    let mut entries: Vec<(PathBuf, bool)> = vec![(directory.clone(), false)];
+    if let Some(parent) = directory.parent() { entries.push((parent.to_path_buf(), true)); }
+    for entry in std::fs::read_dir(&directory)? {
+        let entry = entry?;
+        if entry.path().is_dir() { entries.push((entry.path(), true)); }
+    }
+    let columns = [PickerColumn::new("Directory", |entry: &(PathBuf, bool), root: &PathBuf| {
+        if !entry.1 { "./  Add this directory".into() }
+        else if entry.0 == root.parent().unwrap_or(root) { "../".into() }
+        else { format!("{}/", entry.0.file_name().unwrap_or_default().to_string_lossy()).into() }
+    })];
+    Ok(Picker::new(columns, 0, entries, directory, move |cx, entry: &(PathBuf, bool), _| {
+        if entry.1 {
+            let next = entry.0.clone();
+            cx.jobs.callback(async move {
+                Ok(Callback::EditorCompositor(Box::new(move |editor, compositor| {
+                    match primer_project_register_picker(next) {
+                        Ok(picker) => compositor.push(Box::new(overlaid(picker.with_title("Add Project")))),
+                        Err(error) => editor.set_error(format!("Cannot browse directory: {error}")),
+                    }
+                })))
+            });
+            return;
+        }
+        use crate::projects::registry::ProjectRegistry;
+        let result = (|| -> anyhow::Result<crate::projects::Project> {
+            let path = ProjectRegistry::default_path()?;
+            let mut registry = ProjectRegistry::read(&path)?;
+            let project = registry.register(&entry.0)?;
+            registry.save(&path)?;
+            Ok(project)
+        })();
+        match result {
+            Ok(project) => {
+                cx.editor.active_project_root = Some(project.root.clone());
+                cx.editor.active_project_name = Some(project.name.clone());
+                cx.editor.set_status(format!("Active project: {}", project.name));
+            }
+            Err(error) => cx.editor.set_error(format!("Could not add project: {error}")),
+        }
+    }))
+}
+
+fn primer_project_register(cx: &mut Context) {
+    let directory = active_buffer_directory(cx.editor);
+    match primer_project_register_picker(directory) {
+        Ok(picker) => cx.push_layer(Box::new(overlaid(picker.with_title("Add Project")))),
+        Err(error) => cx.editor.set_error(format!("Cannot browse directories: {error}")),
+    }
+}
+
+fn primer_project_status(cx: &mut Context) {
+    use crate::projects::registry::ProjectRegistry;
+    let scope = cx.editor.active_project_root.clone()
+        .unwrap_or_else(|| active_buffer_directory(cx.editor));
+    let discovered = crate::projects::discover(&scope).ok().flatten();
+    let active_name = cx.editor.active_project_name.as_deref().unwrap_or("None");
+    let active_root = cx.editor.active_project_root.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "No active project".to_owned());
+    let remembered_root = cx.editor.active_project_root.as_ref()
+        .or_else(|| discovered.as_ref().map(|project| &project.root));
+    let remembered = remembered_root.and_then(|root| {
+        let path = ProjectRegistry::default_path().ok()?;
+        let registry = ProjectRegistry::read(&path).ok()?;
+        Some(registry.roots.contains(root))
+    }).unwrap_or(false);
+    let current = discovered.as_ref().map(|project| project.name.as_str()).unwrap_or("None");
+    let detected_root = discovered.as_ref().map(|project| project.root.display().to_string()).unwrap_or_else(|| "No Git repository".to_owned());
+    let lines = vec![
+        ("Active project  ".to_owned(), active_name.to_owned(), String::new(), String::new()),
+        ("Active root     ".to_owned(), active_root, String::new(), String::new()),
+        ("Detected Git    ".to_owned(), current.to_owned(), String::new(), String::new()),
+        ("Git root        ".to_owned(), detected_root, String::new(), String::new()),
+        ("Remembered      ".to_owned(), if remembered { "Yes" } else { "No" }.to_owned(), String::new(), String::new()),
+    ];
+    cx.callback.push(Box::new(move |compositor, _| {
+        let popup = Popup::new("primer-project-status",
+            ui::GitChangePreview::new("Project information".to_owned(), lines)
+                .with_title("Project status").compact());
+        compositor.replace_or_push("primer-project-status", popup.with_border().centered().with_scrollbar(false));
+    }));
+}
+
+/// Clear project scoping without closing or modifying any buffers.
+fn primer_project_clear(cx: &mut Context) {
+    if cx.editor.active_project_root.take().is_some() {
+        cx.editor.active_project_name = None;
+        cx.editor.set_status("Project context cleared");
+    } else {
+        cx.editor.set_status("No active project to clear");
+    }
+}
+
+/// Choose any remembered project to forget, regardless of active context.
+fn primer_project_forget(cx: &mut Context) {
+    use crate::projects::registry::ProjectRegistry;
+    let registry_path = match ProjectRegistry::default_path() {
+        Ok(path) => path,
+        Err(error) => { cx.editor.set_error(format!("Project registry unavailable: {error}")); return; }
+    };
+    let projects = match ProjectRegistry::read(&registry_path).and_then(|registry| registry.projects()) {
+        Ok(projects) => projects,
+        Err(error) => { cx.editor.set_error(format!("Could not read projects: {error}")); return; }
+    };
+    if projects.is_empty() {
+        cx.callback.push(Box::new(move |compositor, _| {
+            let popup = Popup::new("primer-project-empty",
+                ui::GitChangePreview::new(String::new(), vec![
+                    ("There are no saved projects to forget.".to_owned(), String::new(), String::new(), String::new()),
+                ]).with_title("No remembered projects").compact());
+            compositor.replace_or_push("primer-project-empty", popup.with_border().centered().with_scrollbar(false));
+        }));
+        return;
+    }
+    let columns = [
+        PickerColumn::new("Project", |project: &crate::projects::Project, _| project.name.clone().into()),
+        PickerColumn::new("Root", |project: &crate::projects::Project, _| project.root.display().to_string().into()),
+    ];
+    let picker = Picker::new(columns, 0, projects, (), move |cx, project: &crate::projects::Project, _| {
+        let root = project.root.clone();
+        let name = project.name.clone();
+        let path = registry_path.clone();
+        cx.jobs.callback(async move {
+            Ok(Callback::EditorCompositor(Box::new(move |editor, compositor| {
+            let expected_name = name.clone();
+            let mut prompt = Prompt::new(
+                format!("Forget project? Type {name}: ").into(),
+                None,
+                ui::completers::none,
+                move |cx, input, event| {
+                    if event != PromptEvent::Validate { return; }
+                    if input != expected_name {
+                        cx.editor.set_error(format!("Project name does not match. Type {expected_name} to confirm."));
+                        return;
+                    }
+                    let result = (|| -> anyhow::Result<()> {
+                        let mut registry = ProjectRegistry::read(&path)?;
+                        registry.forget(&root);
+                        registry.save(&path)
+                    })();
+                    match result {
+                        Ok(()) => {
+                            if cx.editor.active_project_root.as_ref() == Some(&root) {
+                                cx.editor.active_project_root = None;
+                                cx.editor.active_project_name = None;
+                            }
+                            cx.editor.set_status(format!("Forgot {name}; project files unchanged"));
+                            let confirmation = name.clone();
+                            cx.jobs.callback(async move {
+                                Ok(Callback::EditorCompositor(Box::new(move |_, compositor| {
+                                    let lines = vec![
+                                        ("Project:  ".to_owned(), confirmation, String::new(), String::new()),
+                                        ("Files:    ".to_owned(), "Unchanged".to_owned(), String::new(), String::new()),
+                                    ];
+                                    let popup = Popup::new(
+                                        "primer-project-forgotten",
+                                        ui::GitChangePreview::new(
+                                            "Removed from remembered projects".to_owned(), lines,
+                                        ).with_title("Project forgotten").compact(),
+                                    ).with_border().top_right().with_scrollbar(false).auto_close(true);
+                                    compositor.replace_or_push("primer-project-forgotten", popup);
+                                })))
+                            });
+                            cx.jobs.callback(async move {
+                                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                                Ok(Callback::EditorCompositor(Box::new(move |_, compositor| {
+                                    compositor.remove("primer-project-forgotten");
+                                })))
+                            });
+                        }
+                        Err(error) => cx.editor.set_error(format!("Could not forget project: {error}")),
+                    }
+                },
+            );
+                prompt.recalculate_completion(editor);
+                compositor.push(Box::new(prompt));
+            })))
+        });
+    });
+    cx.push_layer(Box::new(overlaid(picker.with_title("Forget Project"))));
+}
+
+/// Pick a previously visited Git repository or manually added directory.
+fn primer_project_picker(cx: &mut Context) {
+    use crate::projects::registry::ProjectRegistry;
+
+    let registry_path = match ProjectRegistry::default_path() {
+        Ok(path) => path,
+        Err(error) => {
+            cx.editor.set_error(format!("Project registry unavailable: {error}"));
+            return;
+        }
+    };
+    let registry = match ProjectRegistry::read(&registry_path) {
+        Ok(registry) => registry,
+        Err(error) => {
+            cx.editor.set_error(format!("Could not read projects: {error}"));
+            return;
+        }
+    };
+    let projects = match registry.projects() {
+        Ok(projects) => projects,
+        Err(error) => {
+            cx.editor.set_error(format!("Could not load project: {error}"));
+            return;
+        }
+    };
+    if projects.is_empty() {
+        cx.callback.push(Box::new(move |compositor, _| {
+            let popup = Popup::new("primer-project-empty",
+                ui::GitChangePreview::new(String::new(), vec![
+                    ("Add a directory using ".to_owned(), "Space p a (dashboard: b)".to_owned(), String::new(), String::new()),
+                ]).with_title("No remembered projects").compact());
+            compositor.replace_or_push("primer-project-empty", popup.with_border().centered().with_scrollbar(false));
+        }));
+        return;
+    }
+    let columns = [
+        PickerColumn::new("Project", |project: &crate::projects::Project, _| {
+            project.name.clone().into()
+        }),
+        PickerColumn::new("Root", |project: &crate::projects::Project, _| {
+            project.root.display().to_string().into()
+        }),
+    ];
+    let picker = Picker::new(columns, 0, projects, (), move |cx, project: &crate::projects::Project, _| {
+        let mut registry = match ProjectRegistry::read(&registry_path) {
+            Ok(registry) => registry,
+            Err(error) => {
+                cx.editor.set_error(format!("Could not read projects: {error}"));
+                return;
+            }
+        };
+        if let Err(error) = registry.register(&project.root).and_then(|_| registry.save(&registry_path)) {
+            cx.editor.set_error(format!("Could not update recent projects: {error}"));
+            return;
+        }
+        // Switching project context leaves unrelated buffers and terminals intact.
+        cx.editor.active_project_root = Some(project.root.clone());
+        cx.editor.active_project_name = Some(project.name.clone());
+        cx.editor.set_status(format!("Active project: {} · Space f f to browse files", project.name));
+    });
+    cx.push_layer(Box::new(overlaid(picker.with_title("Projects"))));
+}
+
 fn file_picker(cx: &mut Context) {
-    let root = find_workspace().0;
+    let root = cx.editor.active_project_root.clone().unwrap_or_else(|| find_workspace().0);
     if !root.exists() {
         cx.editor.set_error("Workspace directory does not exist");
         return;
@@ -3612,7 +3865,7 @@ fn file_picker_in_current_directory(cx: &mut Context) {
 }
 
 fn file_explorer(cx: &mut Context) {
-    let root = find_workspace().0;
+    let root = cx.editor.active_project_root.clone().unwrap_or_else(|| find_workspace().0);
     if !root.exists() {
         cx.editor.set_error("Workspace directory does not exist");
         return;
@@ -3895,22 +4148,7 @@ fn changed_file_picker(cx: &mut Context) {
         style_renamed: Style,
     }
 
-    let active_dir = active_buffer_directory(cx.editor);
-    let cwd = std::process::Command::new("git")
-        .arg("-C")
-        .arg(&active_dir)
-        .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .and_then(|output| String::from_utf8(output.stdout).ok())
-        .map(|root| PathBuf::from(root.trim()))
-        .unwrap_or(active_dir);
-    if !cwd.exists() {
-        cx.editor
-            .set_error("Current working directory does not exist");
-        return;
-    }
+    let Some(cwd) = active_git_root(cx) else { return };
 
     let added = cx.editor.theme.get("diff.plus");
     let modified = cx.editor.theme.get("diff.delta");
@@ -5007,9 +5245,9 @@ fn git_revert_hunk(cx: &mut Context) {
     cx.push_layer(Box::new(overlay));
 }
 
-/// Resolve the Git root for the focused buffer without changing the process cwd.
+/// Resolve repository-wide operations against the active project, or focused buffer when unset.
 fn active_git_root(cx: &mut Context) -> Option<PathBuf> {
-    let dir = active_buffer_directory(cx.editor);
+    let dir = cx.editor.active_project_root.clone().unwrap_or_else(|| active_buffer_directory(cx.editor));
     let output = std::process::Command::new("git")
         .arg("-C").arg(&dir).args(["rev-parse", "--show-toplevel"]).output();
     match output {
@@ -5017,7 +5255,7 @@ fn active_git_root(cx: &mut Context) -> Option<PathBuf> {
             Some(PathBuf::from(String::from_utf8_lossy(&output.stdout).trim()))
         }
         _ => {
-            cx.editor.set_error("Active buffer is not inside a Git repository");
+            cx.editor.set_error(if cx.editor.active_project_root.is_some() { "Active project is not inside a Git repository" } else { "Active buffer is not inside a Git repository" });
             None
         }
     }
@@ -5268,18 +5506,7 @@ fn git_create_branch(cx: &mut Context) {
 
 /// Commit only the already staged index of the active file's repository.
 fn git_commit_staged(cx: &mut Context) {
-    let cwd = active_buffer_directory(cx.editor);
-    let root_output = std::process::Command::new("git")
-        .arg("-C").arg(&cwd).args(["rev-parse", "--show-toplevel"]).output();
-    let root = match root_output {
-        Ok(output) if output.status.success() => {
-            PathBuf::from(String::from_utf8_lossy(&output.stdout).trim())
-        }
-        _ => {
-            cx.editor.set_error("Active buffer is not inside a Git repository");
-            return;
-        }
-    };
+    let Some(root) = active_git_root(cx) else { return };
     let staged = std::process::Command::new("git")
         .arg("-C").arg(&root).args(["diff", "--cached", "--quiet", "--exit-code"]).status();
     match staged {
@@ -5334,7 +5561,7 @@ fn git_commit_staged(cx: &mut Context) {
 
 /// Show repository status without leaving Primer.
 fn git_repository_status(cx: &mut Context) {
-    let cwd = active_buffer_directory(cx.editor);
+    let Some(cwd) = active_git_root(cx) else { return };
     cx.editor.set_status("Loading Git status…");
     cx.jobs.callback(async move {
         let output = tokio::process::Command::new("git")
@@ -5376,17 +5603,9 @@ fn git_repository_status(cx: &mut Context) {
 
 /// Stage or unstage the entire active repository, leaving working files intact.
 fn git_change_all(cx: &mut Context, unstage: bool) {
-    let cwd = active_buffer_directory(cx.editor);
+    let Some(root) = active_git_root(cx) else { return };
     cx.editor.set_status(if unstage { "Unstaging repository changes…" } else { "Staging repository changes…" });
     cx.jobs.callback(async move {
-        let root = tokio::process::Command::new("git")
-            .arg("-C").arg(&cwd)
-            .args(["rev-parse", "--show-toplevel"])
-            .output().await?;
-        if !root.status.success() {
-            anyhow::bail!("Active buffer is not inside a Git repository");
-        }
-        let root = PathBuf::from(String::from_utf8_lossy(&root.stdout).trim());
         let mut cmd = tokio::process::Command::new("git");
         cmd.arg("-C").arg(&root);
         if unstage {

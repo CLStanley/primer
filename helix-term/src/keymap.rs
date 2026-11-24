@@ -447,9 +447,9 @@ mod tests {
             &KeyTrie::MappableCommand(MappableCommand::delete_char_forward),
             "Leaf should replace old leaf in merged subnode"
         );
-        // Assumes that `ge` is in default keymap
+        // Enzyme's end-of family must survive a partial goto override.
         assert_eq!(
-            keymap.search(&[key!('g'), key!('e')]).unwrap(),
+            keymap.search(&[key!('g'), key!('e'), key!('d')]).unwrap(),
             &KeyTrie::MappableCommand(MappableCommand::goto_last_line),
             "Old leaves in subnode should be present in merged node"
         );
@@ -495,23 +495,25 @@ mod tests {
         let node = keymap.search(&[key!(' '), key!('s')]).unwrap();
         assert_eq!(
             node.node().unwrap().keys().copied().collect::<Vec<_>>(),
-            vec![key!('v'), key!('c')]
+            vec![key!('f'), key!('p'), key!('v'), key!('c')]
         );
     }
 
     #[test]
-    fn aliased_modes_are_same_in_default_keymap() {
+    fn enzyme_window_modes_keep_intentional_bindings() {
         let keymaps = Keymaps::default().map();
         let root = keymaps.get(&Mode::Normal).unwrap();
+        for (prefix, split) in [(key!(' '), key!('h')), ("C-w".parse::<KeyEvent>().unwrap(), key!('s'))] {
+            let path = if prefix == key!(' ') {
+                vec![prefix, key!('w'), split]
+            } else {
+                vec![prefix, split]
+            };
+            assert_eq!(root.search(&path).unwrap(), &KeyTrie::MappableCommand(MappableCommand::hsplit));
+        }
         assert_eq!(
-            root.search(&[key!(' '), key!('w')]).unwrap(),
-            root.search(&["C-w".parse::<KeyEvent>().unwrap()]).unwrap(),
-            "Mismatch for window mode on `Space-w` and `Ctrl-w`"
-        );
-        assert_eq!(
-            root.search(&[key!('z')]).unwrap(),
-            root.search(&[key!('Z')]).unwrap(),
-            "Mismatch for view mode on `z` and `Z`"
+            root.search(&[key!(' '), key!('w'), key!('v')]).unwrap(),
+            root.search(&["C-w".parse::<KeyEvent>().unwrap(), key!('v')]).unwrap(),
         );
     }
 

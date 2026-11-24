@@ -98,12 +98,20 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
         )
     };
 
+    // Track only the filename span so it can yield space to the branch pill.
+    let mut filename_span = None;
     for element_id in &config.statusline.left {
         if !applicable(element_id) { continue; }
+        let start = context.parts.left.0.len();
         let render = get_render_function(*element_id);
         (render)(context, |context, span| {
             append(&mut context.parts.left, span, base_style)
         });
+        if matches!(element_id, StatusLineElementID::FileName | StatusLineElementID::FileAbsolutePath | StatusLineElementID::FileBaseName)
+            && context.parts.left.0.len() == start + 1
+        {
+            filename_span = Some(start);
+        }
     }
 
     // Preserve branch visibility for existing user statusline layouts that
@@ -113,18 +121,20 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
         && !config.statusline.right.contains(&StatusLineElementID::VersionControl)
     {
         render_version_control(context, |context, span| {
-            append(&mut context.parts.right, span, base_style)
+            append(&mut context.parts.left, span, base_style)
         });
     }
 
-    surface.set_spans(
-        viewport.x,
-        viewport.y,
-        &context.parts.left,
-        context.parts.left.width() as u16,
-    );
-
     // Right side of the status line.
+    // Show active project even when a custom statusline layout omits it.
+    if !config.statusline.left.contains(&StatusLineElementID::ActiveProject)
+        && !config.statusline.center.contains(&StatusLineElementID::ActiveProject)
+        && !config.statusline.right.contains(&StatusLineElementID::ActiveProject)
+    {
+        render_active_project(context, |context, span| {
+            append(&mut context.parts.right, span, base_style)
+        });
+    }
 
     for element_id in &config.statusline.right {
         if !applicable(element_id) { continue; }
@@ -133,6 +143,42 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
             append(&mut context.parts.right, span, base_style)
         })
     }
+
+    // The filename is the flexible region. Preserve the complete Git branch
+    // and the right-hand project/status pills when the focused path is long.
+    let available_left = (viewport.width as usize)
+        .saturating_sub(context.parts.right.width())
+        .saturating_sub(1);
+    let overflow = context.parts.left.width().saturating_sub(available_left);
+    if overflow > 0 {
+        if let Some(index) = filename_span {
+            let span = &mut context.parts.left.0[index];
+            let original = span.content.to_string();
+            let width = UnicodeWidthStr::width(original.as_str());
+            let budget = width.saturating_sub(overflow);
+            if budget < width {
+                let mut suffix = String::new();
+                let suffix_budget = budget.saturating_sub(1);
+                // Walk from the end, keeping Unicode display widths intact.
+                for ch in original.chars().rev() {
+                    let ch_width = UnicodeWidthStr::width(ch.to_string().as_str());
+                    if UnicodeWidthStr::width(suffix.as_str()) + ch_width > suffix_budget {
+                        break;
+                    }
+                    suffix.insert(0, ch);
+                }
+                let shortened = if budget == 0 { String::new() }
+                    else { format!("…{suffix}") };
+                span.content = shortened.into();
+            }
+        }
+    }
+    surface.set_spans(
+        viewport.x,
+        viewport.y,
+        &context.parts.left,
+        (context.parts.left.width() as u16).min(viewport.width),
+    );
 
     surface.set_spans(
         viewport.x
@@ -204,6 +250,7 @@ where
         helix_view::editor::StatusLineElement::Separator => render_separator,
         helix_view::editor::StatusLineElement::Spacer => render_spacer,
         helix_view::editor::StatusLineElement::VersionControl => render_version_control,
+        helix_view::editor::StatusLineElement::ActiveProject => render_active_project,
         helix_view::editor::StatusLineElement::Register => render_register,
         helix_view::editor::StatusLineElement::CurrentWorkingDirectory => render_cwd,
         helix_view::editor::StatusLineElement::CodeActionHint => render_code_action_hint,
@@ -531,11 +578,24 @@ where
     let title = if let Some(terminal) = &context.terminal {
         format!("  {} ", terminal.name)
     } else {
-        let rel_path = context.doc.relative_path();
-        let path = rel_path
-            .as_ref()
-            .map(|p| p.to_string_lossy())
-            .unwrap_or_else(|| SCRATCH_BUFFER_NAME.into());
+        // Identify the focused file's own repository even when another
+        // Primer project is active. Keep the root and filename, collapsing
+        // intermediate directories into a single ellipsis.
+        let workspace = context.doc.workspace_root();
+        let root_name = workspace.file_name().unwrap_or_default().to_string_lossy();
+        let path = context.doc.path()
+            .and_then(|path| path.strip_prefix(workspace).ok())
+            .map(|relative| {
+                let components: Vec<_> = relative.components().collect();
+                if components.len() <= 1 {
+                    format!("{root_name}/{}", relative.display())
+                } else {
+                    let filename = relative.file_name().unwrap_or_default().to_string_lossy();
+                    format!("{root_name}/…/{filename}")
+                }
+            })
+            .or_else(|| context.doc.relative_path().map(|path| path.to_string_lossy().into_owned()))
+            .unwrap_or_else(|| SCRATCH_BUFFER_NAME.to_string());
         format!(" {} ", path)
     };
 
@@ -616,6 +676,57 @@ where
     write(context, " ".into());
 }
 
+/// Render a rounded pill using a theme-generated accent color.
+fn render_accent_pill<'a, F>(context: &mut RenderContext<'a>, label: String, accent_key: &str, write: F)
+where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    // Use exact semantic colors: theme.get() falls back to "ui.text" and
+    // silently gives both pills the same blue when "ui.text.success" is absent.
+    let background = if accent_key == "ui.text.success" {
+        ["ui.text.success", "diff.plus", "diagnostic.hint", "ui.statusline.project"]
+            .iter()
+            .find_map(|key| context.editor.theme.try_get_exact(key).and_then(|style| style.fg.or(style.bg)))
+    } else {
+        // Prefer the theme's actual blue scopes, not the normal-mode purple.
+        // Generated themes commonly expose their soft blue as a syntax color
+        // rather than an informational UI scope. Prefer explicit branch styling,
+        // then link/type blue, and never inherit the normal-mode purple.
+        ["ui.statusline.branch", "markup.link.url", "markup.link", "type",
+         "ui.text.info", "diagnostic.info", "diff.delta"]
+            .iter()
+            .find_map(|key| context.editor.theme.try_get_exact(key).and_then(|style| style.fg.or(style.bg)))
+            .or(Some(Color::Rgb(167, 199, 239)))
+    };
+    let mut style = context.editor.theme.get("ui.statusline.normal");
+    if let Some(color) = background {
+        style.bg = Some(color);
+        style.fg = Some(Color::Black);
+    }
+    if context.editor.config().statusline_powerline {
+        if let Some(background) = style.bg {
+            write(context, Span::from(" "));
+            write(context, Span::styled("", Style::default().fg(background)));
+            write(context, Span::styled(format!(" {label} "), style));
+            write(context, Span::styled("", Style::default().fg(background)));
+            return;
+        }
+    }
+    write(context, Span::styled(format!(" {label} "), style));
+}
+
+fn render_active_project<'a, F>(context: &mut RenderContext<'a>, write: F)
+where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    let Some(root) = context.editor.active_project_root.as_ref() else { return; };
+    // The registry marker is authoritative, but rendering should never block on disk IO.
+    let name = context.editor.active_project_name.as_deref()
+        .map(str::to_owned)
+        .unwrap_or_else(|| root.file_name().unwrap_or_default().to_string_lossy().into_owned());
+    render_accent_pill(context, format!("󰏗 {name}"), "ui.text.success", write);
+}
+
 fn render_version_control<'a, F>(context: &mut RenderContext<'a>, write: F)
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
@@ -627,17 +738,7 @@ where
         .to_string();
 
     if !head.is_empty() {
-        let style = context.editor.theme.get("ui.statusline.normal");
-        if context.editor.config().statusline_powerline {
-            if let Some(background) = style.bg {
-                write(context, Span::from(" "));
-                write(context, Span::styled("", Style::default().fg(background)));
-                write(context, Span::styled(format!("  {head} "), style));
-                write(context, Span::styled("", Style::default().fg(background)));
-                return;
-            }
-        }
-        write(context, Span::styled(format!("   {head} "), style));
+        render_accent_pill(context, format!(" {head}"), "ui.text.info", write);
     }
 }
 
