@@ -2654,7 +2654,11 @@ fn global_search(cx: &mut Context) {
             return async { Ok(()) }.boxed();
         }
 
-        let search_root = editor.active_project_root.clone().unwrap_or_else(helix_stdx::env::current_working_dir);
+        let search_root = match typed::remote_file_root() {
+            Ok(Some(root)) => root,
+            Ok(None) => editor.active_project_root.clone().unwrap_or_else(helix_stdx::env::current_working_dir),
+            Err(error) => return async move { Err(error) }.boxed(),
+        };
         if !search_root.exists() {
             return async { Err(anyhow::anyhow!("Current working directory does not exist")) }
                 .boxed();
@@ -3799,7 +3803,11 @@ fn primer_project_picker(cx: &mut Context) {
 }
 
 fn file_picker(cx: &mut Context) {
-    let root = cx.editor.active_project_root.clone().unwrap_or_else(|| find_workspace().0);
+    let root = match typed::remote_file_root() {
+        Ok(Some(root)) => root,
+        Ok(None) => cx.editor.active_project_root.clone().unwrap_or_else(|| find_workspace().0),
+        Err(error) => { cx.editor.set_error(error.to_string()); return; }
+    };
     if !root.exists() {
         cx.editor.set_error("Workspace directory does not exist");
         return;
@@ -3846,7 +3854,11 @@ fn file_picker_in_current_directory(cx: &mut Context) {
 }
 
 fn file_explorer(cx: &mut Context) {
-    let root = cx.editor.active_project_root.clone().unwrap_or_else(|| find_workspace().0);
+    let root = match typed::remote_file_root() {
+        Ok(Some(root)) => root,
+        Ok(None) => cx.editor.active_project_root.clone().unwrap_or_else(|| find_workspace().0),
+        Err(error) => { cx.editor.set_error(error.to_string()); return; }
+    };
     if !root.exists() {
         cx.editor.set_error("Workspace directory does not exist");
         return;
