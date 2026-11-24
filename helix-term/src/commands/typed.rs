@@ -3110,6 +3110,11 @@ fn ssh_connect(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> 
         destination: args[0].to_string(),
         remote_path: args[1].to_string(),
     };
+    ssh_connect_location(cx, location)
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ssh_connect_location(cx: &mut compositor::Context, location: crate::remote::registry::RemoteLocation) -> anyhow::Result<()> {
     crate::remote::mount_source(&location.destination, &location.remote_path)?;
     let runtime = std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
@@ -3137,7 +3142,7 @@ fn ssh_connect(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> 
 }
 
 #[cfg(target_os = "linux")]
-fn ssh_connections(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow::Result<()> {
+pub(crate) fn ssh_connections(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {
         return Ok(());
     }
