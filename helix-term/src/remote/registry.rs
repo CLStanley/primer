@@ -28,6 +28,15 @@ impl ConnectionRegistry {
     /// Reuse a mounted location, or retry its existing protected directory.
     /// Keep failed attempts registered so their resources remain accountable.
     pub fn connect(&mut self, runtime: &Path, location: RemoteLocation) -> Result<PathBuf> {
+        // An editor instance owns at most one mounted remote environment.
+        // Do not silently replace it while buffers or jobs may still use it.
+        for (existing, mount) in &self.mounts {
+            if existing != &location {
+                ensure!(mount.state()? == MountState::Unmounted,
+                    "A remote environment is already mounted ({}:{}). Disconnect it before connecting to another directory or host.",
+                    existing.destination, existing.remote_path);
+            }
+        }
         if !self.mounts.contains_key(&location) {
             let mount = RemoteMount::prepare(runtime, &location.destination, &location.remote_path)?;
             self.mounts.insert(location.clone(), mount);
