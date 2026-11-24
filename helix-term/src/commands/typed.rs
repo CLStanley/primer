@@ -3186,7 +3186,7 @@ fn remote_directory() -> &'static std::sync::Mutex<PathBuf> {
 
 #[cfg(target_os = "linux")]
 pub(crate) fn ssh_change_directory(cx: &mut compositor::Context, input: String) {
-    cx.jobs.callback(async move {
+    cx.jobs.spawn(async move {
         let result = tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
             let active = active_remote().lock().map_err(|_| anyhow::anyhow!("Remote context unavailable"))?;
             let location = active.as_ref().ok_or_else(|| anyhow::anyhow!("Connect to an SSH host first"))?;
@@ -3204,13 +3204,13 @@ pub(crate) fn ssh_change_directory(cx: &mut compositor::Context, input: String) 
             *directory = canonical.strip_prefix(root)?.to_owned();
             Ok(Path::new(&location.remote_path).join(&*directory).display().to_string())
         }).await;
-        Ok(job::Callback::EditorCompositor(Box::new(move |_, compositor| {
-            match result {
-                Ok(Ok(path)) => remote_feedback(compositor, format!("Remote directory changed\n\n{path}")),
-                Ok(Err(err)) => remote_feedback(compositor, format!("Change directory failed\n\n{err:#}")),
-                Err(err) => remote_feedback(compositor, format!("SSH worker failed\n\n{err}")),
-            }
-        })))
+        use ui::notification::{dispatch_notification, Severity};
+        match result {
+            Ok(Ok(path)) => dispatch_notification(Severity::Success, "Remote directory changed", path).await,
+            Ok(Err(err)) => dispatch_notification(Severity::Warning, "Change directory failed", format!("{err:#}")).await,
+            Err(err) => dispatch_notification(Severity::Error, "SSH worker failed", err.to_string()).await,
+        }
+        Ok(())
     });
 }
 
