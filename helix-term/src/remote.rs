@@ -82,6 +82,21 @@ pub fn terminal_args(destination: &str, remote_path: &str) -> Result<Vec<String>
 }
 
 
+/// Probe the same SFTP subsystem used by SSHFS, without opening a shell.
+#[cfg(target_os = "linux")]
+pub fn ssh_auth_preflight(destination: &str) -> Result<()> {
+    use std::process::{Command, Stdio};
+    ensure!(valid_destination(destination), "Invalid SSH destination");
+    let output = Command::new("timeout")
+        .args(["20s", "sftp", "-b", "/dev/null", "-o", "BatchMode=yes",
+            "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10", "--", destination])
+        .stdin(Stdio::null()).output()?;
+    let diagnostic = String::from_utf8_lossy(&output.stderr);
+    ensure!(output.status.success(), "SSH authentication/SFTP check failed: {}",
+        if diagnostic.trim().is_empty() { "Connection timed out or was rejected" } else { diagnostic.trim() });
+    Ok(())
+}
+
 /// Optional Tailscale diagnostics. Unknown hosts are never assumed to be tailnet peers.
 #[cfg(target_os = "linux")]
 pub fn tailscale_preflight(destination: &str) -> Result<()> {
