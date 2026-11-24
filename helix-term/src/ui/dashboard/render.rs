@@ -44,6 +44,7 @@ impl DashboardAction {
             Self::RemoteConnect => "Connect to host",
             Self::RemoteConnections => "Connections",
             Self::RemoteBrowse => "Remote files",
+            Self::RemoteDisconnect => "Disconnect",
         }
     }
 
@@ -70,6 +71,7 @@ impl DashboardAction {
             Self::RemoteConnect => 'u',
             Self::RemoteConnections => 'i',
             Self::RemoteBrowse => 'v',
+            Self::RemoteDisconnect => 'w',
         }
     }
 }
@@ -233,7 +235,7 @@ pub fn render_dashboard(
                 ("i", "Connections", Some(DashboardAction::RemoteConnections)),
                 ("v", "Remote files", Some(DashboardAction::RemoteBrowse)),
                 ("-", "Saved hosts", None),
-                ("-", "Remote terminal", None),
+                ("w", "Disconnect", Some(DashboardAction::RemoteDisconnect)),
             ],
         ),
     ];
