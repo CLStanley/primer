@@ -43,6 +43,7 @@ impl DashboardAction {
             Self::LazyDocker => "LazyDocker",
             Self::RemoteConnect => "Connect to host",
             Self::RemoteConnections => "Connections",
+            Self::RemoteBrowse => "Remote files",
         }
     }
 
@@ -68,6 +69,7 @@ impl DashboardAction {
             Self::LazyDocker => 'D',
             Self::RemoteConnect => 'u',
             Self::RemoteConnections => 'i',
+            Self::RemoteBrowse => 'v',
         }
     }
 }
@@ -133,8 +135,12 @@ pub fn render_dashboard(
 
     // Reserve a footer row for the active project, independent of menu selection.
     let project_footer = ctx.editor.active_project_name.clone();
+    #[cfg(target_os = "linux")]
+    let remote_footer = crate::commands::ssh_dashboard_indicator();
+    #[cfg(not(target_os = "linux"))]
+    let remote_footer: Option<String> = None;
     let full_area = area;
-    let area = if project_footer.is_some() && area.height > 1 {
+    let area = if (project_footer.is_some() || remote_footer.is_some()) && area.height > 1 {
         area.with_height(area.height - 1)
     } else {
         area
@@ -225,6 +231,7 @@ pub fn render_dashboard(
             vec![
                 ("u", "Connect to host", Some(DashboardAction::RemoteConnect)),
                 ("i", "Connections", Some(DashboardAction::RemoteConnections)),
+                ("v", "Remote files", Some(DashboardAction::RemoteBrowse)),
                 ("-", "Saved hosts", None),
                 ("-", "Remote terminal", None),
             ],
@@ -394,11 +401,24 @@ pub fn render_dashboard(
             y += 1;
         }
     }
+    if let Some(name) = remote_footer {
+        let label = format!(" {name} ");
+        let width = label.as_str().width().min(full_area.width.saturating_sub(2) as usize) as u16;
+        if width > 0 && full_area.height > 1 {
+            let x = full_area.x + 1;
+            let y = full_area.bottom() - 1;
+            let style = Style::default().fg(Color::Reset).bg(accent_color).add_modifier(Modifier::BOLD);
+            let cap_style = Style::default().fg(accent_color).bg(Color::Reset);
+            surface.set_stringn(x, y, "", 1, cap_style);
+            surface.set_stringn(x + 1, y, &label, width as usize, style);
+            surface.set_stringn(x + width + 1, y, "", 1, cap_style);
+        }
+    }
     if let Some(name) = project_footer {
         if full_area.height > 1 && full_area.width >= 5 {
             let label = format!(" {name} ");
             let width = label.as_str().width().min(full_area.width.saturating_sub(2) as usize) as u16;
-            let x = full_area.x + full_area.width.saturating_sub(width + 2) / 2;
+            let x = full_area.x + full_area.width.saturating_sub(width + 2);
             let y = full_area.bottom() - 1;
             let style = Style::default()
                 .fg(Color::Reset)
