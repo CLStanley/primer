@@ -3112,6 +3112,30 @@ pub(crate) fn ssh_dashboard_indicator() -> Option<String> {
 }
 
 #[cfg(target_os = "linux")]
+pub(crate) fn ssh_disconnect_dashboard(cx: &mut compositor::Context) {
+    let result = (|| -> anyhow::Result<()> {
+        let mut active = active_remote().try_lock().map_err(|_| anyhow::anyhow!("Remote context is busy"))?;
+        let location = active.clone().ok_or_else(|| anyhow::anyhow!("No active SSH connection"))?;
+        let mut registry = remote_registry().try_lock().map_err(|_| anyhow::anyhow!("Remote connection is busy"))?;
+        let mount = registry.get(&location).ok_or_else(|| anyhow::anyhow!("Unknown remote connection"))?;
+        anyhow::ensure!(!cx.editor.documents().any(|doc| doc.path().is_some_and(|path| path.starts_with(mount.path()))),
+            "Close all remote buffers before disconnecting");
+        // Keep the dashboard transition serialized with editor actions. Never force unmount.
+        registry.disconnect(&location)?;
+        *active = None;
+        Ok(())
+    })();
+    cx.jobs.callback(async move {
+        Ok(job::Callback::EditorCompositor(Box::new(move |_, compositor| {
+            match result {
+                Ok(()) => remote_feedback(compositor, "SSH disconnected\n\nLocal environment restored".into()),
+                Err(err) => remote_feedback(compositor, format!("SSH disconnect failed\n\n{err:#}")),
+            }
+        })))
+    });
+}
+
+#[cfg(target_os = "linux")]
 pub(crate) fn ssh_browse(cx: &mut compositor::Context) {
     cx.jobs.callback(async move {
         let result = tokio::task::spawn_blocking(|| -> anyhow::Result<PathBuf> {
