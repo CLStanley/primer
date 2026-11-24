@@ -68,6 +68,19 @@ pub fn mount_source(destination: &str, remote_path: &str) -> Result<String> {
     Ok(format!("{destination}:{remote_path}"))
 }
 
+/// OpenSSH passes remote commands through the remote login shell. Quote the
+/// directory as a single POSIX shell word, including embedded apostrophes.
+pub fn terminal_args(destination: &str, remote_path: &str) -> Result<Vec<String>> {
+    mount_source(destination, remote_path)?;
+    let quoted = format!("'{}'", remote_path.replace('\'', "'\\''"));
+    Ok(vec![
+        "-t".into(), "-o".into(), "StrictHostKeyChecking=yes".into(),
+        "-o".into(), "BatchMode=yes".into(), "-o".into(), "ConnectTimeout=10".into(),
+        "--".into(), destination.into(),
+        format!("cd {quoted} && exec \"$SHELL\" -l"),
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,6 +99,16 @@ mod tests {
             assert!(!valid_destination(value), "{value}");
         }
         assert!(valid_destination("user@debian.local"));
+    }
+
+    #[test]
+    fn terminal_command_quotes_remote_directory() {
+        let args = terminal_args("user@nas", "/home/user/a b").unwrap();
+        assert_eq!(args.last().unwrap(), "cd '/home/user/a b' && exec \"$SHELL\" -l");
+        let args = terminal_args("nas", "/a'b;$(id)").unwrap();
+        assert_eq!(args.last().unwrap(), "cd '/a'\\''b;$(id)' && exec \"$SHELL\" -l");
+        assert!(terminal_args("-host", "/").is_err());
+        assert!(terminal_args("nas", "relative").is_err());
     }
 
     #[test]
