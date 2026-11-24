@@ -3677,7 +3677,13 @@ fn primer_project_forget(cx: &mut Context) {
         Err(error) => { cx.editor.set_error(format!("Could not read projects: {error}")); return; }
     };
     if projects.is_empty() {
-        cx.editor.set_status("No remembered projects to forget");
+        cx.callback.push(Box::new(move |compositor, _| {
+            let popup = Popup::new("primer-project-empty",
+                ui::GitChangePreview::new(String::new(), vec![
+                    ("There are no saved projects to forget.".to_owned(), String::new(), String::new(), String::new()),
+                ]).with_title("No remembered projects").compact());
+            compositor.replace_or_push("primer-project-empty", popup.with_border().centered().with_scrollbar(false));
+        }));
         return;
     }
     let columns = [
@@ -3774,7 +3780,13 @@ fn primer_project_picker(cx: &mut Context) {
         }
     };
     if projects.is_empty() {
-        cx.editor.set_error("No remembered projects. Visit a Git repository or use Space p a");
+        cx.callback.push(Box::new(move |compositor, _| {
+            let popup = Popup::new("primer-project-empty",
+                ui::GitChangePreview::new(String::new(), vec![
+                    ("Add a directory using ".to_owned(), "Space p a (dashboard: b)".to_owned(), String::new(), String::new()),
+                ]).with_title("No remembered projects").compact());
+            compositor.replace_or_push("primer-project-empty", popup.with_border().centered().with_scrollbar(false));
+        }));
         return;
     }
     let columns = [
@@ -3799,7 +3811,7 @@ fn primer_project_picker(cx: &mut Context) {
         }
         // Switching project context leaves unrelated buffers and terminals intact.
         cx.editor.active_project_root = Some(project.root.clone());
-                    cx.editor.active_project_name = Some(project.name.clone());
+        cx.editor.active_project_name = Some(project.name.clone());
         cx.editor.set_status(format!("Active project: {} · Space f f to browse files", project.name));
     });
     cx.push_layer(Box::new(overlaid(picker.with_title("Projects"))));
