@@ -39,6 +39,8 @@ impl DashboardAction {
             Self::NewFile => "New file",
             Self::Quit => "Quit",
             Self::Terminal => "Terminal",
+            Self::LazyGit => "LazyGit",
+            Self::LazyDocker => "LazyDocker",
         }
     }
 
@@ -60,6 +62,8 @@ impl DashboardAction {
             Self::NewFile => 'n',
             Self::Quit => 'q',
             Self::Terminal => 't',
+            Self::LazyGit => 'G',
+            Self::LazyDocker => 'D',
         }
     }
 }
@@ -136,7 +140,7 @@ pub fn render_dashboard(
     let show_logo = area.width >= logo_width && area.height >= 20;
     let wide = area.width >= WIDE_LAYOUT_WIDTH && area.height >= 19;
     let heading_height: u16 = if show_logo { LOGO.len() as u16 } else { 1 };
-    let menu_height = if wide { 22 } else { 31 };
+    let menu_height = if wide { 22 } else { 33 };
     let content_height = heading_height + 5 + menu_height;
     let top = area.y + (area.height.saturating_sub(content_height) / 2).saturating_sub(2);
 
@@ -273,13 +277,15 @@ pub fn render_dashboard(
         }
         let footer_y = menu_top + 18;
         // Shared actions form one evenly spaced horizontal footer.
-        // Center each footer item in an equal-width third of the menu.
+        // Center each footer item in an equal-width slot of the menu.
         // This keeps the spacing balanced regardless of label length.
-        let footer_width = total_width + 20;
+        let footer_width = (total_width + 20).min(area.width);
         let footer_left = area.x + area.width.saturating_sub(footer_width) / 2;
-        let third = footer_width / 3;
+        let third = footer_width / 5;
         let footer = [
             ("t", "Terminal", Some(DashboardAction::Terminal)),
+            ("G", "LazyGit", Some(DashboardAction::LazyGit)),
+            ("D", "LazyDocker", Some(DashboardAction::LazyDocker)),
             ("?", "Keybind help", Some(DashboardAction::Help)),
             ("q", "Quit", Some(DashboardAction::Quit)),
         ]
@@ -360,7 +366,9 @@ pub fn render_dashboard(
             y += 1;
         }
         for (key, label, action) in [
-            ("t", "Terminal [todo]", None),
+            ("t", "Terminal", Some(DashboardAction::Terminal)),
+            ("G", "LazyGit", Some(DashboardAction::LazyGit)),
+            ("D", "LazyDocker", Some(DashboardAction::LazyDocker)),
             ("?", "Keybind help", Some(DashboardAction::Help)),
             ("q", "Quit", Some(DashboardAction::Quit)),
         ] {
