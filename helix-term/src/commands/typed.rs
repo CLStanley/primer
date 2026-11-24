@@ -169,7 +169,7 @@ fn open(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow:
 fn open_impl(cx: &mut compositor::Context, args: Args, action: Action) -> anyhow::Result<()> {
     for arg in args {
         let (path, pos) = crate::args::parse_file(&arg);
-        let path = helix_stdx::path::expand_tilde(path);
+        let path = resolve_environment_path(path.as_ref())?;
         // If the path is a directory, open a file picker on that directory and update the status
         // message
         if let Ok(true) = std::fs::canonicalize(&path).map(|p| p.is_dir()) {
@@ -177,7 +177,7 @@ fn open_impl(cx: &mut compositor::Context, args: Args, action: Action) -> anyhow
                 let call: job::Callback = job::Callback::EditorCompositor(Box::new(
                     move |editor: &mut Editor, compositor: &mut Compositor| {
                         let picker =
-                            ui::file_picker(editor, path.into_owned()).with_default_action(action);
+                            ui::file_picker(editor, path).with_default_action(action);
                         compositor.push(Box::new(overlaid(picker)));
                     },
                 ));
@@ -423,7 +423,7 @@ fn write_impl(
 
     let auto_format = config.auto_format && options.auto_format;
     let force = options.force;
-    let path: Option<PathBuf> = path.map(Into::into);
+    let path: Option<PathBuf> = path.map(|path| resolve_environment_path(Path::new(path))).transpose()?;
 
     // Does the document configure any code actions to run on save?
     let run_code_actions = options.code_actions
@@ -3176,6 +3176,46 @@ fn remember_ssh_host(location: &crate::remote::registry::RemoteLocation) -> anyh
 fn active_remote() -> &'static std::sync::Mutex<Option<crate::remote::registry::RemoteLocation>> {
     static ACTIVE: std::sync::Mutex<Option<crate::remote::registry::RemoteLocation>> = std::sync::Mutex::new(None);
     &ACTIVE
+}
+
+/// Translate a user-entered path into the mounted remote namespace.
+fn resolve_environment_path(path: &Path) -> anyhow::Result<PathBuf> {
+    #[cfg(target_os = "linux")]
+    {
+        let active = active_remote().try_lock().map_err(|_| anyhow::anyhow!("Remote context is busy"))?;
+        if let Some(location) = active.as_ref() {
+            let registry = remote_registry().try_lock().map_err(|_| anyhow::anyhow!("Remote connection is busy"))?;
+            let root = registry.mounted_path(location)?;
+            let directory = remote_directory().try_lock().map_err(|_| anyhow::anyhow!("Remote directory is busy"))?;
+            let candidate = if path.is_absolute() {
+                root.join(path.strip_prefix(&location.remote_path)
+                    .map_err(|_| anyhow::anyhow!("Path is outside the mounted remote root"))?)
+            } else {
+                anyhow::ensure!(!path.starts_with("~"), "Use an absolute remote path or a relative path");
+                root.join(&*directory).join(path)
+            };
+            // Resolve existing ancestors, including symlinks, before accepting new files.
+            let mut ancestor = candidate.as_path();
+            let mut suffix = Vec::new();
+            let canonical = loop {
+                match ancestor.canonicalize() {
+                    Ok(value) => break value,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        anyhow::ensure!(ancestor.symlink_metadata().is_err(), "Cannot resolve remote symlink");
+                        let name = ancestor.file_name().ok_or_else(|| anyhow::anyhow!("Invalid remote path"))?;
+                        suffix.push(name);
+                        ancestor = ancestor.parent().ok_or_else(|| anyhow::anyhow!("Invalid remote path"))?;
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            };
+            anyhow::ensure!(canonical.starts_with(&root), "Path is outside the mounted remote root");
+            let mut resolved = canonical;
+            for name in suffix.into_iter().rev() { resolved.push(name); }
+            return Ok(resolved);
+        }
+    }
+    Ok(helix_stdx::path::expand_tilde(path).into_owned())
 }
 
 /// Resolve the active remote working directory without falling back to local files.
