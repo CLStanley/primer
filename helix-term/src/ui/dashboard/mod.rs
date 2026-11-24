@@ -493,22 +493,11 @@ struct DisconnectConfirmation {
 #[cfg(target_os = "linux")]
 impl Component for DisconnectConfirmation {
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
-        Some((42.min(viewport.0), 5.min(viewport.1)))
+        Some((48.min(viewport.0), 8.min(viewport.1)))
     }
 
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
-        let normal = cx.editor.theme.get("ui.text");
-        let selected = cx.editor.theme.get("ui.menu.selected");
-        for (i, (label, style)) in [
-            ("Disconnect SSH?", normal),
-            ("", normal),
-            ("  Cancel", if !self.disconnect { selected } else { normal }),
-            ("  Disconnect", if self.disconnect { selected } else { normal }),
-            ("j/k or arrows · Enter to select", normal),
-        ].into_iter().enumerate() {
-            if i >= area.height as usize { break; }
-            surface.set_stringn(area.x, area.y + i as u16, label, area.width as usize, style);
-        }
+        render_ssh_dialog(area, surface, cx, "Disconnect SSH?", &["Cancel".into(), "Disconnect".into()], Some(usize::from(self.disconnect)), "Enter select  ·  Esc cancel");
     }
 
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
@@ -540,22 +529,12 @@ struct SavedHosts {
 #[cfg(target_os = "linux")]
 impl Component for SavedHosts {
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
-        Some((90.min(viewport.0), (self.hosts.len().min(15) as u16 + 3).min(viewport.1)))
+        Some(((self.hosts.iter().map(|h| h.destination.chars().count() + h.remote_path.chars().count() + 9).max().unwrap_or(48).clamp(48, 100) as u16).min(viewport.0), (self.hosts.len().min(15) as u16 + 6).min(viewport.1)))
     }
 
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
-        let normal = cx.editor.theme.get("ui.text");
-        let selected = cx.editor.theme.get("ui.menu.selected");
-        if area.height < 3 { return; }
-        surface.set_stringn(area.x, area.y, "Saved SSH Hosts", area.width as usize, normal);
-        let visible = (area.height - 2) as usize;
-        let offset = self.selected.saturating_sub(visible.saturating_sub(1));
-        for (i, host) in self.hosts.iter().enumerate().skip(offset).take(visible) {
-            let label = format!("{} {}:{}", if i == self.selected { ">" } else { " " }, host.destination, host.remote_path);
-            surface.set_stringn(area.x, area.y + 1 + (i - offset) as u16, &label, area.width as usize,
-                if i == self.selected { selected } else { normal });
-        }
-        surface.set_stringn(area.x, area.bottom() - 1, "j/k or arrows · Enter to connect · Esc to cancel", area.width as usize, normal);
+        let labels: Vec<_> = self.hosts.iter().map(|host| format!("{}:{}", host.destination, host.remote_path)).collect();
+        render_ssh_dialog(area, surface, cx, "Saved SSH Hosts", &labels, Some(self.selected), "j/k navigate  ·  Enter connect  ·  Esc cancel");
     }
 
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
@@ -576,4 +555,26 @@ impl Component for SavedHosts {
             _ => EventResult::Ignored(None),
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn render_ssh_dialog(area: Rect, surface: &mut Surface, cx: &mut Context, title: &str, rows: &[String], selection: Option<usize>, footer: &str) {
+    if area.width < 6 || area.height < 6 { return; }
+    let theme = &cx.editor.theme;
+    let normal = theme.get("ui.text");
+    let heading = theme.try_get("ui.window").unwrap_or(normal);
+    let muted = theme.try_get("ui.text.inactive").unwrap_or(normal);
+    let selected = theme.get("ui.menu.selected");
+    let x = area.x + 2;
+    let width = (area.width - 4) as usize;
+    surface.set_stringn(x, area.y + 1, title, width, heading);
+    let visible = (area.height - 6) as usize;
+    let offset = selection.unwrap_or(0).saturating_sub(visible.saturating_sub(1));
+    for (i, label) in rows.iter().enumerate().skip(offset).take(visible) {
+        let active = selection == Some(i);
+        let line = format!("{} {}", if active { "›" } else { " " }, label);
+        let padded = format!("{line:<width$}");
+        surface.set_stringn(x, area.y + 3 + (i - offset) as u16, &padded, width, if active { selected } else { normal });
+    }
+    surface.set_stringn(x, area.bottom() - 2, footer, width, muted);
 }
