@@ -1,25 +1,22 @@
 # Remote SSH implementation plan
 
 ## Goal
-Provide a native remote workflow in Primer, preserving Enzyme and the existing terminal and project interfaces.
+Lightweight remote editing with one local Primer installation. No Primer software on the remote host.
 
-## Phase 1: SSH connections
-- Discover named hosts from OpenSSH configuration and allow explicit destinations.
-- Use the system OpenSSH client, respecting configuration, agent, identity files, jump hosts and host-key verification.
-- Launch interactive sessions in existing PTY-backed terminal buffers; retain authentication prompts.
-- Provide dashboard actions and a dedicated remote key family without conflicts.
-- Validate destinations and pass arguments directly, never interpolate into shell commands.
+## Phase 1: Connections
+Discover literal OpenSSH aliases and allow explicit destinations. Use OpenSSH and SSHFS, preserving host-key verification and authentication. Manage dedicated mount directories, connection state, failures and reconnects. Never interpolate untrusted input into shell commands. Initial support targets Unix remote paths and Linux clients.
 
-## Phase 2: Remote files
-- Browse remote directories and open files through a transport abstraction.
-- Track remote identity separately from local paths; avoid accidental local writes.
-- Support explicit saves, conflict detection, transfer errors and disconnect recovery.
-- Preserve unsaved buffers and never silently overwrite changed remote files.
+## Phase 2: Files
+Reuse existing file picker, explorer, live grep and buffers through SSHFS. Local language servers and formatters are best-effort. Protect unsaved buffers and prevent writes into an unmounted mount directory. Keep filesystem operations responsive on disconnect.
 
-## Phase 3: Remote projects
-- Associate project context with host and remote root.
-- Scope search, terminals and repository operations to the remote host.
-- Evaluate remote language-server execution separately; do not imply local LSP works transparently.
+## Phase 3: Projects and terminals
+Persist remote host and remote root separately from ephemeral mount paths. Integrate local and remote projects in the existing registry and picker. Mount before activating remote projects. Ordinary integrated terminals launch SSH in the remote project directory. Git and Docker are entirely user-managed through the remote shell; disable native local Git actions in remote contexts without changing local functionality.
 
-## Validation
-Test local SSH server, configured aliases, key and interactive authentication, unknown host keys, unavailable hosts, disconnects, paths containing spaces, and multiple sessions. Keep existing project and keymap regression tests passing.
+## Phase 4: Polish and validation
+Dashboard, keymaps, status, documentation and regression tests. Test failed authentication, unknown host keys, unavailable hosts, paths with spaces, multiple connections, stale mounts and unsaved buffers.
+
+## Non-goals
+Remote language-server orchestration, custom remote backend, remote debugging, Git/Docker integration, and remote build orchestration.
+
+## Progress
+Initial alias parser and destination validation implemented. Mount lifecycle and UI integration pending.
