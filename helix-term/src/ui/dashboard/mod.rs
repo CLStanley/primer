@@ -263,15 +263,9 @@ impl Component for Dashboard {
                         Some(DashboardAction::RemoteDisconnect) => {
                             #[cfg(target_os = "linux")]
                             {
-                                use crate::ui::prompt::{Prompt, PromptEvent};
-                                let prompt = Prompt::new("Disconnect SSH? Type yes: ".into(), None,
-                                    |_, _| Vec::new(),
-                                    |cx, input, event| {
-                                        if event == PromptEvent::Validate && input.trim() == "yes" {
-                                            commands::ssh_disconnect_dashboard(cx);
-                                        }
-                                    });
-                                compositor.push(Box::new(prompt));
+                                compositor.push(Box::new(crate::ui::popup::Popup::new(
+                                    "ssh-disconnect-confirm", DisconnectConfirmation { disconnect: false },
+                                ).centered().with_border()));
                             }
                             #[cfg(not(target_os = "linux"))]
                             cx.editor.set_error("Remote SSH currently requires Linux");
@@ -471,4 +465,50 @@ fn ssh_input_error(cx: &mut Context, message: String) {
             compositor.push(Box::new(crate::ui::popup::Popup::new("ssh-input-error", content).centered().with_border()));
         })))
     });
+}
+
+#[cfg(target_os = "linux")]
+struct DisconnectConfirmation {
+    disconnect: bool,
+}
+
+#[cfg(target_os = "linux")]
+impl Component for DisconnectConfirmation {
+    fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
+        Some((42.min(viewport.0), 5.min(viewport.1)))
+    }
+
+    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+        let normal = cx.editor.theme.get("ui.text");
+        let selected = cx.editor.theme.get("ui.menu.selected");
+        for (i, (label, style)) in [
+            ("Disconnect SSH?", normal),
+            ("", normal),
+            ("  Cancel", if !self.disconnect { selected } else { normal }),
+            ("  Disconnect", if self.disconnect { selected } else { normal }),
+            ("j/k or arrows · Enter to select", normal),
+        ].into_iter().enumerate() {
+            if i >= area.height as usize { break; }
+            surface.set_stringn(area.x, area.y + i as u16, label, area.width as usize, style);
+        }
+    }
+
+    fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
+        match event {
+            Event::Key(event) => match *event {
+                key!('j') | key!('k') | key!(Up) | key!(Down) | key!(Tab) => {
+                    self.disconnect = !self.disconnect;
+                    EventResult::Consumed(None)
+                }
+                key!(Enter) => {
+                    if self.disconnect { commands::ssh_disconnect_dashboard(cx); }
+                    EventResult::Consumed(Some(Box::new(|compositor, _| { compositor.pop(); })))
+                }
+                key!(Esc) => EventResult::Consumed(Some(Box::new(|compositor, _| { compositor.pop(); }))),
+                _ => EventResult::Consumed(None),
+            },
+            Event::Mouse(_) => EventResult::Consumed(None),
+            _ => EventResult::Ignored(None),
+        }
+    }
 }
