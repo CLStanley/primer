@@ -4148,22 +4148,7 @@ fn changed_file_picker(cx: &mut Context) {
         style_renamed: Style,
     }
 
-    let active_dir = active_buffer_directory(cx.editor);
-    let cwd = std::process::Command::new("git")
-        .arg("-C")
-        .arg(&active_dir)
-        .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .and_then(|output| String::from_utf8(output.stdout).ok())
-        .map(|root| PathBuf::from(root.trim()))
-        .unwrap_or(active_dir);
-    if !cwd.exists() {
-        cx.editor
-            .set_error("Current working directory does not exist");
-        return;
-    }
+    let Some(cwd) = active_git_root(cx) else { return };
 
     let added = cx.editor.theme.get("diff.plus");
     let modified = cx.editor.theme.get("diff.delta");
@@ -5260,7 +5245,7 @@ fn git_revert_hunk(cx: &mut Context) {
     cx.push_layer(Box::new(overlay));
 }
 
-/// Resolve the Git root for the focused buffer without changing the process cwd.
+/// Resolve repository-wide operations against the active project, or focused buffer when unset.
 fn active_git_root(cx: &mut Context) -> Option<PathBuf> {
     let dir = cx.editor.active_project_root.clone().unwrap_or_else(|| active_buffer_directory(cx.editor));
     let output = std::process::Command::new("git")
@@ -5270,7 +5255,7 @@ fn active_git_root(cx: &mut Context) -> Option<PathBuf> {
             Some(PathBuf::from(String::from_utf8_lossy(&output.stdout).trim()))
         }
         _ => {
-            cx.editor.set_error("Active buffer is not inside a Git repository");
+            cx.editor.set_error(if cx.editor.active_project_root.is_some() { "Active project is not inside a Git repository" } else { "Active buffer is not inside a Git repository" });
             None
         }
     }
@@ -5521,18 +5506,7 @@ fn git_create_branch(cx: &mut Context) {
 
 /// Commit only the already staged index of the active file's repository.
 fn git_commit_staged(cx: &mut Context) {
-    let cwd = active_buffer_directory(cx.editor);
-    let root_output = std::process::Command::new("git")
-        .arg("-C").arg(&cwd).args(["rev-parse", "--show-toplevel"]).output();
-    let root = match root_output {
-        Ok(output) if output.status.success() => {
-            PathBuf::from(String::from_utf8_lossy(&output.stdout).trim())
-        }
-        _ => {
-            cx.editor.set_error("Active buffer is not inside a Git repository");
-            return;
-        }
-    };
+    let Some(root) = active_git_root(cx) else { return };
     let staged = std::process::Command::new("git")
         .arg("-C").arg(&root).args(["diff", "--cached", "--quiet", "--exit-code"]).status();
     match staged {
@@ -5587,7 +5561,7 @@ fn git_commit_staged(cx: &mut Context) {
 
 /// Show repository status without leaving Primer.
 fn git_repository_status(cx: &mut Context) {
-    let cwd = active_buffer_directory(cx.editor);
+    let Some(cwd) = active_git_root(cx) else { return };
     cx.editor.set_status("Loading Git status…");
     cx.jobs.callback(async move {
         let output = tokio::process::Command::new("git")
@@ -5629,17 +5603,9 @@ fn git_repository_status(cx: &mut Context) {
 
 /// Stage or unstage the entire active repository, leaving working files intact.
 fn git_change_all(cx: &mut Context, unstage: bool) {
-    let cwd = active_buffer_directory(cx.editor);
+    let Some(root) = active_git_root(cx) else { return };
     cx.editor.set_status(if unstage { "Unstaging repository changes…" } else { "Staging repository changes…" });
     cx.jobs.callback(async move {
-        let root = tokio::process::Command::new("git")
-            .arg("-C").arg(&cwd)
-            .args(["rev-parse", "--show-toplevel"])
-            .output().await?;
-        if !root.status.success() {
-            anyhow::bail!("Active buffer is not inside a Git repository");
-        }
-        let root = PathBuf::from(String::from_utf8_lossy(&root.stdout).trim());
         let mut cmd = tokio::process::Command::new("git");
         cmd.arg("-C").arg(&root);
         if unstage {
