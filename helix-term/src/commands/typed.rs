@@ -3200,24 +3200,8 @@ pub(crate) fn ssh_disconnect_dashboard(cx: &mut compositor::Context) {
         Ok(())
     })();
     match result {
-        Ok(()) => {
-            cx.jobs.callback(async move {
-                Ok(job::Callback::EditorCompositor(Box::new(move |_, compositor| {
-                    let popup = crate::ui::popup::Popup::new(
-                        "ssh-disconnected",
-                        ui::GitChangePreview::new("Local environment restored".to_owned(), Vec::new())
-                            .with_title("SSH disconnected").compact(),
-                    ).with_border().top_right().with_scrollbar(false).auto_close(true);
-                    compositor.replace_or_push("ssh-disconnected", popup);
-                })))
-            });
-            cx.jobs.callback(async move {
-                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                Ok(job::Callback::EditorCompositor(Box::new(move |_, compositor| {
-                    compositor.remove("ssh-disconnected");
-                })))
-            });
-        }
+        Ok(()) => ui::notification::notify(cx.jobs, ui::notification::Severity::Success,
+            "SSH disconnected", "Local environment restored"),
         Err(err) => cx.jobs.callback(async move {
             Ok(job::Callback::EditorCompositor(Box::new(move |_, compositor| {
                 remote_feedback(compositor, format!("SSH disconnect failed\n\n{err:#}"));
