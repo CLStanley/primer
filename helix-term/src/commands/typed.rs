@@ -3168,7 +3168,7 @@ pub(crate) fn ssh_connections(cx: &mut compositor::Context, _args: Args, event: 
 
 #[cfg(target_os = "linux")]
 fn remote_feedback(compositor: &mut Compositor, message: String) {
-    let content = crate::ui::text::Text::new(format!("{message}\n\nEsc to close"));
+    let content = crate::ui::Text::new(format!("{message}\n\nEsc to close"));
     compositor.push(Box::new(crate::ui::popup::Popup::new("remote-ssh-feedback", content)
         .centered().with_border()));
 }
