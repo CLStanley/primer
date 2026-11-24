@@ -3575,10 +3575,42 @@ fn primer_notes_reference(cx: &mut Context) { primer_notes_picker(cx, Some("04 R
 
 /// Initialize the current directory as an explicit Primer project.
 /// Browse folders, selecting one to remember and activate as a project.
+fn scoped_projects(registry: &crate::projects::registry::ProjectRegistry) -> anyhow::Result<Vec<crate::projects::Project>> {
+    match typed::remote_project_context()? {
+        None => registry.projects(),
+        Some((host, remote, mount)) => Ok(registry.remote_projects(&host)
+            .filter_map(|project| project.path.strip_prefix(&remote).ok())
+            .filter_map(|relative| crate::projects::from_directory(&mount.join(relative)).ok())
+            .filter(|project| project.root.starts_with(&mount))
+            .collect()),
+    }
+}
+
+fn remember_scoped_project(registry: &mut crate::projects::registry::ProjectRegistry, root: &Path) -> anyhow::Result<crate::projects::Project> {
+    match typed::remote_project_context()? {
+        None => registry.register(root),
+        Some((host, remote, mount)) => {
+            let project = crate::projects::from_directory(root)?;
+            registry.register_remote(&host, &remote.join(project.root.strip_prefix(&mount)?))?;
+            Ok(project)
+        }
+    }
+}
+
+fn forget_scoped_project(registry: &mut crate::projects::registry::ProjectRegistry, root: &Path) -> anyhow::Result<()> {
+    match typed::remote_project_context()? {
+        None => registry.forget(root),
+        Some((host, remote, mount)) => registry.forget_remote(&host, &remote.join(root.strip_prefix(&mount)?)),
+    }
+    Ok(())
+}
+
 fn primer_project_register_picker(directory: PathBuf) -> anyhow::Result<Picker<(PathBuf, bool), PathBuf>> {
     let directory = std::fs::canonicalize(directory)?;
+    let boundary = typed::remote_project_context()?.map(|(_, _, mount)| mount);
+    anyhow::ensure!(boundary.as_ref().map_or(true, |root| directory.starts_with(root)), "Directory is outside remote mount");
     let mut entries: Vec<(PathBuf, bool)> = vec![(directory.clone(), false)];
-    if let Some(parent) = directory.parent() { entries.push((parent.to_path_buf(), true)); }
+    if let Some(parent) = directory.parent().filter(|parent| boundary.as_ref().map_or(true, |root| parent.starts_with(root))) { entries.push((parent.to_path_buf(), true)); }
     for entry in std::fs::read_dir(&directory)? {
         let entry = entry?;
         if entry.path().is_dir() { entries.push((entry.path(), true)); }
@@ -3605,7 +3637,7 @@ fn primer_project_register_picker(directory: PathBuf) -> anyhow::Result<Picker<(
         let result = (|| -> anyhow::Result<crate::projects::Project> {
             let path = ProjectRegistry::default_path()?;
             let mut registry = ProjectRegistry::read(&path)?;
-            let project = registry.register(&entry.0)?;
+            let project = remember_scoped_project(&mut registry, &entry.0)?;
             registry.save(&path)?;
             Ok(project)
         })();
@@ -3621,7 +3653,11 @@ fn primer_project_register_picker(directory: PathBuf) -> anyhow::Result<Picker<(
 }
 
 fn primer_project_register(cx: &mut Context) {
-    let directory = active_buffer_directory(cx.editor);
+    let directory = match typed::remote_file_root() {
+        Ok(Some(root)) => root,
+        Ok(None) => active_buffer_directory(cx.editor),
+        Err(error) => { cx.editor.set_error(error.to_string()); return; }
+    };
     match primer_project_register_picker(directory) {
         Ok(picker) => cx.push_layer(Box::new(overlaid(picker.with_title("Add Project")))),
         Err(error) => cx.editor.set_error(format!("Cannot browse directories: {error}")),
@@ -3676,7 +3712,7 @@ fn primer_project_forget(cx: &mut Context) {
         Ok(path) => path,
         Err(error) => { cx.editor.set_error(format!("Project registry unavailable: {error}")); return; }
     };
-    let projects = match ProjectRegistry::read(&registry_path).and_then(|registry| registry.projects()) {
+    let projects = match ProjectRegistry::read(&registry_path).and_then(|registry| scoped_projects(&registry)) {
         Ok(projects) => projects,
         Err(error) => { cx.editor.set_error(format!("Could not read projects: {error}")); return; }
     };
@@ -3713,7 +3749,7 @@ fn primer_project_forget(cx: &mut Context) {
                     }
                     let result = (|| -> anyhow::Result<()> {
                         let mut registry = ProjectRegistry::read(&path)?;
-                        registry.forget(&root);
+                        forget_scoped_project(&mut registry, &root)?;
                         registry.save(&path)
                     })();
                     match result {
@@ -3757,7 +3793,7 @@ fn primer_project_picker(cx: &mut Context) {
             return;
         }
     };
-    let projects = match registry.projects() {
+    let projects = match scoped_projects(&registry) {
         Ok(projects) => projects,
         Err(error) => {
             cx.editor.set_error(format!("Could not load project: {error}"));
@@ -3790,7 +3826,7 @@ fn primer_project_picker(cx: &mut Context) {
                 return;
             }
         };
-        if let Err(error) = registry.register(&project.root).and_then(|_| registry.save(&registry_path)) {
+        if let Err(error) = remember_scoped_project(&mut registry, &project.root).and_then(|_| registry.save(&registry_path)) {
             cx.editor.set_error(format!("Could not update recent projects: {error}"));
             return;
         }
