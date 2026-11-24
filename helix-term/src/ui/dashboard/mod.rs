@@ -160,6 +160,18 @@ impl Component for Dashboard {
             _ => return EventResult::Ignored(None),
         };
 
+        // Backends may report uppercase letters with an explicit Shift modifier.
+        // Normalize these two shortcuts before matching the dashboard bindings.
+        let key = if key.modifiers == helix_view::keyboard::KeyModifiers::SHIFT {
+            match key.code {
+                helix_view::keyboard::KeyCode::Char('g' | 'G') => key!('G'),
+                helix_view::keyboard::KeyCode::Char('d' | 'D') => key!('D'),
+                _ => key,
+            }
+        } else {
+            key
+        };
+
         match key {
             key!('j') | key!(Down) => {
                 self.next();
