@@ -403,12 +403,13 @@ pub fn render_dashboard(
     }
     if let Some(name) = remote_footer {
         let label = format!(" {name} ");
-        let width = label.as_str().width().min(full_area.width.saturating_sub(2) as usize) as u16;
+        let width = label.as_str().width().min(full_area.width.saturating_sub(3) as usize) as u16;
         if width > 0 && full_area.height > 1 {
             let x = full_area.x + 1;
             let y = full_area.bottom() - 1;
-            let style = Style::default().fg(Color::Reset).bg(accent_color).add_modifier(Modifier::BOLD);
-            let cap_style = Style::default().fg(accent_color).bg(Color::Reset);
+            let remote_color = if name.ends_with("(Mounted)") { green_color } else { theme.get("warning").fg.unwrap_or(Color::Yellow) };
+            let style = Style::default().fg(Color::Rgb(20, 24, 28)).bg(remote_color).add_modifier(Modifier::BOLD);
+            let cap_style = Style::default().fg(remote_color).bg(Color::Reset);
             surface.set_stringn(x, y, "", 1, cap_style);
             surface.set_stringn(x + 1, y, &label, width as usize, style);
             surface.set_stringn(x + width + 1, y, "", 1, cap_style);
