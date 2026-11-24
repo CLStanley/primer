@@ -26,6 +26,8 @@ pub enum DashboardAction {
     Terminal,
     LazyGit,
     LazyDocker,
+    RemoteConnect,
+    RemoteConnections,
 }
 
 pub struct Dashboard {
@@ -56,6 +58,8 @@ impl Dashboard {
                 DashboardAction::Terminal,
                 DashboardAction::LazyGit,
                 DashboardAction::LazyDocker,
+                DashboardAction::RemoteConnect,
+                DashboardAction::RemoteConnections,
             ],
         }
     }
@@ -92,7 +96,7 @@ impl Dashboard {
                 | DashboardAction::NewNote
                 | DashboardAction::DailyNote
                 | DashboardAction::Agenda => DashboardAction::OpenProject,
-                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::ProjectStatus => DashboardAction::FindFile,
+                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::ProjectStatus | DashboardAction::RemoteConnect | DashboardAction::RemoteConnections => DashboardAction::FindFile,
                 DashboardAction::Terminal | DashboardAction::LazyGit | DashboardAction::LazyDocker | DashboardAction::Help | DashboardAction::Quit => {
                     let footer = [DashboardAction::Terminal, DashboardAction::LazyGit, DashboardAction::LazyDocker, DashboardAction::Help, DashboardAction::Quit];
                     let i = footer.iter().position(|a| *a == current).unwrap_or(0);
@@ -123,8 +127,8 @@ impl Dashboard {
                     DashboardAction::LazyGit,
                     DashboardAction::LazyDocker,
                 ],
-                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::ProjectStatus | DashboardAction::Quit => {
-                    &[DashboardAction::OpenProject, DashboardAction::AddProject, DashboardAction::ForgetProject, DashboardAction::ClearProject, DashboardAction::ProjectStatus, DashboardAction::Quit]
+                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::ProjectStatus | DashboardAction::RemoteConnect | DashboardAction::RemoteConnections | DashboardAction::Quit => {
+                    &[DashboardAction::OpenProject, DashboardAction::AddProject, DashboardAction::ForgetProject, DashboardAction::ClearProject, DashboardAction::ProjectStatus, DashboardAction::RemoteConnect, DashboardAction::RemoteConnections, DashboardAction::Quit]
                 }
             };
             let index = column
@@ -208,8 +212,10 @@ impl Component for Dashboard {
             | key!('?')
             | key!('n')
             | key!('q')
-            | key!('t') | key!('G') | key!('D') => {
+            | key!('u') | key!('i') | key!('t') | key!('G') | key!('D') => {
                 let action = match key {
+                    key!('u') => Some(DashboardAction::RemoteConnect),
+                    key!('i') => Some(DashboardAction::RemoteConnections),
                     key!('f') => Some(DashboardAction::FindFile),
                     key!('r') => Some(DashboardAction::FileExplorer),
                     key!('g') => Some(DashboardAction::LiveGrep),
@@ -245,6 +251,43 @@ impl Component for Dashboard {
                         compositor.remove_type::<Dashboard>();
                     }
                     let command = match action {
+                        Some(DashboardAction::RemoteConnect) => {
+                            #[cfg(target_os = "linux")]
+                            {
+                                use crate::ui::prompt::{Prompt, PromptEvent};
+                                let prompt = Prompt::new("SSH host and absolute path: ".into(), None,
+                                    |_, _| Vec::new(),
+                                    |cx, input, event| {
+                                        if event != PromptEvent::Validate { return; }
+                                        let Some((host, path)) = input.trim_start().split_once(char::is_whitespace) else {
+                                            cx.editor.set_error("Enter a host followed by an absolute path");
+                                            return;
+                                        };
+                                        let location = crate::remote::registry::RemoteLocation {
+                                            destination: host.into(),
+                                            remote_path: path.trim_start().into(),
+                                        };
+                                        if let Err(err) = commands::ssh_connect_location(cx, location) {
+                                            cx.editor.set_error(err.to_string());
+                                        }
+                                    });
+                                compositor.push(Box::new(prompt));
+                            }
+                            #[cfg(not(target_os = "linux"))]
+                            cx.editor.set_error("Remote SSH currently requires Linux");
+                            return;
+                        }
+                        Some(DashboardAction::RemoteConnections) => {
+                            #[cfg(target_os = "linux")]
+                            {
+                                if let Err(err) = commands::ssh_connections(cx, Default::default(), crate::ui::prompt::PromptEvent::Validate) {
+                                    cx.editor.set_error(err.to_string());
+                                }
+                            }
+                            #[cfg(not(target_os = "linux"))]
+                            cx.editor.set_error("Remote SSH currently requires Linux");
+                            return;
+                        }
                         Some(DashboardAction::FindFile) => MappableCommand::file_picker,
                         Some(DashboardAction::LiveGrep) => MappableCommand::global_search,
                         Some(DashboardAction::FindNotes) => MappableCommand::primer_notes_find,
@@ -305,7 +348,7 @@ mod tests {
     fn starts_on_browse_files() {
         let dashboard = Dashboard::new();
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::FindFile));
-        assert_eq!(dashboard.actions.len(), 18);
+        assert_eq!(dashboard.actions.len(), 20);
     }
 
     #[test]
