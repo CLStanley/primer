@@ -122,7 +122,12 @@ pub(crate) fn notify(jobs: &mut job::Jobs, severity: Severity, title: impl Into<
 pub(crate) async fn dispatch_notification(severity: Severity, title: impl Into<String>, message: impl Into<String>) {
     let title = title.into();
     let message = message.into();
-    job::dispatch(move |_, compositor| {
+    job::dispatch(move |_, compositor| show(compositor, severity, title, message)).await;
+}
+
+pub(crate) fn show(compositor: &mut crate::compositor::Compositor, severity: Severity, title: impl Into<String>, message: impl Into<String>) {
+    let title = title.into();
+    let message = message.into();
             let generation = GENERATION.fetch_add(1, Ordering::Relaxed) + 1;
             let popup = Popup::new(ID, Notification { severity, title, message })
                 .with_border().with_border_scope(severity.scope()).top_right().with_scrollbar(false);
@@ -148,7 +153,6 @@ pub(crate) async fn dispatch_notification(severity: Severity, title: impl Into<S
                     }).await;
                 });
             }
-        }).await;
 }
 
 #[cfg(test)]
