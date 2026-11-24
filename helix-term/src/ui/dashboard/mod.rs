@@ -24,6 +24,8 @@ pub enum DashboardAction {
     NewFile,
     Quit,
     Terminal,
+    LazyGit,
+    LazyDocker,
 }
 
 pub struct Dashboard {
@@ -51,6 +53,9 @@ impl Dashboard {
                 DashboardAction::ProjectStatus,
                 DashboardAction::Help,
                 DashboardAction::Quit,
+                DashboardAction::Terminal,
+                DashboardAction::LazyGit,
+                DashboardAction::LazyDocker,
             ],
         }
     }
@@ -88,9 +93,11 @@ impl Dashboard {
                 | DashboardAction::DailyNote
                 | DashboardAction::Agenda => DashboardAction::OpenProject,
                 DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::ProjectStatus => DashboardAction::FindFile,
-                DashboardAction::Help => DashboardAction::Quit,
-                DashboardAction::Quit => DashboardAction::Help,
-                DashboardAction::Terminal => DashboardAction::Help,
+                DashboardAction::Terminal | DashboardAction::LazyGit | DashboardAction::LazyDocker | DashboardAction::Help | DashboardAction::Quit => {
+                    let footer = [DashboardAction::Terminal, DashboardAction::LazyGit, DashboardAction::LazyDocker, DashboardAction::Help, DashboardAction::Quit];
+                    let i = footer.iter().position(|a| *a == current).unwrap_or(0);
+                    footer[if forward { (i + 1) % footer.len() } else { (i + footer.len() - 1) % footer.len() }]
+                },
             }
         } else {
             let column: &[DashboardAction] = match current {
@@ -102,7 +109,7 @@ impl Dashboard {
                 | DashboardAction::NewNote
                 | DashboardAction::DailyNote
                 | DashboardAction::Agenda
-                | DashboardAction::Help => &[
+                | DashboardAction::Terminal | DashboardAction::LazyGit | DashboardAction::LazyDocker | DashboardAction::Help => &[
                     DashboardAction::FindFile,
                     DashboardAction::FileExplorer,
                     DashboardAction::NewFile,
@@ -112,8 +119,11 @@ impl Dashboard {
                     DashboardAction::FindNotes,
                     DashboardAction::Agenda,
                     DashboardAction::Help,
+                    DashboardAction::Terminal,
+                    DashboardAction::LazyGit,
+                    DashboardAction::LazyDocker,
                 ],
-                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::ProjectStatus | DashboardAction::Quit | DashboardAction::Terminal => {
+                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::ProjectStatus | DashboardAction::Quit => {
                     &[DashboardAction::OpenProject, DashboardAction::AddProject, DashboardAction::ForgetProject, DashboardAction::ClearProject, DashboardAction::ProjectStatus, DashboardAction::Quit]
                 }
             };
@@ -186,7 +196,7 @@ impl Component for Dashboard {
             | key!('?')
             | key!('n')
             | key!('q')
-            | key!('t') => {
+            | key!('t') | key!('G') | key!('D') => {
                 let action = match key {
                     key!('f') => Some(DashboardAction::FindFile),
                     key!('r') => Some(DashboardAction::FileExplorer),
@@ -204,6 +214,8 @@ impl Component for Dashboard {
                     key!('n') => Some(DashboardAction::NewFile),
                     key!('q') => Some(DashboardAction::Quit),
                     key!('t') => Some(DashboardAction::Terminal),
+                    key!('G') => Some(DashboardAction::LazyGit),
+                    key!('D') => Some(DashboardAction::LazyDocker),
                     _ => self.selected_action(),
                 };
                 EventResult::Consumed(Some(Box::new(move |compositor, cx| {
@@ -216,7 +228,7 @@ impl Component for Dashboard {
                     if matches!(action, Some(DashboardAction::Quit)) {
                         compositor.remove_type::<Dashboard>();
                     }
-                    if action == Some(DashboardAction::Terminal) {
+                    if matches!(action, Some(DashboardAction::Terminal | DashboardAction::LazyGit | DashboardAction::LazyDocker)) {
                         // Terminals replace the startup dashboard; project controls do not.
                         compositor.remove_type::<Dashboard>();
                     }
@@ -237,6 +249,8 @@ impl Component for Dashboard {
                         Some(DashboardAction::ProjectStatus) => MappableCommand::primer_project_status,
                         Some(DashboardAction::Help) => MappableCommand::command_palette,
                         Some(DashboardAction::NewFile) => return,
+                        Some(DashboardAction::LazyGit) => MappableCommand::primer_terminal_lazygit,
+                        Some(DashboardAction::LazyDocker) => MappableCommand::primer_terminal_lazydocker,
                         Some(DashboardAction::Terminal) => MappableCommand::Typable {
                             name: "terminal".to_owned(),
                             args: String::new(),
@@ -279,7 +293,7 @@ mod tests {
     fn starts_on_browse_files() {
         let dashboard = Dashboard::new();
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::FindFile));
-        assert_eq!(dashboard.actions.len(), 15);
+        assert_eq!(dashboard.actions.len(), 18);
     }
 
     #[test]
@@ -310,10 +324,12 @@ mod tests {
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::Agenda));
         dashboard.next();
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::Help));
-        dashboard.next();
-        assert_eq!(dashboard.selected_action(), Some(DashboardAction::FindFile));
+        for action in [DashboardAction::Terminal, DashboardAction::LazyGit, DashboardAction::LazyDocker, DashboardAction::FindFile] {
+            dashboard.next();
+            assert_eq!(dashboard.selected_action(), Some(action));
+        }
         dashboard.previous();
-        assert_eq!(dashboard.selected_action(), Some(DashboardAction::Help));
+        assert_eq!(dashboard.selected_action(), Some(DashboardAction::LazyDocker));
     }
 
     #[test]
