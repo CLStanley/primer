@@ -3382,9 +3382,11 @@ fn ssh_connect_confirmed(cx: &mut compositor::Context, location: crate::remote::
     let runtime = std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .ok_or_else(|| anyhow::anyhow!("XDG_RUNTIME_DIR is not set"))?;
-    cx.editor.set_status("Connecting to remote host...");
+    cx.editor.set_status("Checking SSH and Tailscale connectivity...");
+    ui::notification::notify(cx.jobs, ui::notification::Severity::Info, "Connecting to SSH", location.destination.clone());
     cx.jobs.callback(async move {
         let result = tokio::task::spawn_blocking(move || {
+            crate::remote::tailscale_preflight(&location.destination)?;
             remote_registry().lock()
                 .map_err(|_| anyhow::anyhow!("Remote registry unavailable"))?
                 .connect(&runtime, location.clone())?;
