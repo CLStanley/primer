@@ -43,6 +43,7 @@ pub struct Popup<T: Component> {
     has_scrollbar: bool,
     force_border: bool,
     centered: bool,
+    top_right: bool,
 }
 
 impl<T: Component> Popup<T> {
@@ -59,6 +60,7 @@ impl<T: Component> Popup<T> {
             has_scrollbar: true,
             force_border: false,
             centered: false,
+            top_right: false,
         }
     }
 
@@ -113,6 +115,12 @@ impl<T: Component> Popup<T> {
     /// Consider disabling the scrollbar in case the child
     /// already has its own.
     /// Draw a border even when the editor's general popup border setting is disabled.
+    pub fn top_right(mut self) -> Self {
+        self.top_right = true;
+        self.centered = false;
+        self
+    }
+
     pub fn centered(mut self) -> Self {
         self.centered = true;
         self
@@ -189,6 +197,9 @@ impl<T: Component> Popup<T> {
             Open::Above => rel_y,
             Open::Below => viewport.height.saturating_sub(1 + rel_y),
         };
+        if self.top_right || self.centered {
+            max_height = viewport.height.saturating_sub(2);
+        }
         max_height = max_height.min(MAX_HEIGHT);
         let mut max_width = viewport.width.saturating_sub(2).min(MAX_WIDTH);
         render_borders = render_borders && max_height > 3 && max_width > 3;
@@ -228,7 +239,14 @@ impl<T: Component> Popup<T> {
                 Rect::new(rel_x, rel_y, width, y_max - rel_y)
             }
         };
-        let area = if self.centered {
+        let area = if self.top_right {
+            Rect::new(
+                viewport.x + viewport.width.saturating_sub(width + 2),
+                viewport.y + 1,
+                width,
+                height.min(viewport.height.saturating_sub(1)),
+            )
+        } else if self.centered {
             Rect::new(
                 viewport.x + viewport.width.saturating_sub(area.width) / 2,
                 viewport.y + viewport.height.saturating_sub(area.height) / 2,
