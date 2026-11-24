@@ -3133,8 +3133,8 @@ pub(crate) fn ssh_connect_location(cx: &mut compositor::Context, location: crate
                     let picker = ui::file_picker(editor, path);
                     compositor.push(Box::new(overlaid(picker)));
                 }
-                Ok(Err(err)) => editor.set_error(format!("SSH connection failed: {err:#}")),
-                Err(err) => editor.set_error(format!("SSH worker failed: {err}")),
+                Ok(Err(err)) => remote_feedback(compositor, format!("SSH connection failed\n\n{err:#}")),
+                Err(err) => remote_feedback(compositor, format!("SSH worker failed\n\n{err}")),
             }
         })))
     });
@@ -3153,17 +3153,24 @@ pub(crate) fn ssh_connections(cx: &mut compositor::Context, _args: Args, event: 
             let entries: Vec<_> = registry.entries().map(|(location, mount)| {
                 format!("{}:{} ({:?})", location.destination, location.remote_path, mount.state())
             }).collect();
-            Ok(if entries.is_empty() { "No remote connections".into() } else { entries.join(" | ") })
+            Ok(if entries.is_empty() { "No remote connections".into() } else { entries.join("\n") })
         }).await;
-        Ok(job::Callback::EditorCompositor(Box::new(move |editor, _| {
+        Ok(job::Callback::EditorCompositor(Box::new(move |_editor, compositor| {
             match result {
-                Ok(Ok(status)) => editor.set_status(status),
-                Ok(Err(err)) => editor.set_error(err.to_string()),
-                Err(err) => editor.set_error(err.to_string()),
+                Ok(Ok(status)) => remote_feedback(compositor, format!("SSH Connections\n\n{status}")),
+                Ok(Err(err)) => remote_feedback(compositor, format!("SSH Connections\n\n{err:#}")),
+                Err(err) => remote_feedback(compositor, format!("SSH worker failed\n\n{err}")),
             }
         })))
     });
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn remote_feedback(compositor: &mut Compositor, message: String) {
+    let content = crate::ui::text::Text::new(format!("{message}\n\nEsc to close"));
+    compositor.push(Box::new(crate::ui::popup::Popup::new("remote-ssh-feedback", content)
+        .centered().with_border()));
 }
 
 pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
