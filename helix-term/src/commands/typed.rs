@@ -3218,6 +3218,19 @@ fn resolve_environment_path(path: &Path) -> anyhow::Result<PathBuf> {
     Ok(helix_stdx::path::expand_tilde(path).into_owned())
 }
 
+/// Return the stable host identity and mounted root for project operations.
+pub(crate) fn remote_project_context() -> anyhow::Result<Option<(String, PathBuf, PathBuf)>> {
+    #[cfg(target_os = "linux")]
+    {
+        let active = active_remote().try_lock().map_err(|_| anyhow::anyhow!("Remote context is busy"))?;
+        if let Some(location) = active.as_ref() {
+            let registry = remote_registry().try_lock().map_err(|_| anyhow::anyhow!("Remote connection is busy"))?;
+            return Ok(Some((location.destination.clone(), PathBuf::from(&location.remote_path), registry.mounted_path(location)?.to_path_buf())));
+        }
+    }
+    Ok(None)
+}
+
 /// Resolve the active remote working directory without falling back to local files.
 pub(crate) fn remote_file_root() -> anyhow::Result<Option<PathBuf>> {
     #[cfg(target_os = "linux")]
