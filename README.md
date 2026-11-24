@@ -95,9 +95,16 @@ Primer includes PTY-backed terminal buffers that share the editor's tabs, splits
 | `Space t n` | Rename a terminal buffer |
 | `Space t g` | Launch lazygit in a terminal buffer |
 | `Space t d` | Launch lazydocker in a terminal buffer |
-| `Esc` (Terminal Mode) | Switch to read-only Normal Mode |
+| `Ctrl+Space` (Terminal Mode) | Switch to read-only Normal Mode |
+| `Esc` (Terminal Mode) | Send Escape to the running application |
 | `v` (Normal Mode) | Select terminal output |
 | `y` (Select Mode) | Yank selected output |
 | `Esc` (Normal Mode) | Return to Terminal Mode |
 
 Terminal Normal/Select modes support basic output navigation and copying; they are not full editable documents. Interactive applications such as lazygit and lazydocker have been tested. `btop` currently has a known rendering issue in the embedded terminal.
+
+### Projects
+
+Projects are remembered locally in `$XDG_DATA_HOME/primer/projects.toml` (default `~/.local/share/primer/projects.toml`). Add a Git repository or any directory with `Space p a`; switch with `Space p p`, forget with `Space p f`, clear with `Space p c`, and inspect with `Space p s`. Forgetting requires the exact project name and never deletes files. Switching preserves open buffers. Missing directories are omitted from the picker; identical names are distinguished by their paths.
+
+Dashboard shortcuts: `p` switch, `b` add, `x` forget, `c` clear, `s` status, `t` terminal, `G` LazyGit, `D` LazyDocker.
