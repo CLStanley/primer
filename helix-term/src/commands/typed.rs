@@ -3095,6 +3095,43 @@ fn open_terminal_program(
 }
 
 #[cfg(target_os = "linux")]
+fn saved_hosts_path() -> PathBuf {
+    helix_loader::config_dir().join("ssh-hosts.json")
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ssh_saved_hosts() -> anyhow::Result<Vec<crate::remote::registry::RemoteLocation>> {
+    let raw = match std::fs::read(saved_hosts_path()) {
+        Ok(raw) => raw,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => return Err(err.into()),
+    };
+    let entries: Vec<(String, String)> = serde_json::from_slice(&raw)?;
+    Ok(entries.into_iter().map(|(destination, remote_path)| crate::remote::registry::RemoteLocation { destination, remote_path }).collect())
+}
+
+#[cfg(target_os = "linux")]
+fn remember_ssh_host(location: &crate::remote::registry::RemoteLocation) -> anyhow::Result<()> {
+    let mut hosts = ssh_saved_hosts()?;
+    if hosts.contains(location) { return Ok(()); }
+    hosts.push(location.clone());
+    let entries: Vec<_> = hosts.into_iter().map(|host| (host.destination, host.remote_path)).collect();
+    let path = saved_hosts_path();
+    if let Some(parent) = path.parent() { std::fs::create_dir_all(parent)?; }
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let temp = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temp)?;
+    let result = (|| -> anyhow::Result<()> {
+        file.write_all(&serde_json::to_vec_pretty(&entries)?)?;
+        std::fs::rename(&temp, &path)?;
+        Ok(())
+    })();
+    if result.is_err() { let _ = std::fs::remove_file(&temp); }
+    result
+}
+
+#[cfg(target_os = "linux")]
 fn active_remote() -> &'static std::sync::Mutex<Option<crate::remote::registry::RemoteLocation>> {
     static ACTIVE: std::sync::Mutex<Option<crate::remote::registry::RemoteLocation>> = std::sync::Mutex::new(None);
     &ACTIVE
@@ -3227,6 +3264,9 @@ pub(crate) fn ssh_connect_location(cx: &mut compositor::Context, location: crate
         Ok(job::Callback::EditorCompositor(Box::new(move |editor, compositor| {
             match result {
                 Ok(Ok(location)) => {
+                    if let Err(err) = remember_ssh_host(&location) {
+                        remote_feedback(compositor, format!("Connected, but could not save SSH host\\n\\n{err:#}"));
+                    }
                     if let Ok(mut active) = active_remote().lock() {
                         if active.as_ref() != Some(&location) {
                             if let Ok(mut directory) = remote_directory().lock() { directory.clear(); }
