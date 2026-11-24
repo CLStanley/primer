@@ -3101,6 +3101,42 @@ fn active_remote() -> &'static std::sync::Mutex<Option<crate::remote::registry::
 }
 
 #[cfg(target_os = "linux")]
+fn remote_directory() -> &'static std::sync::Mutex<PathBuf> {
+    static DIRECTORY: std::sync::OnceLock<std::sync::Mutex<PathBuf>> = std::sync::OnceLock::new();
+    DIRECTORY.get_or_init(|| std::sync::Mutex::new(PathBuf::new()))
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ssh_change_directory(cx: &mut compositor::Context, input: String) {
+    cx.jobs.callback(async move {
+        let result = tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
+            let active = active_remote().lock().map_err(|_| anyhow::anyhow!("Remote context unavailable"))?;
+            let location = active.as_ref().ok_or_else(|| anyhow::anyhow!("Connect to an SSH host first"))?;
+            let registry = remote_registry().lock().map_err(|_| anyhow::anyhow!("Remote registry unavailable"))?;
+            let root = registry.mounted_path(location)?;
+            let mut directory = remote_directory().lock().map_err(|_| anyhow::anyhow!("Remote directory unavailable"))?;
+            let input = Path::new(input.trim());
+            let candidate = if input.is_absolute() {
+                root.join(input.strip_prefix(&location.remote_path).map_err(|_| anyhow::anyhow!("Directory is outside the mounted remote root"))?)
+            } else {
+                root.join(&*directory).join(input)
+            };
+            let canonical = candidate.canonicalize()?;
+            anyhow::ensure!(canonical.starts_with(root) && canonical.is_dir(), "Choose a directory inside the mounted remote root");
+            *directory = canonical.strip_prefix(root)?.to_owned();
+            Ok(Path::new(&location.remote_path).join(&*directory).display().to_string())
+        }).await;
+        Ok(job::Callback::EditorCompositor(Box::new(move |_, compositor| {
+            match result {
+                Ok(Ok(path)) => remote_feedback(compositor, format!("Remote directory changed\n\n{path}")),
+                Ok(Err(err)) => remote_feedback(compositor, format!("Change directory failed\n\n{err:#}")),
+                Err(err) => remote_feedback(compositor, format!("SSH worker failed\n\n{err}")),
+            }
+        })))
+    });
+}
+
+#[cfg(target_os = "linux")]
 pub(crate) fn ssh_dashboard_indicator() -> Option<String> {
     let active = active_remote().try_lock().ok()?.clone()?;
     let registry = match remote_registry().try_lock() {
@@ -3123,6 +3159,7 @@ pub(crate) fn ssh_disconnect_dashboard(cx: &mut compositor::Context) {
         // Keep the dashboard transition serialized with editor actions. Never force unmount.
         registry.disconnect(&location)?;
         *active = None;
+        if let Ok(mut directory) = remote_directory().lock() { directory.clear(); }
         Ok(())
     })();
     cx.jobs.callback(async move {
@@ -3142,7 +3179,7 @@ pub(crate) fn ssh_browse(cx: &mut compositor::Context) {
             let active = active_remote().lock().map_err(|_| anyhow::anyhow!("Remote context unavailable"))?
                 .clone().ok_or_else(|| anyhow::anyhow!("Connect to an SSH host first"))?;
             let registry = remote_registry().lock().map_err(|_| anyhow::anyhow!("Remote registry unavailable"))?;
-            Ok(registry.mounted_path(&active)?.to_owned())
+            Ok(registry.mounted_path(&active)?.join(&*remote_directory().lock().map_err(|_| anyhow::anyhow!("Remote directory unavailable"))?))
         }).await;
         Ok(job::Callback::EditorCompositor(Box::new(move |editor, compositor| {
             match result {
@@ -3191,6 +3228,9 @@ pub(crate) fn ssh_connect_location(cx: &mut compositor::Context, location: crate
             match result {
                 Ok(Ok(location)) => {
                     if let Ok(mut active) = active_remote().lock() {
+                        if active.as_ref() != Some(&location) {
+                            if let Ok(mut directory) = remote_directory().lock() { directory.clear(); }
+                        }
                         *active = Some(location);
                     }
                     editor.set_status("Remote filesystem mounted");
