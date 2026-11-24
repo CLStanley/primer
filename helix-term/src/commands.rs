@@ -2654,7 +2654,7 @@ fn global_search(cx: &mut Context) {
             return async { Ok(()) }.boxed();
         }
 
-        let search_root = match typed::remote_file_root() {
+        let search_root = match typed::remote_file_root(editor.active_project_root.as_deref()) {
             Ok(Some(root)) => root,
             Ok(None) => editor.active_project_root.clone().unwrap_or_else(helix_stdx::env::current_working_dir),
             Err(error) => return async move { Err(error) }.boxed(),
@@ -3653,7 +3653,7 @@ fn primer_project_register_picker(directory: PathBuf) -> anyhow::Result<Picker<(
 }
 
 fn primer_project_register(cx: &mut Context) {
-    let directory = match typed::remote_file_root() {
+    let directory = match typed::remote_file_root(cx.editor.active_project_root.as_deref()) {
         Ok(Some(root)) => root,
         Ok(None) => active_buffer_directory(cx.editor),
         Err(error) => { cx.editor.set_error(error.to_string()); return; }
@@ -3839,7 +3839,7 @@ fn primer_project_picker(cx: &mut Context) {
 }
 
 fn file_picker(cx: &mut Context) {
-    let root = match typed::remote_file_root() {
+    let root = match typed::remote_file_root(cx.editor.active_project_root.as_deref()) {
         Ok(Some(root)) => root,
         Ok(None) => cx.editor.active_project_root.clone().unwrap_or_else(|| find_workspace().0),
         Err(error) => { cx.editor.set_error(error.to_string()); return; }
@@ -3890,7 +3890,7 @@ fn file_picker_in_current_directory(cx: &mut Context) {
 }
 
 fn file_explorer(cx: &mut Context) {
-    let root = match typed::remote_file_root() {
+    let root = match typed::remote_file_root(cx.editor.active_project_root.as_deref()) {
         Ok(Some(root)) => root,
         Ok(None) => cx.editor.active_project_root.clone().unwrap_or_else(|| find_workspace().0),
         Err(error) => { cx.editor.set_error(error.to_string()); return; }
