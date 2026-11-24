@@ -3306,6 +3306,14 @@ pub(crate) fn ssh_disconnect_dashboard(cx: &mut compositor::Context) {
         // Keep the dashboard transition serialized with editor actions. Never force unmount.
         registry.disconnect(&location)?;
         *active = None;
+        cx.editor.active_project_root = None;
+        cx.editor.active_project_name = None;
+        if let Ok(mut saved) = suspended_local_project().lock() {
+            if let Some((root, name)) = saved.take() {
+                cx.editor.active_project_root = root;
+                cx.editor.active_project_name = name;
+            }
+        }
         if let Ok(mut directory) = remote_directory().lock() { directory.clear(); }
         Ok(())
     })();
@@ -3357,6 +3365,26 @@ fn ssh_connect(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> 
 
 #[cfg(target_os = "linux")]
 pub(crate) fn ssh_connect_location(cx: &mut compositor::Context, location: crate::remote::registry::RemoteLocation) -> anyhow::Result<()> {
+    if active_remote().try_lock().map_err(|_| anyhow::anyhow!("Remote context is busy"))?.is_none()
+        && cx.editor.active_project_root.is_some() {
+        cx.jobs.callback(async move {
+            Ok(job::Callback::EditorCompositor(Box::new(move |_, compositor| {
+                ui::dashboard::confirm_remote_project_transition(compositor, location);
+            })))
+        });
+        return Ok(());
+    }
+    ssh_connect_confirmed(cx, location)
+}
+
+#[cfg(target_os = "linux")]
+fn suspended_local_project() -> &'static std::sync::Mutex<Option<(Option<PathBuf>, Option<String>)>> {
+    static PROJECT: std::sync::Mutex<Option<(Option<PathBuf>, Option<String>)>> = std::sync::Mutex::new(None);
+    &PROJECT
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ssh_connect_confirmed(cx: &mut compositor::Context, location: crate::remote::registry::RemoteLocation) -> anyhow::Result<()> {
     crate::remote::mount_source(&location.destination, &location.remote_path)?;
     let runtime = std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
@@ -3376,6 +3404,11 @@ pub(crate) fn ssh_connect_location(cx: &mut compositor::Context, location: crate
                         remote_feedback(compositor, format!("Connected, but could not save SSH host\\n\\n{err:#}"));
                     }
                     if let Ok(mut active) = active_remote().lock() {
+                        if active.is_none() {
+                            if let Ok(mut saved) = suspended_local_project().lock() {
+                                *saved = Some((editor.active_project_root.take(), editor.active_project_name.take()));
+                            }
+                        }
                         if active.as_ref() != Some(&location) {
                             if let Ok(mut directory) = remote_directory().lock() { directory.clear(); }
                         }
