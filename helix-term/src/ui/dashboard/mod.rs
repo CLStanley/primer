@@ -486,6 +486,49 @@ fn ssh_input_error(cx: &mut Context, message: String) {
 }
 
 #[cfg(target_os = "linux")]
+pub(crate) fn confirm_remote_project_transition(compositor: &mut crate::compositor::Compositor, location: crate::remote::registry::RemoteLocation) {
+    compositor.push(Box::new(crate::ui::popup::Popup::new("ssh-project-transition", ProjectTransition { location, connect: false }).centered().with_border()));
+}
+
+#[cfg(target_os = "linux")]
+struct ProjectTransition {
+    location: crate::remote::registry::RemoteLocation,
+    connect: bool,
+}
+
+#[cfg(target_os = "linux")]
+impl Component for ProjectTransition {
+    fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
+        Some((60.min(viewport.0), 8.min(viewport.1)))
+    }
+    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+        render_ssh_dialog(area, surface, cx, "Deactivate local project?", &["Cancel".into(), "Deactivate project and connect".into()], Some(usize::from(self.connect)), "Enter select  ·  Esc cancel");
+    }
+    fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
+        match event {
+            Event::Key(event) => match *event {
+                key!('j') | key!('k') | key!(Up) | key!(Down) | key!(Tab) => {
+                    self.connect = !self.connect;
+                    EventResult::Consumed(None)
+                }
+                key!(Enter) => {
+                    if self.connect {
+                        if let Err(err) = commands::typed::ssh_connect_confirmed(cx, self.location.clone()) {
+                            cx.editor.set_error(err.to_string());
+                        }
+                    }
+                    EventResult::Consumed(Some(Box::new(|compositor, _| { compositor.pop(); })))
+                }
+                key!(Esc) => EventResult::Consumed(Some(Box::new(|compositor, _| { compositor.pop(); }))),
+                _ => EventResult::Consumed(None),
+            },
+            Event::Mouse(_) => EventResult::Consumed(None),
+            _ => EventResult::Ignored(None),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
 struct DisconnectConfirmation {
     disconnect: bool,
 }
