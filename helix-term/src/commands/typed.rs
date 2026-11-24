@@ -169,7 +169,7 @@ fn open(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow:
 fn open_impl(cx: &mut compositor::Context, args: Args, action: Action) -> anyhow::Result<()> {
     for arg in args {
         let (path, pos) = crate::args::parse_file(&arg);
-        let path = resolve_environment_path(path.as_ref())?;
+        let path = resolve_environment_path(path.as_ref(), cx.editor.active_project_root.as_deref())?;
         // If the path is a directory, open a file picker on that directory and update the status
         // message
         if let Ok(true) = std::fs::canonicalize(&path).map(|p| p.is_dir()) {
@@ -423,7 +423,7 @@ fn write_impl(
 
     let auto_format = config.auto_format && options.auto_format;
     let force = options.force;
-    let path: Option<PathBuf> = path.map(|path| resolve_environment_path(Path::new(path))).transpose()?;
+    let path: Option<PathBuf> = path.map(|path| resolve_environment_path(Path::new(path), cx.editor.active_project_root.as_deref())).transpose()?;
 
     // Does the document configure any code actions to run on save?
     let run_code_actions = options.code_actions
@@ -3080,7 +3080,7 @@ fn open_terminal_program(
                 let mut arguments: Vec<String> = Vec::new();
                 #[cfg(target_os = "linux")]
                 {
-                    match remote_terminal_context() {
+                    match remote_terminal_context(editor.active_project_root.as_deref()) {
                         Ok(Some((destination, path))) => {
                             if program.is_some() {
                                 editor.set_error("Use the remote terminal for Git and Docker commands");
@@ -3124,13 +3124,14 @@ fn open_terminal_program(
 }
 
 #[cfg(target_os = "linux")]
-fn remote_terminal_context() -> anyhow::Result<Option<(String, String)>> {
+fn remote_terminal_context(project: Option<&Path>) -> anyhow::Result<Option<(String, String)>> {
     let active = active_remote().try_lock().map_err(|_| anyhow::anyhow!("Remote context is busy"))?;
     let Some(location) = active.as_ref() else { return Ok(None); };
     let registry = remote_registry().try_lock().map_err(|_| anyhow::anyhow!("Remote connection is busy"))?;
-    registry.mounted_path(location)?;
+    let mount = registry.mounted_path(location)?;
     let directory = remote_directory().try_lock().map_err(|_| anyhow::anyhow!("Remote directory is busy"))?;
-    let path = Path::new(&location.remote_path).join(&*directory);
+    let relative = project.and_then(|path| path.strip_prefix(&mount).ok()).unwrap_or(&*directory);
+    let path = Path::new(&location.remote_path).join(relative);
     let path = path.to_str().ok_or_else(|| anyhow::anyhow!("Remote directory is not UTF-8"))?;
     Ok(Some((location.destination.clone(), path.to_owned())))
 }
@@ -3179,7 +3180,7 @@ fn active_remote() -> &'static std::sync::Mutex<Option<crate::remote::registry::
 }
 
 /// Translate a user-entered path into the mounted remote namespace.
-fn resolve_environment_path(path: &Path) -> anyhow::Result<PathBuf> {
+fn resolve_environment_path(path: &Path, project: Option<&Path>) -> anyhow::Result<PathBuf> {
     #[cfg(target_os = "linux")]
     {
         let active = active_remote().try_lock().map_err(|_| anyhow::anyhow!("Remote context is busy"))?;
@@ -3192,7 +3193,7 @@ fn resolve_environment_path(path: &Path) -> anyhow::Result<PathBuf> {
                     .map_err(|_| anyhow::anyhow!("Path is outside the mounted remote root"))?)
             } else {
                 anyhow::ensure!(!path.starts_with("~"), "Use an absolute remote path or a relative path");
-                root.join(&*directory).join(path)
+                project.filter(|path| path.starts_with(&root)).map(Path::to_path_buf).unwrap_or_else(|| root.join(&*directory)).join(path)
             };
             // Resolve existing ancestors, including symlinks, before accepting new files.
             let mut ancestor = candidate.as_path();
@@ -3232,14 +3233,15 @@ pub(crate) fn remote_project_context() -> anyhow::Result<Option<(String, PathBuf
 }
 
 /// Resolve the active remote working directory without falling back to local files.
-pub(crate) fn remote_file_root() -> anyhow::Result<Option<PathBuf>> {
+pub(crate) fn remote_file_root(project: Option<&Path>) -> anyhow::Result<Option<PathBuf>> {
     #[cfg(target_os = "linux")]
     {
         let active = active_remote().try_lock().map_err(|_| anyhow::anyhow!("Remote context is busy"))?;
         if let Some(location) = active.as_ref() {
             let registry = remote_registry().try_lock().map_err(|_| anyhow::anyhow!("Remote connection is busy"))?;
             let directory = remote_directory().try_lock().map_err(|_| anyhow::anyhow!("Remote directory is busy"))?;
-            return Ok(Some(registry.mounted_path(location)?.join(&*directory)));
+            let mount = registry.mounted_path(location)?;
+            return Ok(Some(project.filter(|path| path.starts_with(&mount)).map(Path::to_path_buf).unwrap_or_else(|| mount.join(&*directory))));
         }
     }
     Ok(None)
@@ -3365,15 +3367,6 @@ fn ssh_connect(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> 
 
 #[cfg(target_os = "linux")]
 pub(crate) fn ssh_connect_location(cx: &mut compositor::Context, location: crate::remote::registry::RemoteLocation) -> anyhow::Result<()> {
-    if active_remote().try_lock().map_err(|_| anyhow::anyhow!("Remote context is busy"))?.is_none()
-        && cx.editor.active_project_root.is_some() {
-        cx.jobs.callback(async move {
-            Ok(job::Callback::EditorCompositor(Box::new(move |_, compositor| {
-                ui::dashboard::confirm_remote_project_transition(compositor, location);
-            })))
-        });
-        return Ok(());
-    }
     ssh_connect_confirmed(cx, location)
 }
 
@@ -3384,7 +3377,7 @@ fn suspended_local_project() -> &'static std::sync::Mutex<Option<(Option<PathBuf
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn ssh_connect_confirmed(cx: &mut compositor::Context, location: crate::remote::registry::RemoteLocation) -> anyhow::Result<()> {
+fn ssh_connect_confirmed(cx: &mut compositor::Context, location: crate::remote::registry::RemoteLocation) -> anyhow::Result<()> {
     crate::remote::mount_source(&location.destination, &location.remote_path)?;
     let runtime = std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
