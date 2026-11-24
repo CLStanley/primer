@@ -260,7 +260,7 @@ impl Component for Dashboard {
                                     |cx, input, event| {
                                         if event != PromptEvent::Validate { return; }
                                         let Some((host, path)) = input.trim_start().split_once(char::is_whitespace) else {
-                                            cx.editor.set_error("Enter a host followed by an absolute path");
+                                            ssh_input_error(cx, "Enter user@host /absolute/path (or an SSH alias followed by the path)".into());
                                             return;
                                         };
                                         let location = crate::remote::registry::RemoteLocation {
@@ -268,7 +268,7 @@ impl Component for Dashboard {
                                             remote_path: path.trim_start().into(),
                                         };
                                         if let Err(err) = commands::ssh_connect_location(cx, location) {
-                                            cx.editor.set_error(err.to_string());
+                                            ssh_input_error(cx, format!("{err:#}"));
                                         }
                                     });
                                 compositor.push(Box::new(prompt));
@@ -411,4 +411,14 @@ mod tests {
         dashboard.right();
         assert_eq!(dashboard.selected_action(), None);
     }
+}
+
+#[cfg(target_os = "linux")]
+fn ssh_input_error(cx: &mut Context, message: String) {
+    cx.jobs.callback(async move {
+        Ok(crate::job::Callback::EditorCompositor(Box::new(move |_, compositor| {
+            let content = crate::ui::Text::new(format!("Invalid SSH connection\n\n{message}\n\nExample: user@host /home/user/Coding\n\nEsc to close"));
+            compositor.push(Box::new(crate::ui::popup::Popup::new("ssh-input-error", content).centered().with_border()));
+        })))
+    });
 }
