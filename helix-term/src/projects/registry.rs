@@ -14,9 +14,34 @@ use super::{from_directory, Project};
 pub struct ProjectRegistry {
     #[serde(default)]
     pub roots: Vec<PathBuf>,
+    #[serde(default)]
+    pub remote_roots: Vec<RemoteProject>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteProject {
+    pub destination: String,
+    pub path: PathBuf,
 }
 
 impl ProjectRegistry {
+    /// Remember a stable remote identity, never an SSHFS mount path.
+    pub fn register_remote(&mut self, destination: &str, path: &Path) -> Result<()> {
+        anyhow::ensure!(!destination.is_empty() && path.is_absolute(), "Invalid remote project identity");
+        let project = RemoteProject { destination: destination.to_owned(), path: path.to_owned() };
+        self.remote_roots.retain(|existing| existing != &project);
+        self.remote_roots.insert(0, project);
+        Ok(())
+    }
+
+    pub fn forget_remote(&mut self, destination: &str, path: &Path) {
+        self.remote_roots.retain(|project| project.destination != destination || project.path != path);
+    }
+
+    pub fn remote_projects<'a>(&'a self, destination: &'a str) -> impl Iterator<Item = &'a RemoteProject> + 'a {
+        self.remote_roots.iter().filter(move |project| project.destination == destination)
+    }
+
     /// XDG_DATA_HOME/primer/projects.toml, falling back to ~/.local/share.
     pub fn default_path() -> Result<PathBuf> {
         let data_home = std::env::var_os("XDG_DATA_HOME")
@@ -79,6 +104,21 @@ impl ProjectRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn remote_projects_are_host_scoped_and_persisted() {
+        let mut registry = ProjectRegistry::default();
+        let path = Path::new("/home/user/Coding");
+        registry.register_remote("host-a", path).unwrap();
+        registry.register_remote("host-b", path).unwrap();
+        registry.register_remote("host-a", path).unwrap();
+        assert_eq!(registry.remote_projects("host-a").count(), 1);
+        assert!(registry.roots.is_empty());
+        let mut restored: ProjectRegistry = toml::from_str(&toml::to_string(&registry).unwrap()).unwrap();
+        restored.forget_remote("host-a", path);
+        assert_eq!(restored.remote_projects("host-a").count(), 0);
+        assert_eq!(restored.remote_projects("host-b").count(), 1);
+    }
+
     #[test]
     fn register_without_marker_and_forget() {
         let root = std::env::temp_dir();
