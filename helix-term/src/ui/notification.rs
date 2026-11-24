@@ -2,7 +2,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use crate::{job, compositor::{Component, Context}, ui::popup::Popup};
+use crate::{job, compositor::{Component, Context, Event, EventResult}, key, ui::popup::Popup};
 use helix_view::graphics::{Margin, Rect};
 use tui::{buffer::Buffer, text::{Span, Spans, Text}, widgets::{Paragraph, Widget, Wrap}};
 
@@ -77,8 +77,39 @@ impl Component for Notification {
     }
 }
 
-/// Display the latest notification without requiring a confirmation.
-/// Older timers cannot remove a newer notification.
+const MAX_VISIBLE: usize = 3;
+
+#[derive(Default)]
+struct NotificationStack {
+    entries: Vec<(u64, Popup<Notification>)>,
+}
+
+impl Component for NotificationStack {
+    fn id(&self) -> Option<&'static str> { Some(ID) }
+
+    fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
+        let mut viewport = area;
+        for (_, popup) in self.entries.iter_mut().rev() {
+            if viewport.height < 6 { break; }
+            let rect = popup.area(viewport, cx.editor);
+            popup.render(viewport, surface, cx);
+            let used = rect.bottom().saturating_sub(viewport.y);
+            viewport.y = viewport.y.saturating_add(used);
+            viewport.height = viewport.height.saturating_sub(used);
+        }
+    }
+
+    fn handle_event(&mut self, event: &Event, _cx: &mut Context) -> EventResult {
+        if matches!(event, Event::Key(k) if *k == key!(Esc)) {
+            return EventResult::Ignored(Some(Box::new(|compositor, _| {
+                compositor.remove(ID);
+            })));
+        }
+        EventResult::Ignored(None)
+    }
+}
+
+/// Display a notification with an independent lifetime.
 pub(crate) fn notify(jobs: &mut job::Jobs, severity: Severity, title: impl Into<String>, message: impl Into<String>) {
     let title = title.into();
     let message = message.into();
@@ -86,14 +117,25 @@ pub(crate) fn notify(jobs: &mut job::Jobs, severity: Severity, title: impl Into<
         job::dispatch(move |_, compositor| {
             let generation = GENERATION.fetch_add(1, Ordering::Relaxed) + 1;
             let popup = Popup::new(ID, Notification { severity, title, message })
-                .with_border().with_border_scope(severity.scope()).top_right().with_scrollbar(false).auto_close(true);
-            compositor.replace_or_push(ID, popup);
+                .with_border().with_border_scope(severity.scope()).top_right().with_scrollbar(false);
+            if compositor.find_id::<NotificationStack>(ID).is_none() {
+                compositor.push(Box::new(NotificationStack::default()));
+            }
+            if let Some(stack) = compositor.find_id::<NotificationStack>(ID) {
+                stack.entries.push((generation, popup));
+                if stack.entries.len() > MAX_VISIBLE {
+                    stack.entries.remove(0);
+                }
+            }
             if let Some(duration) = severity.duration() {
                 tokio::spawn(async move {
                     tokio::time::sleep(duration).await;
                     job::dispatch(move |_, compositor| {
-                        if GENERATION.load(Ordering::Relaxed) == generation {
-                            compositor.remove(ID);
+                        if let Some(stack) = compositor.find_id::<NotificationStack>(ID) {
+                            stack.entries.retain(|(id, _)| *id != generation);
+                            if stack.entries.is_empty() {
+                                compositor.remove(ID);
+                            }
                         }
                     }).await;
                 });
