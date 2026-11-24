@@ -3719,28 +3719,9 @@ fn primer_project_forget(cx: &mut Context) {
                                 cx.editor.active_project_name = None;
                             }
                             cx.editor.set_status(format!("Forgot {name}; project files unchanged"));
-                            let confirmation = name.clone();
-                            cx.jobs.callback(async move {
-                                Ok(Callback::EditorCompositor(Box::new(move |_, compositor| {
-                                    let lines = vec![
-                                        ("Project:  ".to_owned(), confirmation, String::new(), String::new()),
-                                        ("Files:    ".to_owned(), "Unchanged".to_owned(), String::new(), String::new()),
-                                    ];
-                                    let popup = Popup::new(
-                                        "primer-project-forgotten",
-                                        ui::GitChangePreview::new(
-                                            "Removed from remembered projects".to_owned(), lines,
-                                        ).with_title("Project forgotten").compact(),
-                                    ).with_border().top_right().with_scrollbar(false).auto_close(true);
-                                    compositor.replace_or_push("primer-project-forgotten", popup);
-                                })))
-                            });
-                            cx.jobs.callback(async move {
-                                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                                Ok(Callback::EditorCompositor(Box::new(move |_, compositor| {
-                                    compositor.remove("primer-project-forgotten");
-                                })))
-                            });
+                            ui::notification::notify(cx.jobs, ui::notification::Severity::Info,
+                                "Project forgotten", format!("{name} — project files unchanged"));
+
                         }
                         Err(error) => cx.editor.set_error(format!("Could not forget project: {error}")),
                     }
