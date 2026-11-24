@@ -41,6 +41,8 @@ impl DashboardAction {
             Self::Terminal => "Terminal",
             Self::LazyGit => "LazyGit",
             Self::LazyDocker => "LazyDocker",
+            Self::RemoteConnect => "Connect to host",
+            Self::RemoteConnections => "Connections",
         }
     }
 
@@ -64,6 +66,8 @@ impl DashboardAction {
             Self::Terminal => 't',
             Self::LazyGit => 'G',
             Self::LazyDocker => 'D',
+            Self::RemoteConnect => 'u',
+            Self::RemoteConnections => 'i',
         }
     }
 }
@@ -219,10 +223,10 @@ pub fn render_dashboard(
         (
             "REMOTE SSH",
             vec![
-                ("c", "Connect to host", None),
-                ("h", "Saved hosts", None),
-                ("u", "Remote files", None),
-                ("x", "Remote terminal", None),
+                ("u", "Connect to host", Some(DashboardAction::RemoteConnect)),
+                ("i", "Connections", Some(DashboardAction::RemoteConnections)),
+                ("-", "Saved hosts", None),
+                ("-", "Remote terminal", None),
             ],
         ),
     ];
