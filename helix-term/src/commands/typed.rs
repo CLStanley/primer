@@ -3178,6 +3178,20 @@ fn active_remote() -> &'static std::sync::Mutex<Option<crate::remote::registry::
     &ACTIVE
 }
 
+/// Resolve the active remote working directory without falling back to local files.
+pub(crate) fn remote_file_root() -> anyhow::Result<Option<PathBuf>> {
+    #[cfg(target_os = "linux")]
+    {
+        let active = active_remote().try_lock().map_err(|_| anyhow::anyhow!("Remote context is busy"))?;
+        if let Some(location) = active.as_ref() {
+            let registry = remote_registry().try_lock().map_err(|_| anyhow::anyhow!("Remote connection is busy"))?;
+            let directory = remote_directory().try_lock().map_err(|_| anyhow::anyhow!("Remote directory is busy"))?;
+            return Ok(Some(registry.mounted_path(location)?.join(&*directory)));
+        }
+    }
+    Ok(None)
+}
+
 #[cfg(target_os = "linux")]
 fn remote_directory() -> &'static std::sync::Mutex<PathBuf> {
     static DIRECTORY: std::sync::OnceLock<std::sync::Mutex<PathBuf>> = std::sync::OnceLock::new();
