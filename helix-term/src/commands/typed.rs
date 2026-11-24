@@ -3075,8 +3075,37 @@ fn open_terminal_program(
     cx.jobs.callback(async move {
         Ok(job::Callback::EditorCompositor(Box::new(
             move |editor: &mut Editor, compositor: &mut Compositor| {
+                let mut executable = executable;
+                let mut directory = directory;
+                let mut arguments: Vec<String> = Vec::new();
+                #[cfg(target_os = "linux")]
+                {
+                    match remote_terminal_context() {
+                        Ok(Some((destination, path))) => {
+                            if program.is_some() {
+                                editor.set_error("Use the remote terminal for Git and Docker commands");
+                                return;
+                            }
+                            match crate::remote::terminal_args(&destination, &path) {
+                                Ok(args) => arguments = args,
+                                Err(err) => {
+                                    editor.set_error(format!("Unable to open remote terminal: {err}"));
+                                    return;
+                                }
+                            }
+                            executable = "ssh".to_owned();
+                            directory = std::env::temp_dir();
+                        }
+                        Ok(None) => {}
+                        Err(err) => {
+                            editor.set_error(format!("Unable to open remote terminal: {err}"));
+                            return;
+                        }
+                    }
+                }
+                let args: Vec<&str> = arguments.iter().map(String::as_str).collect();
                 match crate::terminal::runtime::RunningTerminal::spawn(
-                    &executable, &[], &directory, 80, 24, 1000,
+                    &executable, &args, &directory, 80, 24, 1000,
                 ) {
                     Ok(terminal) => {
                         let id = editor.new_file(action);
@@ -3092,6 +3121,18 @@ fn open_terminal_program(
         )))
     });
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn remote_terminal_context() -> anyhow::Result<Option<(String, String)>> {
+    let active = active_remote().try_lock().map_err(|_| anyhow::anyhow!("Remote context is busy"))?;
+    let Some(location) = active.as_ref() else { return Ok(None); };
+    let registry = remote_registry().try_lock().map_err(|_| anyhow::anyhow!("Remote connection is busy"))?;
+    registry.mounted_path(location)?;
+    let directory = remote_directory().try_lock().map_err(|_| anyhow::anyhow!("Remote directory is busy"))?;
+    let path = Path::new(&location.remote_path).join(&*directory);
+    let path = path.to_str().ok_or_else(|| anyhow::anyhow!("Remote directory is not UTF-8"))?;
+    Ok(Some((location.destination.clone(), path.to_owned())))
 }
 
 #[cfg(target_os = "linux")]
@@ -3193,6 +3234,8 @@ pub(crate) fn ssh_disconnect_dashboard(cx: &mut compositor::Context) {
         let mount = registry.get(&location).ok_or_else(|| anyhow::anyhow!("Unknown remote connection"))?;
         anyhow::ensure!(!cx.editor.documents().any(|doc| doc.path().is_some_and(|path| path.starts_with(mount.path()))),
             "Close all remote buffers before disconnecting");
+        anyhow::ensure!(cx.editor.terminal_documents.is_empty(),
+            "Close terminal buffers before disconnecting");
         // Keep the dashboard transition serialized with editor actions. Never force unmount.
         registry.disconnect(&location)?;
         *active = None;
