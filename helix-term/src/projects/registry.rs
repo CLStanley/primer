@@ -51,7 +51,11 @@ impl ProjectRegistry {
 
     /// Missing directories are skipped; no marker is required.
     pub fn projects(&self) -> Result<Vec<Project>> {
-        Ok(self.roots.iter().filter_map(|root| from_directory(root).ok()).collect())
+        let mut seen = std::collections::HashSet::new();
+        Ok(self.roots.iter()
+            .filter_map(|root| from_directory(root).ok())
+            .filter(|project| seen.insert(project.root.clone()))
+            .collect())
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
