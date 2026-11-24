@@ -30,6 +30,7 @@ pub enum DashboardAction {
     RemoteConnections,
     RemoteBrowse,
     RemoteDisconnect,
+    RemoteDirectory,
 }
 
 pub struct Dashboard {
@@ -64,6 +65,7 @@ impl Dashboard {
                 DashboardAction::RemoteConnections,
                 DashboardAction::RemoteBrowse,
                 DashboardAction::RemoteDisconnect,
+                DashboardAction::RemoteDirectory,
             ],
         }
     }
@@ -100,7 +102,7 @@ impl Dashboard {
                 | DashboardAction::NewNote
                 | DashboardAction::DailyNote
                 | DashboardAction::Agenda => DashboardAction::OpenProject,
-                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::ProjectStatus | DashboardAction::RemoteConnect | DashboardAction::RemoteConnections | DashboardAction::RemoteBrowse | DashboardAction::RemoteDisconnect => DashboardAction::FindFile,
+                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::ProjectStatus | DashboardAction::RemoteConnect | DashboardAction::RemoteConnections | DashboardAction::RemoteBrowse | DashboardAction::RemoteDisconnect | DashboardAction::RemoteDirectory => DashboardAction::FindFile,
                 DashboardAction::Terminal | DashboardAction::LazyGit | DashboardAction::LazyDocker | DashboardAction::Help | DashboardAction::Quit => {
                     let footer = [DashboardAction::Terminal, DashboardAction::LazyGit, DashboardAction::LazyDocker, DashboardAction::Help, DashboardAction::Quit];
                     let i = footer.iter().position(|a| *a == current).unwrap_or(0);
@@ -131,8 +133,8 @@ impl Dashboard {
                     DashboardAction::LazyGit,
                     DashboardAction::LazyDocker,
                 ],
-                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::ProjectStatus | DashboardAction::RemoteConnect | DashboardAction::RemoteConnections | DashboardAction::RemoteBrowse | DashboardAction::RemoteDisconnect | DashboardAction::Quit => {
-                    &[DashboardAction::OpenProject, DashboardAction::AddProject, DashboardAction::ForgetProject, DashboardAction::ClearProject, DashboardAction::ProjectStatus, DashboardAction::RemoteConnect, DashboardAction::RemoteConnections, DashboardAction::RemoteBrowse, DashboardAction::RemoteDisconnect, DashboardAction::Quit]
+                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::ProjectStatus | DashboardAction::RemoteConnect | DashboardAction::RemoteConnections | DashboardAction::RemoteBrowse | DashboardAction::RemoteDisconnect | DashboardAction::RemoteDirectory | DashboardAction::Quit => {
+                    &[DashboardAction::OpenProject, DashboardAction::AddProject, DashboardAction::ForgetProject, DashboardAction::ClearProject, DashboardAction::ProjectStatus, DashboardAction::RemoteConnect, DashboardAction::RemoteConnections, DashboardAction::RemoteBrowse, DashboardAction::RemoteDisconnect, DashboardAction::RemoteDirectory, DashboardAction::Quit]
                 }
             };
             let index = column
@@ -216,8 +218,9 @@ impl Component for Dashboard {
             | key!('?')
             | key!('n')
             | key!('q')
-            | key!('w') | key!('v') | key!('u') | key!('i') | key!('t') | key!('G') | key!('D') => {
+            | key!('y') | key!('w') | key!('v') | key!('u') | key!('i') | key!('t') | key!('G') | key!('D') => {
                 let action = match key {
+                    key!('y') => Some(DashboardAction::RemoteDirectory),
                     key!('w') => Some(DashboardAction::RemoteDisconnect),
                     key!('v') => Some(DashboardAction::RemoteBrowse),
                     key!('u') => Some(DashboardAction::RemoteConnect),
@@ -259,7 +262,34 @@ impl Component for Dashboard {
                     let command = match action {
                         Some(DashboardAction::RemoteDisconnect) => {
                             #[cfg(target_os = "linux")]
-                            commands::ssh_disconnect_dashboard(cx);
+                            {
+                                use crate::ui::prompt::{Prompt, PromptEvent};
+                                let prompt = Prompt::new("Disconnect SSH? Type yes: ".into(), None,
+                                    |_, _| Vec::new(),
+                                    |cx, input, event| {
+                                        if event == PromptEvent::Validate && input.trim() == "yes" {
+                                            commands::ssh_disconnect_dashboard(cx);
+                                        }
+                                    });
+                                compositor.push(Box::new(prompt));
+                            }
+                            #[cfg(not(target_os = "linux"))]
+                            cx.editor.set_error("Remote SSH currently requires Linux");
+                            return;
+                        }
+                        Some(DashboardAction::RemoteDirectory) => {
+                            #[cfg(target_os = "linux")]
+                            {
+                                use crate::ui::prompt::{Prompt, PromptEvent};
+                                let prompt = Prompt::new("Remote directory: ".into(), None,
+                                    |_, _| Vec::new(),
+                                    |cx, input, event| {
+                                        if event == PromptEvent::Validate {
+                                            commands::ssh_change_directory(cx, input.to_string());
+                                        }
+                                    });
+                                compositor.push(Box::new(prompt));
+                            }
                             #[cfg(not(target_os = "linux"))]
                             cx.editor.set_error("Remote SSH currently requires Linux");
                             return;
@@ -368,7 +398,7 @@ mod tests {
     fn starts_on_browse_files() {
         let dashboard = Dashboard::new();
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::FindFile));
-        assert_eq!(dashboard.actions.len(), 22);
+        assert_eq!(dashboard.actions.len(), 23);
     }
 
     #[test]
