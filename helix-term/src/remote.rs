@@ -81,9 +81,66 @@ pub fn terminal_args(destination: &str, remote_path: &str) -> Result<Vec<String>
     ])
 }
 
+
+/// Optional Tailscale diagnostics. Unknown hosts are never assumed to be tailnet peers.
+#[cfg(target_os = "linux")]
+pub fn tailscale_preflight(destination: &str) -> Result<()> {
+    use std::process::Command;
+    let host = destination.rsplit('@').next().unwrap_or(destination);
+    let effective = Command::new("ssh").args(["-G", "--", destination]).output().ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .and_then(|output| output.lines().find_map(|line| line.strip_prefix("hostname ").map(str::to_owned)))
+        .unwrap_or_else(|| host.to_owned());
+    let explicit = effective.trim_end_matches('.').ends_with(".ts.net")
+        || effective.parse::<std::net::Ipv4Addr>().is_ok_and(|ip| {
+            let octets = ip.octets();
+            octets[0] == 100 && (64..=127).contains(&octets[1])
+        });
+    let output = match Command::new("tailscale").args(["status", "--json"]).output() {
+        Ok(output) => output,
+        Err(error) if explicit => return Err(error).map_err(|error| anyhow::anyhow!("Tailscale CLI unavailable: {error}")),
+        Err(_) => return Ok(()),
+    };
+    let status: serde_json::Value = match serde_json::from_slice(&output.stdout) {
+        Ok(status) => status,
+        Err(_) if explicit => anyhow::bail!("Cannot read Tailscale status. Check that tailscaled is running."),
+        Err(_) => return Ok(()),
+    };
+    check_tailscale_status(&status, &effective, explicit)
+}
+
+#[cfg(target_os = "linux")]
+fn check_tailscale_status(status: &serde_json::Value, host: &str, explicit: bool) -> Result<()> {
+    let host = host.trim_end_matches('.');
+    let peer = status["Peer"].as_object().and_then(|peers| peers.values().find(|peer| {
+        peer["HostName"].as_str().is_some_and(|name| name.eq_ignore_ascii_case(host))
+            || peer["DNSName"].as_str().is_some_and(|name| name.trim_end_matches('.').eq_ignore_ascii_case(host))
+            || peer["TailscaleIPs"].as_array().is_some_and(|ips| ips.iter().any(|ip| ip.as_str() == Some(host)))
+    }));
+    if !explicit && peer.is_none() { return Ok(()); }
+    match status["BackendState"].as_str() {
+        Some("NeedsLogin") => anyhow::bail!("Tailscale authentication required. Run tailscale login and complete browser authentication, then retry."),
+        Some("NeedsMachineAuth") => anyhow::bail!("Tailscale device approval required. Approve this device in the Tailscale admin console, then retry."),
+        Some("Stopped") => anyhow::bail!("Tailscale is disconnected. Run tailscale up, then retry."),
+        Some("Running") => Ok(()),
+        _ => anyhow::bail!("Tailscale is not ready. Check tailscale status and the tailscaled service."),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn tailscale_checks_only_known_or_explicit_hosts() {
+        let status = serde_json::json!({"BackendState":"NeedsLogin","Peer":{"node":{"HostName":"desktop"}}});
+        assert!(check_tailscale_status(&status, "desktop", false).is_err());
+        assert!(check_tailscale_status(&status, "other", false).is_ok());
+        assert!(check_tailscale_status(&status, "host.ts.net", true).is_err());
+        assert!(check_tailscale_status(&serde_json::json!({"BackendState":"Running"}), "host.ts.net", true).is_ok());
+    }
 
     #[test]
     fn discovers_literal_hosts_only() {
