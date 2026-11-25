@@ -97,6 +97,19 @@ pub fn ssh_auth_preflight(destination: &str) -> Result<()> {
     Ok(())
 }
 
+/// Accept only the official Tailscale login origin, never arbitrary server URLs.
+#[cfg(target_os = "linux")]
+pub fn authentication_url(diagnostic: &str) -> Option<String> {
+    diagnostic.split_whitespace().find_map(|word| {
+        let url = word.trim_matches(|c: char| matches!(c, '(' | ')' | '<' | '>' | '"' | '\'' | ',' | '.'));
+        let path = url.strip_prefix("https://login.tailscale.com/")?;
+        if path.is_empty() || !path.bytes().all(|b| b.is_ascii_alphanumeric() || b"/-_.?=&%".contains(&b)) {
+            return None;
+        }
+        Some(url.to_owned())
+    })
+}
+
 /// Optional Tailscale diagnostics. Unknown hosts are never assumed to be tailnet peers.
 #[cfg(target_os = "linux")]
 pub fn tailscale_preflight(destination: &str) -> Result<()> {
@@ -135,7 +148,7 @@ fn check_tailscale_status(status: &serde_json::Value, host: &str, explicit: bool
     }));
     if !explicit && peer.is_none() { return Ok(()); }
     match status["BackendState"].as_str() {
-        Some("NeedsLogin") => anyhow::bail!("Tailscale authentication required. Run tailscale login and complete browser authentication, then retry."),
+        Some("NeedsLogin") => anyhow::bail!("Tailscale authentication required. {}", status["AuthURL"].as_str().unwrap_or("Run tailscale login and complete browser authentication, then retry.")),
         Some("NeedsMachineAuth") => anyhow::bail!("Tailscale device approval required. Approve this device in the Tailscale admin console, then retry."),
         Some("Stopped") => anyhow::bail!("Tailscale is disconnected. Run tailscale up, then retry."),
         Some("Running") => Ok(()),
@@ -155,6 +168,14 @@ mod tests {
         assert!(check_tailscale_status(&status, "other", false).is_ok());
         assert!(check_tailscale_status(&status, "host.ts.net", true).is_err());
         assert!(check_tailscale_status(&serde_json::json!({"BackendState":"Running"}), "host.ts.net", true).is_ok());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn authentication_urls_require_official_origin() {
+        assert_eq!(authentication_url("Visit https://login.tailscale.com/a/123"), Some("https://login.tailscale.com/a/123".into()));
+        assert!(authentication_url("https://login.tailscale.com.evil.test/a").is_none());
+        assert!(authentication_url("https://evil.test/a").is_none());
     }
 
     #[test]
