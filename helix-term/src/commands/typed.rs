@@ -3383,8 +3383,11 @@ fn ssh_connect_confirmed(cx: &mut compositor::Context, location: crate::remote::
         .map(PathBuf::from)
         .ok_or_else(|| anyhow::anyhow!("XDG_RUNTIME_DIR is not set"))?;
     cx.editor.set_status("Checking SSH and Tailscale connectivity...");
-    ui::notification::notify(cx.jobs, ui::notification::Severity::Info, "Connecting to SSH", location.destination.clone());
     cx.jobs.callback(async move {
+        let host = location.destination.clone();
+        job::dispatch(move |_, compositor| {
+            ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Info, "Connecting to SSH", host, true);
+        }).await;
         let result = tokio::task::spawn_blocking(move || {
             crate::remote::tailscale_preflight(&location.destination)?;
             crate::remote::ssh_auth_preflight(&location.destination)?;
@@ -3411,10 +3414,10 @@ fn ssh_connect_confirmed(cx: &mut compositor::Context, location: crate::remote::
                         *active = Some(location);
                     }
                     editor.set_status("Remote filesystem mounted");
-                    ui::notification::show(compositor, ui::notification::Severity::Success, "SSH connected", "Remote filesystem mounted");
+                    ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Success, "SSH connected", "Remote filesystem mounted", false);
                 }
-                Ok(Err(err)) => ui::notification::show(compositor, ui::notification::Severity::Error, "SSH connection failed", format!("{err:#}")),
-                Err(err) => ui::notification::show(compositor, ui::notification::Severity::Error, "SSH worker failed", err.to_string()),
+                Ok(Err(err)) => ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Error, "SSH connection failed", format!("{err:#}"), false),
+                Err(err) => ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Error, "SSH worker failed", err.to_string(), false),
             }
         })))
     });
