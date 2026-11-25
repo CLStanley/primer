@@ -3388,6 +3388,7 @@ fn ssh_connect_confirmed(cx: &mut compositor::Context, location: crate::remote::
         job::dispatch(move |_, compositor| {
             ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Info, "Connecting to SSH", host, true);
         }).await;
+        let retry_location = location.clone();
         let result = async {
             let destination = location.destination.clone();
             tokio::task::spawn_blocking(move || crate::remote::tailscale_preflight(&destination)).await??;
@@ -3426,7 +3427,15 @@ fn ssh_connect_confirmed(cx: &mut compositor::Context, location: crate::remote::
                     editor.set_status("Remote filesystem mounted");
                     ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Success, "SSH connected", "Remote filesystem mounted", false);
                 }
-                Err(err) => ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Error, "SSH connection failed", format!("{err:#}"), false),
+                Err(err) => {
+                    let diagnostic = format!("{err:#}");
+                    if let Some(url) = crate::remote::authentication_url(&diagnostic) {
+                        ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Warning, "SSH authentication required", retry_location.destination.clone(), false);
+                        ui::dashboard::authentication_dialog(compositor, retry_location, url);
+                    } else {
+                        ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Error, "SSH connection failed", diagnostic, false);
+                    }
+                }
             }
         })))
     });
