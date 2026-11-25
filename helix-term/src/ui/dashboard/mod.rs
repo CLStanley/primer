@@ -486,6 +486,61 @@ fn ssh_input_error(cx: &mut Context, message: String) {
 }
 
 #[cfg(target_os = "linux")]
+pub(crate) fn authentication_dialog(compositor: &mut crate::compositor::Compositor, location: crate::remote::registry::RemoteLocation, url: String) {
+    compositor.push(Box::new(crate::ui::popup::Popup::new("ssh-authentication", AuthenticationDialog { location, url, selected: 0, opened: false }).centered().with_border()));
+}
+
+#[cfg(target_os = "linux")]
+struct AuthenticationDialog {
+    location: crate::remote::registry::RemoteLocation,
+    url: String,
+    selected: usize,
+    opened: bool,
+}
+
+#[cfg(target_os = "linux")]
+impl Component for AuthenticationDialog {
+    fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
+        Some((64.min(viewport.0), 9.min(viewport.1)))
+    }
+    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+        let action = if self.opened { "Retry connection after authentication" } else { "Authenticate in browser" };
+        render_ssh_dialog(area, surface, cx, "Tailscale authentication required", &["Cancel".into(), action.into()], Some(self.selected), "Enter select  ·  Esc cancel");
+    }
+    fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
+        match event {
+            Event::Key(event) => match *event {
+                key!('j') | key!('k') | key!(Up) | key!(Down) | key!(Tab) => {
+                    self.selected = 1 - self.selected;
+                    EventResult::Consumed(None)
+                }
+                key!(Enter) if self.selected == 1 && !self.opened => {
+                    match std::process::Command::new("xdg-open").arg(&self.url).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn() {
+                        Ok(mut child) => {
+                            std::thread::spawn(move || { let _ = child.wait(); });
+                            self.opened = true;
+                        }
+                        Err(err) => cx.editor.set_error(format!("Unable to open browser: {err}")),
+                    }
+                    EventResult::Consumed(None)
+                }
+                key!(Enter) | key!(Esc) => {
+                    if *event == key!(Enter) && self.selected == 1 && self.opened {
+                        if let Err(err) = commands::ssh_connect_location(cx, self.location.clone()) {
+                            cx.editor.set_error(err.to_string());
+                        }
+                    }
+                    EventResult::Consumed(Some(Box::new(|compositor, _| { compositor.pop(); })))
+                }
+                _ => EventResult::Consumed(None),
+            },
+            Event::Mouse(_) => EventResult::Consumed(None),
+            _ => EventResult::Ignored(None),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
 struct DisconnectConfirmation {
     disconnect: bool,
 }
