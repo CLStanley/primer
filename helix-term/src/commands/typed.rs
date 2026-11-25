@@ -3388,17 +3388,27 @@ fn ssh_connect_confirmed(cx: &mut compositor::Context, location: crate::remote::
         job::dispatch(move |_, compositor| {
             ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Info, "Connecting to SSH", host, true);
         }).await;
-        let result = tokio::task::spawn_blocking(move || {
-            crate::remote::tailscale_preflight(&location.destination)?;
-            crate::remote::ssh_auth_preflight(&location.destination)?;
+        let result = async {
+            let destination = location.destination.clone();
+            tokio::task::spawn_blocking(move || crate::remote::tailscale_preflight(&destination)).await??;
+            job::dispatch(|_, compositor| {
+                ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Info, "Connecting to SSH", "Checking SSH authentication and SFTP", true);
+            }).await;
+            let destination = location.destination.clone();
+            tokio::task::spawn_blocking(move || crate::remote::ssh_auth_preflight(&destination)).await??;
+            job::dispatch(|_, compositor| {
+                ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Info, "Connecting to SSH", "Mounting remote filesystem", true);
+            }).await;
+            tokio::task::spawn_blocking(move || {
             remote_registry().lock()
                 .map_err(|_| anyhow::anyhow!("Remote registry unavailable"))?
                 .connect(&runtime, location.clone())?;
             Ok::<_, anyhow::Error>(location)
-        }).await;
+            }).await?
+        }.await;
         Ok(job::Callback::EditorCompositor(Box::new(move |editor, compositor| {
             match result {
-                Ok(Ok(location)) => {
+                Ok(location) => {
                     if let Err(err) = remember_ssh_host(&location) {
                         remote_feedback(compositor, format!("Connected, but could not save SSH host\\n\\n{err:#}"));
                     }
@@ -3416,8 +3426,7 @@ fn ssh_connect_confirmed(cx: &mut compositor::Context, location: crate::remote::
                     editor.set_status("Remote filesystem mounted");
                     ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Success, "SSH connected", "Remote filesystem mounted", false);
                 }
-                Ok(Err(err)) => ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Error, "SSH connection failed", format!("{err:#}"), false),
-                Err(err) => ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Error, "SSH worker failed", err.to_string(), false),
+                Err(err) => ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Error, "SSH connection failed", format!("{err:#}"), false),
             }
         })))
     });
