@@ -81,7 +81,7 @@ const MAX_VISIBLE: usize = 3;
 
 #[derive(Default)]
 struct NotificationStack {
-    entries: Vec<(u64, Popup<Notification>)>,
+    entries: Vec<(u64, Option<&'static str>, Popup<Notification>)>,
 }
 
 impl Component for NotificationStack {
@@ -89,7 +89,7 @@ impl Component for NotificationStack {
 
     fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
         let mut viewport = area;
-        for (_, popup) in self.entries.iter_mut().rev() {
+        for (_, _, popup) in self.entries.iter_mut().rev() {
             if viewport.height < 6 { break; }
             let rect = popup.area(viewport, cx.editor);
             popup.render(viewport, surface, cx);
@@ -126,6 +126,11 @@ pub(crate) async fn dispatch_notification(severity: Severity, title: impl Into<S
 }
 
 pub(crate) fn show(compositor: &mut crate::compositor::Compositor, severity: Severity, title: impl Into<String>, message: impl Into<String>) {
+    show_operation(compositor, None, severity, title, message, false);
+}
+
+/// Replace a named operation without disturbing unrelated notifications.
+pub(crate) fn show_operation(compositor: &mut crate::compositor::Compositor, operation: Option<&'static str>, severity: Severity, title: impl Into<String>, message: impl Into<String>, persistent: bool) {
     let title = title.into();
     let message = message.into();
             let generation = GENERATION.fetch_add(1, Ordering::Relaxed) + 1;
@@ -135,17 +140,20 @@ pub(crate) fn show(compositor: &mut crate::compositor::Compositor, severity: Sev
                 compositor.push(Box::new(NotificationStack::default()));
             }
             if let Some(stack) = compositor.find_id::<NotificationStack>(ID) {
-                stack.entries.push((generation, popup));
+                if let Some(operation) = operation {
+                    stack.entries.retain(|(_, key, _)| *key != Some(operation));
+                }
+                stack.entries.push((generation, operation, popup));
                 if stack.entries.len() > MAX_VISIBLE {
                     stack.entries.remove(0);
                 }
             }
-            if let Some(duration) = severity.duration() {
+            if let Some(duration) = if persistent { None } else { severity.duration() } {
                 tokio::spawn(async move {
                     tokio::time::sleep(duration).await;
                     job::dispatch(move |_, compositor| {
                         if let Some(stack) = compositor.find_id::<NotificationStack>(ID) {
-                            stack.entries.retain(|(id, _)| *id != generation);
+                            stack.entries.retain(|(id, _, _)| *id != generation);
                             if stack.entries.is_empty() {
                                 compositor.remove(ID);
                             }
