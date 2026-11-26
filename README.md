@@ -104,19 +104,22 @@ Typed commands: `:ssh-connect` and `:ssh-connections`.
 The Connections popup supports Enter to connect, `e` to edit and `d` to
 delete a saved connection. Saving a connection is independent of connecting.
 
-SSH uses strict host-key checking. For an unknown host, initialize the
-connection with OpenSSH in a terminal, verify its fingerprint independently,
-and reconnect in Primer. Never automatically accept or replace a host key.
+SSH uses strict host-key checking for authentication and mounting. For an
+unknown host, Primer attempts to display OpenSSH's host confirmation with
+the destination and SHA256 fingerprint. Cancel is the default; verify the
+fingerprint independently before trusting the host or entering its exact
+fingerprint. OpenSSH manages the known-hosts file. Primer does not
+automatically accept or replace changed host keys.
+
+If native verification is unavailable, initialize the connection with
+OpenSSH in a terminal, verify its fingerprint, and reconnect in Primer.
 Tailscale authentication offers browser launch, manual URL entry in another
 browser, and copying the URL to the clipboard. Each successful action starts
 an automatic retry; cancel stops waiting.
 
-**Pending native host verification:** integrate OpenSSH's host confirmation
-with Primer's dialogs, including explicit trust, exact fingerprint entry,
-and cancellation. Preserve the effective SSH configuration (aliases, ports,
-proxy routing and known-hosts settings). Trust only the exact key presented
-for confirmation; reject changed keys. Continue into Tailscale authentication
-when required. Until implemented, retain the terminal recovery instructions.
+Native first-time host verification and both Tailscale authentication orders
+still require live acceptance testing. The workspace tests and release build
+have passed.
 
 **Deferred:** During the application-wide UI and keybinding review, consider
 dedicated editor-mode SSH bindings alongside the existing Enzyme grammar.
