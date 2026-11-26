@@ -237,7 +237,6 @@ pub fn render_dashboard(
             vec![
                 ("u", "Connect to host", Some(DashboardAction::RemoteConnect)),
                 ("i", "Connections", Some(DashboardAction::RemoteConnections)),
-                ("v", "Remote files", Some(DashboardAction::RemoteBrowse)),
                 ("z", "Saved hosts", Some(DashboardAction::RemoteSavedHosts)),
                 ("y", "Change directory", Some(DashboardAction::RemoteDirectory)),
                 ("w", "Disconnect", Some(DashboardAction::RemoteDisconnect)),
@@ -299,7 +298,7 @@ pub fn render_dashboard(
         // This keeps the spacing balanced regardless of label length.
         let footer_width = (total_width + 20).min(area.width);
         let footer_left = area.x + area.width.saturating_sub(footer_width) / 2;
-        let third = footer_width / 5;
+        let third = footer_width / if dashboard.actions.contains(&DashboardAction::LazyGit) { 5 } else { 3 };
         let footer = [
             ("t", "Terminal", Some(DashboardAction::Terminal)),
             ("G", "LazyGit", Some(DashboardAction::LazyGit)),
@@ -308,6 +307,7 @@ pub fn render_dashboard(
             ("q", "Quit", Some(DashboardAction::Quit)),
         ]
         .into_iter()
+        .filter(|(_, _, action)| action.is_some_and(|action| dashboard.actions.contains(&action)))
         .enumerate()
         .map(|(index, (key, label, action))| {
             let item_width = 2 + label.len() as u16;
@@ -390,6 +390,7 @@ pub fn render_dashboard(
             ("?", "Keybind help", Some(DashboardAction::Help)),
             ("q", "Quit", Some(DashboardAction::Quit)),
         ] {
+            if !action.is_some_and(|action| dashboard.actions.contains(&action)) { continue; }
             let active = action.is_some() && action == dashboard.selected_action();
             draw_line(key, x + 2, y, 1, shortcut);
             draw_line(
