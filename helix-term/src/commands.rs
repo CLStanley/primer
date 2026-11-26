@@ -3575,11 +3575,14 @@ fn primer_notes_reference(cx: &mut Context) { primer_notes_picker(cx, Some("04 R
 fn scoped_projects(registry: &crate::projects::registry::ProjectRegistry) -> anyhow::Result<Vec<crate::projects::Project>> {
     match typed::remote_project_context()? {
         None => registry.projects(),
-        Some((host, remote, mount)) => Ok(registry.remote_projects(&host)
+        Some((host, remote, mount)) => {
+            let working = typed::remote_file_root(None)?.ok_or_else(|| anyhow::anyhow!("Remote working directory unavailable"))?;
+            Ok(registry.remote_projects(&host)
             .filter_map(|project| project.path.strip_prefix(&remote).ok())
             .filter_map(|relative| crate::projects::from_directory(&mount.join(relative)).ok())
-            .filter(|project| project.root.starts_with(&mount))
-            .collect()),
+            .filter(|project| project.root.starts_with(&mount) && project.root.starts_with(&working))
+            .collect())
+        },
     }
 }
 
