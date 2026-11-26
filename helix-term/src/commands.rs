@@ -3602,7 +3602,7 @@ fn forget_scoped_project(registry: &mut crate::projects::registry::ProjectRegist
     Ok(())
 }
 
-fn primer_project_register_picker(directory: PathBuf) -> anyhow::Result<Picker<(PathBuf, bool), PathBuf>> {
+fn primer_project_register_picker(directory: PathBuf, change_remote: bool) -> anyhow::Result<Picker<(PathBuf, bool), PathBuf>> {
     let directory = std::fs::canonicalize(directory)?;
     let boundary = typed::remote_project_context()?.map(|(_, _, mount)| mount);
     anyhow::ensure!(boundary.as_ref().map_or(true, |root| directory.starts_with(root)), "Directory is outside remote mount");
@@ -3612,8 +3612,8 @@ fn primer_project_register_picker(directory: PathBuf) -> anyhow::Result<Picker<(
         let entry = entry?;
         if entry.path().is_dir() { entries.push((entry.path(), true)); }
     }
-    let columns = [PickerColumn::new("Directory", |entry: &(PathBuf, bool), root: &PathBuf| {
-        if !entry.1 { "./  Add this directory".into() }
+    let columns = [PickerColumn::new("Directory", move |entry: &(PathBuf, bool), root: &PathBuf| {
+        if !entry.1 { if change_remote { "./  Select this directory".into() } else { "./  Add this directory".into() } }
         else if entry.0 == root.parent().unwrap_or(root) { "../".into() }
         else { format!("{}/", entry.0.file_name().unwrap_or_default().to_string_lossy()).into() }
     })];
@@ -3622,12 +3622,29 @@ fn primer_project_register_picker(directory: PathBuf) -> anyhow::Result<Picker<(
             let next = entry.0.clone();
             cx.jobs.callback(async move {
                 Ok(Callback::EditorCompositor(Box::new(move |editor, compositor| {
-                    match primer_project_register_picker(next) {
-                        Ok(picker) => compositor.push(Box::new(overlaid(picker.with_title("Add Project")))),
+                    match primer_project_register_picker(next, change_remote) {
+                        Ok(picker) => compositor.push(Box::new(overlaid(picker.with_title(if change_remote { "Change Remote Directory" } else { "Add Project" })))),
                         Err(error) => editor.set_error(format!("Cannot browse directory: {error}")),
                     }
                 })))
             });
+            return;
+        }
+        if change_remote {
+            #[cfg(target_os = "linux")]
+            match typed::remote_project_context() {
+                Ok(Some((_, remote_root, mount))) => {
+                    match entry.0.strip_prefix(&mount) {
+                        Ok(relative) => {
+                            let path = Path::new(&remote_root).join(relative).display().to_string();
+                            cx.callback.push(Box::new(move |_, cx| typed::ssh_change_directory(cx, path)));
+                        }
+                        Err(error) => cx.editor.set_error(error.to_string()),
+                    }
+                }
+                Ok(None) => cx.editor.set_error("Connect to an SSH host first"),
+                Err(error) => cx.editor.set_error(error.to_string()),
+            }
             return;
         }
         use crate::projects::registry::ProjectRegistry;
@@ -3655,7 +3672,7 @@ fn primer_project_register(cx: &mut Context) {
         Ok(None) => active_buffer_directory(cx.editor),
         Err(error) => { cx.editor.set_error(error.to_string()); return; }
     };
-    match primer_project_register_picker(directory) {
+    match primer_project_register_picker(directory, false) {
         Ok(picker) => cx.push_layer(Box::new(overlaid(picker.with_title("Add Project")))),
         Err(error) => cx.editor.set_error(format!("Cannot browse directories: {error}")),
     }
@@ -8861,5 +8878,13 @@ fn lsp_or_syntax_workspace_symbol_picker(cx: &mut Context) {
         lsp::workspace_symbol_picker(cx);
     } else {
         syntax_workspace_symbol_picker(cx);
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ssh_directory_picker(cx: &mut crate::compositor::Context, compositor: &mut crate::compositor::Compositor) {
+    match typed::remote_file_root(None).and_then(|root| root.ok_or_else(|| anyhow::anyhow!("Connect to an SSH host first"))).and_then(|root| primer_project_register_picker(root, true)) {
+        Ok(picker) => compositor.push(Box::new(overlaid(picker.with_title("Change Remote Directory")))),
+        Err(error) => cx.editor.set_error(format!("Cannot browse remote directories: {error}")),
     }
 }
