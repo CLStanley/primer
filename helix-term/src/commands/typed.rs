@@ -3383,6 +3383,11 @@ fn ssh_connect_confirmed(cx: &mut compositor::Context, location: crate::remote::
 
 #[cfg(target_os = "linux")]
 pub(crate) fn ssh_connect_with_project(cx: &mut compositor::Context, location: crate::remote::registry::RemoteLocation, project: Option<PathBuf>) -> anyhow::Result<()> {
+    ssh_connect_with_options(cx, location, project, false)
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ssh_connect_with_options(cx: &mut compositor::Context, location: crate::remote::registry::RemoteLocation, project: Option<PathBuf>, save_host: bool) -> anyhow::Result<()> {
     crate::remote::mount_source(&location.destination, &location.remote_path)?;
     {
         let active = active_remote().try_lock().map_err(|_| anyhow::anyhow!("Remote context is busy"))?;
@@ -3397,12 +3402,12 @@ pub(crate) fn ssh_connect_with_project(cx: &mut compositor::Context, location: c
         .map(PathBuf::from)
         .ok_or_else(|| anyhow::anyhow!("XDG_RUNTIME_DIR is not set"))?;
     cx.editor.set_status("Checking SSH and Tailscale connectivity...");
-    cx.jobs.callback(ssh_connection_job(location, runtime, project));
+    cx.jobs.callback(ssh_connection_job(location, runtime, project, save_host));
     Ok(())
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) async fn ssh_connection_job(location: crate::remote::registry::RemoteLocation, runtime: PathBuf, project: Option<PathBuf>) -> anyhow::Result<job::Callback> {
+pub(crate) async fn ssh_connection_job(location: crate::remote::registry::RemoteLocation, runtime: PathBuf, project: Option<PathBuf>, save_host: bool) -> anyhow::Result<job::Callback> {
         let host = location.destination.clone();
         job::dispatch(move |_, compositor| {
             ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Info, "Connecting to SSH", host, true);
@@ -3490,9 +3495,7 @@ pub(crate) async fn ssh_connection_job(location: crate::remote::registry::Remote
         Ok(job::Callback::EditorCompositor(Box::new(move |editor, compositor| {
             match result {
                 Ok((location, project)) => {
-                    if let Err(err) = remember_ssh_host(&location) {
-                        remote_feedback(compositor, format!("Connected, but could not save SSH host\\n\\n{err:#}"));
-                    }
+                    let save_error = if save_host { remember_ssh_host(&location).err() } else { None };
                     if let Ok(mut active) = active_remote().lock() {
                         if active.is_none() {
                             if let Ok(mut saved) = suspended_local_project().lock() {
@@ -3511,13 +3514,16 @@ pub(crate) async fn ssh_connection_job(location: crate::remote::registry::Remote
                         editor.active_project_name = Some(project.name);
                     }
                     editor.set_status("Remote filesystem mounted");
-                    ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Success, "SSH connected", "Remote filesystem mounted", false);
+                    ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Success, "SSH connected", if save_host && save_error.is_none() { "Remote filesystem mounted; host saved" } else { "Remote filesystem mounted" }, false);
+                    if let Some(error) = save_error {
+                        ui::notification::show_operation(compositor, None, ui::notification::Severity::Warning, "SSH host not saved", format!("{error:#}"), false);
+                    }
                 }
                 Err(err) => {
                     let diagnostic = format!("{err:#}");
                     if let Some(url) = crate::remote::authentication_url(&diagnostic) {
                         ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Warning, "SSH authentication required", retry_location.destination.clone(), false);
-                        ui::dashboard::authentication_dialog(compositor, retry_location, url, retry_project);
+                        ui::dashboard::authentication_dialog(compositor, retry_location, url, retry_project, save_host);
                     } else {
                         ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Error, "SSH connection failed", diagnostic, false);
                     }
