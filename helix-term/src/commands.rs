@@ -3602,7 +3602,7 @@ fn forget_scoped_project(registry: &mut crate::projects::registry::ProjectRegist
     Ok(())
 }
 
-fn primer_project_register_picker(directory: PathBuf, change_remote: bool) -> anyhow::Result<Picker<(PathBuf, bool), PathBuf>> {
+fn primer_project_register_picker(directory: PathBuf, change_remote: bool) -> anyhow::Result<Picker<(PathBuf, bool), (PathBuf, bool)>> {
     let directory = std::fs::canonicalize(directory)?;
     let boundary = typed::remote_project_context()?.map(|(_, _, mount)| mount);
     anyhow::ensure!(boundary.as_ref().map_or(true, |root| directory.starts_with(root)), "Directory is outside remote mount");
@@ -3612,12 +3612,13 @@ fn primer_project_register_picker(directory: PathBuf, change_remote: bool) -> an
         let entry = entry?;
         if entry.path().is_dir() { entries.push((entry.path(), true)); }
     }
-    let columns = [PickerColumn::new("Directory", move |entry: &(PathBuf, bool), root: &PathBuf| {
-        if !entry.1 { if change_remote { "./  Select this directory".into() } else { "./  Add this directory".into() } }
+    let columns = [PickerColumn::new("Directory", |entry: &(PathBuf, bool), data: &(PathBuf, bool)| {
+        let (root, change_remote) = data;
+        if !entry.1 { if *change_remote { "./  Select this directory".into() } else { "./  Add this directory".into() } }
         else if entry.0 == root.parent().unwrap_or(root) { "../".into() }
         else { format!("{}/", entry.0.file_name().unwrap_or_default().to_string_lossy()).into() }
     })];
-    Ok(Picker::new(columns, 0, entries, directory, move |cx, entry: &(PathBuf, bool), _| {
+    Ok(Picker::new(columns, 0, entries, (directory, change_remote), move |cx, entry: &(PathBuf, bool), _| {
         if entry.1 {
             let next = entry.0.clone();
             cx.jobs.callback(async move {
@@ -3637,7 +3638,7 @@ fn primer_project_register_picker(directory: PathBuf, change_remote: bool) -> an
                     match entry.0.strip_prefix(&mount) {
                         Ok(relative) => {
                             let path = Path::new(&remote_root).join(relative).display().to_string();
-                            cx.callback.push(Box::new(move |_, cx| typed::ssh_change_directory(cx, path)));
+                            typed::ssh_change_directory(cx, path);
                         }
                         Err(error) => cx.editor.set_error(error.to_string()),
                     }
