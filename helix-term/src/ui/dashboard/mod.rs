@@ -28,7 +28,6 @@ pub enum DashboardAction {
     RemoteBrowse,
     RemoteDisconnect,
     RemoteDirectory,
-    RemoteSavedHosts,
 }
 
 pub struct Dashboard {
@@ -60,7 +59,6 @@ impl Dashboard {
                 DashboardAction::RemoteConnections,
                 DashboardAction::RemoteDisconnect,
                 DashboardAction::RemoteDirectory,
-                DashboardAction::RemoteSavedHosts,
             ],
         }
     }
@@ -104,7 +102,7 @@ impl Dashboard {
                 | DashboardAction::NewNote
                 | DashboardAction::DailyNote
                 | DashboardAction::Agenda => DashboardAction::OpenProject,
-                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::RemoteConnect | DashboardAction::RemoteConnections | DashboardAction::RemoteBrowse | DashboardAction::RemoteDisconnect | DashboardAction::RemoteDirectory | DashboardAction::RemoteSavedHosts => DashboardAction::FindFile,
+                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::RemoteConnect | DashboardAction::RemoteConnections | DashboardAction::RemoteBrowse | DashboardAction::RemoteDisconnect | DashboardAction::RemoteDirectory => DashboardAction::FindFile,
                 DashboardAction::Terminal | DashboardAction::Help | DashboardAction::Quit => {
                     let footer: Vec<_> = [DashboardAction::Terminal, DashboardAction::Help, DashboardAction::Quit].into_iter().filter(|action| self.actions.contains(action)).collect();
                     let i = footer.iter().position(|a| *a == current).unwrap_or(0);
@@ -133,8 +131,8 @@ impl Dashboard {
                     DashboardAction::Help,
                     DashboardAction::Terminal,
                 ],
-                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::RemoteConnect | DashboardAction::RemoteConnections | DashboardAction::RemoteBrowse | DashboardAction::RemoteDisconnect | DashboardAction::RemoteDirectory | DashboardAction::RemoteSavedHosts | DashboardAction::Quit => {
-                    &[DashboardAction::OpenProject, DashboardAction::AddProject, DashboardAction::ForgetProject, DashboardAction::ClearProject, DashboardAction::RemoteConnect, DashboardAction::RemoteConnections, DashboardAction::RemoteBrowse, DashboardAction::RemoteDisconnect, DashboardAction::RemoteDirectory, DashboardAction::RemoteSavedHosts, DashboardAction::Quit]
+                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::RemoteConnect | DashboardAction::RemoteConnections | DashboardAction::RemoteBrowse | DashboardAction::RemoteDisconnect | DashboardAction::RemoteDirectory | DashboardAction::Quit => {
+                    &[DashboardAction::OpenProject, DashboardAction::AddProject, DashboardAction::ForgetProject, DashboardAction::ClearProject, DashboardAction::RemoteConnect, DashboardAction::RemoteConnections, DashboardAction::RemoteBrowse, DashboardAction::RemoteDisconnect, DashboardAction::RemoteDirectory, DashboardAction::Quit]
                 }
             };
             let column: Vec<_> = column.iter().copied().filter(|action| self.actions.contains(action)).collect();
@@ -220,9 +218,8 @@ impl Component for Dashboard {
             | key!('?')
             | key!('n')
             | key!('q')
-            | key!('z') | key!('y') | key!('w') | key!('v') | key!('u') | key!('i') | key!('t') => {
+            | key!('y') | key!('w') | key!('v') | key!('u') | key!('i') | key!('t') => {
                 let action = match key {
-                    key!('z') => Some(DashboardAction::RemoteSavedHosts),
                     key!('y') => Some(DashboardAction::RemoteDirectory),
                     key!('w') => Some(DashboardAction::RemoteDisconnect),
                     key!('v') => Some(DashboardAction::RemoteBrowse),
@@ -269,21 +266,6 @@ impl Component for Dashboard {
                                 compositor.push(Box::new(crate::ui::popup::Popup::new(
                                     "ssh-disconnect-confirm", DisconnectConfirmation { disconnect: false },
                                 ).centered().with_border()));
-                            }
-                            #[cfg(not(target_os = "linux"))]
-                            cx.editor.set_error("Remote SSH currently requires Linux");
-                            return;
-                        }
-                        Some(DashboardAction::RemoteSavedHosts) => {
-                            #[cfg(target_os = "linux")]
-                            {
-                                match commands::ssh_saved_hosts() {
-                                    Ok(hosts) if !hosts.is_empty() => compositor.push(Box::new(crate::ui::popup::Popup::new(
-                                        "ssh-saved-hosts", SavedHosts { hosts, selected: 0 },
-                                    ).centered().with_border())),
-                                    Ok(_) => ssh_input_error(cx, "No saved hosts yet. Connect to a host first.".into()),
-                                    Err(err) => ssh_input_error(cx, format!("Could not load saved hosts: {err:#}")),
-                                }
                             }
                             #[cfg(not(target_os = "linux"))]
                             cx.editor.set_error("Remote SSH currently requires Linux");
@@ -407,7 +389,7 @@ mod tests {
     fn starts_on_browse_files() {
         let dashboard = Dashboard::new();
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::FindFile));
-        assert_eq!(dashboard.actions.len(), 20);
+        assert_eq!(dashboard.actions.len(), 19);
     }
 
     #[test]
@@ -612,28 +594,41 @@ impl Component for DisconnectConfirmation {
 }
 
 #[cfg(target_os = "linux")]
+pub(crate) fn connections_dialog(compositor: &mut crate::compositor::Compositor, hosts: Vec<crate::remote::registry::RemoteLocation>, active: Option<String>) {
+    compositor.push(Box::new(crate::ui::popup::Popup::new("ssh-connections", SavedHosts { hosts, active, selected: 0 }).centered().with_border()));
+}
+
+#[cfg(target_os = "linux")]
 struct SavedHosts {
     hosts: Vec<crate::remote::registry::RemoteLocation>,
+    active: Option<String>,
     selected: usize,
 }
 
 #[cfg(target_os = "linux")]
 impl Component for SavedHosts {
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
-        Some(((self.hosts.iter().map(|h| h.destination.chars().count() + h.remote_path.chars().count() + 9).max().unwrap_or(48).clamp(48, 100) as u16).min(viewport.0), (self.hosts.len().min(15) as u16 + 6).min(viewport.1)))
+        Some((100.min(viewport.0), (self.hosts.len().min(15) as u16 + 10).min(viewport.1)))
     }
 
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
-        let labels: Vec<_> = self.hosts.iter().map(|host| format!("{}:{}", host.destination, host.remote_path)).collect();
-        render_ssh_dialog(area, surface, cx, "Saved SSH Hosts", &labels, Some(self.selected), "j/k navigate  ·  Enter connect  ·  Esc cancel");
+        let mut labels = Vec::new();
+        if let Some(active) = &self.active {
+            labels.push(active.clone());
+            labels.push("──────────────── Saved connections ────────────────".into());
+        }
+        let offset = labels.len();
+        labels.extend(self.hosts.iter().map(|host| format!("{}:{}", host.destination, host.remote_path)));
+        if self.hosts.is_empty() { labels.push("No saved connections".into()); }
+        render_ssh_dialog(area, surface, cx, "SSH Connections", &labels, (!self.hosts.is_empty()).then_some(self.selected + offset), "j/k navigate  ·  Enter connect  ·  Esc close");
     }
 
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
         match event {
             Event::Key(event) => match *event {
-                key!('j') | key!(Down) => { self.selected = (self.selected + 1) % self.hosts.len(); EventResult::Consumed(None) }
-                key!('k') | key!(Up) => { self.selected = (self.selected + self.hosts.len() - 1) % self.hosts.len(); EventResult::Consumed(None) }
-                key!(Enter) => {
+                key!('j') | key!(Down) if !self.hosts.is_empty() => { self.selected = (self.selected + 1) % self.hosts.len(); EventResult::Consumed(None) }
+                key!('k') | key!(Up) if !self.hosts.is_empty() => { self.selected = (self.selected + self.hosts.len() - 1) % self.hosts.len(); EventResult::Consumed(None) }
+                key!(Enter) if !self.hosts.is_empty() => {
                     if let Err(err) = commands::ssh_connect_location(cx, self.hosts[self.selected].clone()) {
                         ssh_input_error(cx, format!("{err:#}"));
                     }
