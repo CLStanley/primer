@@ -67,6 +67,71 @@ pub fn confirmation_channel(confirmation: HostConfirmation) -> (
     (PendingConfirmation { confirmation, decision }, receiver)
 }
 
+/// Serve one confirmation over a private Unix socket connection.
+/// The caller owns the listener, process lifetime and private socket directory.
+pub fn serve_confirmation(
+    mut stream: std::os::unix::net::UnixStream,
+    present: impl FnOnce(PendingConfirmation),
+) -> std::io::Result<()> {
+    use std::io::{Read, Write};
+    use std::time::Duration;
+    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(10)))?;
+    let mut length = [0; 4];
+    stream.read_exact(&mut length)?;
+    let length = u32::from_be_bytes(length) as usize;
+    if length > 16384 {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "SSH prompt too large"));
+    }
+    let mut request = vec![0; length];
+    stream.read_exact(&mut request)?;
+    let request = String::from_utf8(request)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+    let confirmation = request.split_once('\0')
+        .and_then(|(kind, prompt)| parse_confirmation(kind, prompt));
+    let Some(confirmation) = confirmation else {
+        return stream.write_all(b"no");
+    };
+    let (pending, mut receiver) = confirmation_channel(confirmation);
+    let fingerprint = pending.confirmation.fingerprint.clone();
+    present(pending);
+    let deadline = std::time::Instant::now() + Duration::from_secs(120);
+    let decision = loop {
+        match receiver.try_recv() {
+            Ok(decision) => break decision,
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed) => break HostDecision::Reject,
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                if std::time::Instant::now() >= deadline { break HostDecision::Reject; }
+                std::thread::sleep(Duration::from_millis(25));
+            }
+        }
+    };
+    let confirmation = HostConfirmation { fingerprint };
+    stream.write_all(confirmation.response(decision).as_bytes())
+}
+
+/// Askpass-side request. No shell evaluation and no terminal input.
+pub fn request_confirmation(
+    socket: &std::path::Path,
+    kind: &str,
+    prompt: &str,
+) -> std::io::Result<String> {
+    use std::io::{Read, Write};
+    use std::time::Duration;
+    if parse_confirmation(kind, prompt).is_none() { return Ok("no".into()); }
+    let request = format!("{kind}\0{prompt}");
+    if request.len() > 16384 { return Ok("no".into()); }
+    let mut stream = std::os::unix::net::UnixStream::connect(socket)?;
+    stream.set_write_timeout(Some(Duration::from_secs(10)))?;
+    stream.set_read_timeout(Some(Duration::from_secs(130)))?;
+    stream.write_all(&(request.len() as u32).to_be_bytes())?;
+    stream.write_all(request.as_bytes())?;
+    let mut response = String::new();
+    stream.take(128).read_to_string(&mut response)?;
+    let confirmation = parse_confirmation(kind, prompt).unwrap();
+    if response == confirmation.fingerprint { Ok(response) } else { Ok("no".into()) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
