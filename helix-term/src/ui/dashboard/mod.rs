@@ -19,13 +19,10 @@ pub enum DashboardAction {
     AddProject,
     ForgetProject,
     ClearProject,
-    ProjectStatus,
     Help,
     NewFile,
     Quit,
     Terminal,
-    LazyGit,
-    LazyDocker,
     RemoteConnect,
     RemoteConnections,
     RemoteBrowse,
@@ -56,12 +53,9 @@ impl Dashboard {
                 DashboardAction::AddProject,
                 DashboardAction::ForgetProject,
                 DashboardAction::ClearProject,
-                DashboardAction::ProjectStatus,
                 DashboardAction::Help,
                 DashboardAction::Quit,
                 DashboardAction::Terminal,
-                DashboardAction::LazyGit,
-                DashboardAction::LazyDocker,
                 DashboardAction::RemoteConnect,
                 DashboardAction::RemoteConnections,
                 DashboardAction::RemoteDisconnect,
@@ -73,11 +67,7 @@ impl Dashboard {
 
     fn refresh_actions(&mut self) {
         let selected = self.selected_action();
-        let mut actions = Self::new().actions;
-        #[cfg(target_os = "linux")]
-        if commands::ssh_dashboard_indicator().is_some() {
-            actions.retain(|action| !matches!(action, DashboardAction::LazyGit | DashboardAction::LazyDocker));
-        }
+        let actions = Self::new().actions;
         self.actions = actions;
         self.selected = selected.and_then(|action| self.actions.iter().position(|candidate| *candidate == action)).unwrap_or(0);
     }
@@ -114,9 +104,9 @@ impl Dashboard {
                 | DashboardAction::NewNote
                 | DashboardAction::DailyNote
                 | DashboardAction::Agenda => DashboardAction::OpenProject,
-                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::ProjectStatus | DashboardAction::RemoteConnect | DashboardAction::RemoteConnections | DashboardAction::RemoteBrowse | DashboardAction::RemoteDisconnect | DashboardAction::RemoteDirectory | DashboardAction::RemoteSavedHosts => DashboardAction::FindFile,
-                DashboardAction::Terminal | DashboardAction::LazyGit | DashboardAction::LazyDocker | DashboardAction::Help | DashboardAction::Quit => {
-                    let footer: Vec<_> = [DashboardAction::Terminal, DashboardAction::LazyGit, DashboardAction::LazyDocker, DashboardAction::Help, DashboardAction::Quit].into_iter().filter(|action| self.actions.contains(action)).collect();
+                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::RemoteConnect | DashboardAction::RemoteConnections | DashboardAction::RemoteBrowse | DashboardAction::RemoteDisconnect | DashboardAction::RemoteDirectory | DashboardAction::RemoteSavedHosts => DashboardAction::FindFile,
+                DashboardAction::Terminal | DashboardAction::Help | DashboardAction::Quit => {
+                    let footer: Vec<_> = [DashboardAction::Terminal, DashboardAction::Help, DashboardAction::Quit].into_iter().filter(|action| self.actions.contains(action)).collect();
                     let i = footer.iter().position(|a| *a == current).unwrap_or(0);
                     footer[if forward { (i + 1) % footer.len() } else { (i + footer.len() - 1) % footer.len() }]
                 },
@@ -131,7 +121,7 @@ impl Dashboard {
                 | DashboardAction::NewNote
                 | DashboardAction::DailyNote
                 | DashboardAction::Agenda
-                | DashboardAction::Terminal | DashboardAction::LazyGit | DashboardAction::LazyDocker | DashboardAction::Help => &[
+                | DashboardAction::Terminal | DashboardAction::Help => &[
                     DashboardAction::FindFile,
                     DashboardAction::FileExplorer,
                     DashboardAction::NewFile,
@@ -142,11 +132,9 @@ impl Dashboard {
                     DashboardAction::Agenda,
                     DashboardAction::Help,
                     DashboardAction::Terminal,
-                    DashboardAction::LazyGit,
-                    DashboardAction::LazyDocker,
                 ],
-                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::ProjectStatus | DashboardAction::RemoteConnect | DashboardAction::RemoteConnections | DashboardAction::RemoteBrowse | DashboardAction::RemoteDisconnect | DashboardAction::RemoteDirectory | DashboardAction::RemoteSavedHosts | DashboardAction::Quit => {
-                    &[DashboardAction::OpenProject, DashboardAction::AddProject, DashboardAction::ForgetProject, DashboardAction::ClearProject, DashboardAction::ProjectStatus, DashboardAction::RemoteConnect, DashboardAction::RemoteConnections, DashboardAction::RemoteBrowse, DashboardAction::RemoteDisconnect, DashboardAction::RemoteDirectory, DashboardAction::RemoteSavedHosts, DashboardAction::Quit]
+                DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::RemoteConnect | DashboardAction::RemoteConnections | DashboardAction::RemoteBrowse | DashboardAction::RemoteDisconnect | DashboardAction::RemoteDirectory | DashboardAction::RemoteSavedHosts | DashboardAction::Quit => {
+                    &[DashboardAction::OpenProject, DashboardAction::AddProject, DashboardAction::ForgetProject, DashboardAction::ClearProject, DashboardAction::RemoteConnect, DashboardAction::RemoteConnections, DashboardAction::RemoteBrowse, DashboardAction::RemoteDisconnect, DashboardAction::RemoteDirectory, DashboardAction::RemoteSavedHosts, DashboardAction::Quit]
                 }
             };
             let column: Vec<_> = column.iter().copied().filter(|action| self.actions.contains(action)).collect();
@@ -229,11 +217,10 @@ impl Component for Dashboard {
             | key!('b')
             | key!('x')
             | key!('c')
-            | key!('s')
             | key!('?')
             | key!('n')
             | key!('q')
-            | key!('z') | key!('y') | key!('w') | key!('v') | key!('u') | key!('i') | key!('t') | key!('G') | key!('D') => {
+            | key!('z') | key!('y') | key!('w') | key!('v') | key!('u') | key!('i') | key!('t') => {
                 let action = match key {
                     key!('z') => Some(DashboardAction::RemoteSavedHosts),
                     key!('y') => Some(DashboardAction::RemoteDirectory),
@@ -252,13 +239,10 @@ impl Component for Dashboard {
                     key!('b') => Some(DashboardAction::AddProject),
                     key!('x') => Some(DashboardAction::ForgetProject),
                     key!('c') => Some(DashboardAction::ClearProject),
-                    key!('s') => Some(DashboardAction::ProjectStatus),
                     key!('?') => Some(DashboardAction::Help),
                     key!('n') => Some(DashboardAction::NewFile),
                     key!('q') => Some(DashboardAction::Quit),
                     key!('t') => Some(DashboardAction::Terminal),
-                    key!('G') => Some(DashboardAction::LazyGit),
-                    key!('D') => Some(DashboardAction::LazyDocker),
                     _ => self.selected_action(),
                 };
                 if !action.is_some_and(|action| self.actions.contains(&action)) {
@@ -274,7 +258,7 @@ impl Component for Dashboard {
                     if matches!(action, Some(DashboardAction::Quit)) {
                         compositor.remove_type::<Dashboard>();
                     }
-                    if matches!(action, Some(DashboardAction::Terminal | DashboardAction::LazyGit | DashboardAction::LazyDocker)) {
+                    if matches!(action, Some(DashboardAction::Terminal)) {
                         // Terminals replace the startup dashboard; project controls do not.
                         compositor.remove_type::<Dashboard>();
                     }
@@ -379,11 +363,8 @@ impl Component for Dashboard {
                         Some(DashboardAction::AddProject) => MappableCommand::primer_project_register,
                         Some(DashboardAction::ForgetProject) => MappableCommand::primer_project_forget,
                         Some(DashboardAction::ClearProject) => MappableCommand::primer_project_clear,
-                        Some(DashboardAction::ProjectStatus) => MappableCommand::primer_project_status,
                         Some(DashboardAction::Help) => MappableCommand::command_palette,
                         Some(DashboardAction::NewFile) => return,
-                        Some(DashboardAction::LazyGit) => MappableCommand::primer_terminal_lazygit,
-                        Some(DashboardAction::LazyDocker) => MappableCommand::primer_terminal_lazydocker,
                         Some(DashboardAction::Terminal) => MappableCommand::Typable {
                             name: "terminal".to_owned(),
                             args: String::new(),
@@ -426,7 +407,7 @@ mod tests {
     fn starts_on_browse_files() {
         let dashboard = Dashboard::new();
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::FindFile));
-        assert_eq!(dashboard.actions.len(), 24);
+        assert_eq!(dashboard.actions.len(), 20);
     }
 
     #[test]
@@ -457,12 +438,12 @@ mod tests {
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::Agenda));
         dashboard.next();
         assert_eq!(dashboard.selected_action(), Some(DashboardAction::Help));
-        for action in [DashboardAction::Terminal, DashboardAction::LazyGit, DashboardAction::LazyDocker, DashboardAction::FindFile] {
+        for action in [DashboardAction::Terminal, DashboardAction::FindFile] {
             dashboard.next();
             assert_eq!(dashboard.selected_action(), Some(action));
         }
         dashboard.previous();
-        assert_eq!(dashboard.selected_action(), Some(DashboardAction::LazyDocker));
+        assert_eq!(dashboard.selected_action(), Some(DashboardAction::Terminal));
     }
 
     #[test]
