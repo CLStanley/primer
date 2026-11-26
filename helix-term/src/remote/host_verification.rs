@@ -117,7 +117,7 @@ pub fn verify_host(
         .args(["150s", "ssh", "-T", "-o", "StrictHostKeyChecking=ask",
             "-o", "BatchMode=no", "-o", "NumberOfPasswordPrompts=0",
             "-o", "PasswordAuthentication=no", "-o", "KbdInteractiveAuthentication=no",
-            "-o", "PubkeyAuthentication=no", "-o", "GSSAPIAuthentication=no",
+            "-o", "PubkeyAuthentication=no", "-o", "PreferredAuthentications=none",
             "-o", "HostbasedAuthentication=no", "-o", "ControlMaster=no",
             "-o", "ControlPath=none", "-o", "ConnectTimeout=10",
             "-o", "FingerprintHash=sha256", "-o", "UpdateHostKeys=no", "-o", "ClearAllForwardings=yes", "-o", "PermitLocalCommand=no", "-N", "--", destination])
