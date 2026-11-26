@@ -3248,7 +3248,7 @@ fn remote_directory() -> &'static std::sync::Mutex<PathBuf> {
 #[cfg(target_os = "linux")]
 pub(crate) fn ssh_change_directory(cx: &mut compositor::Context, input: String) {
     cx.jobs.spawn(async move {
-        let result = tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
+        let result = tokio::task::spawn_blocking(move || -> anyhow::Result<(PathBuf, String)> {
             let active = active_remote().lock().map_err(|_| anyhow::anyhow!("Remote context unavailable"))?;
             let location = active.as_ref().ok_or_else(|| anyhow::anyhow!("Connect to an SSH host first"))?;
             let registry = remote_registry().lock().map_err(|_| anyhow::anyhow!("Remote registry unavailable"))?;
@@ -3263,11 +3263,19 @@ pub(crate) fn ssh_change_directory(cx: &mut compositor::Context, input: String) 
             let canonical = candidate.canonicalize()?;
             anyhow::ensure!(canonical.starts_with(root) && canonical.is_dir(), "Choose a directory inside the mounted remote root");
             *directory = canonical.strip_prefix(root)?.to_owned();
-            Ok(Path::new(&location.remote_path).join(&*directory).display().to_string())
+            Ok((canonical, Path::new(&location.remote_path).join(&*directory).display().to_string()))
         }).await;
         use ui::notification::{dispatch_notification, Severity};
         match result {
-            Ok(Ok(path)) => dispatch_notification(Severity::Success, "Remote directory changed", path).await,
+            Ok(Ok((directory, path))) => job::dispatch(move |editor, compositor| {
+                let cleared = editor.active_project_root.as_ref().is_some_and(|root| !directory.starts_with(root));
+                if cleared {
+                    editor.active_project_root = None;
+                    editor.active_project_name = None;
+                }
+                let message = if cleared { format!("{path} — active project cleared") } else { path };
+                ui::notification::show_operation(compositor, None, Severity::Success, "Remote directory changed", message, false);
+            }).await,
             Ok(Err(err)) => dispatch_notification(Severity::Warning, "Change directory failed", format!("{err:#}")).await,
             Err(err) => dispatch_notification(Severity::Error, "SSH worker failed", err.to_string()).await,
         }
@@ -3417,6 +3425,8 @@ pub(crate) async fn ssh_connection_job(location: crate::remote::registry::Remote
                             }
                         }
                         if active.as_ref() != Some(&location) {
+                            editor.active_project_root = None;
+                            editor.active_project_name = None;
                             if let Ok(mut directory) = remote_directory().lock() { directory.clear(); }
                         }
                         *active = Some(location);
