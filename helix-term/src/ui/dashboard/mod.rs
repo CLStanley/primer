@@ -301,9 +301,15 @@ impl Component for Dashboard {
                                             destination: host.into(),
                                             remote_path: path.trim_start().into(),
                                         };
-                                        if let Err(err) = commands::ssh_connect_location(cx, location) {
+                                        if let Err(err) = crate::remote::mount_source(&location.destination, &location.remote_path) {
                                             ssh_input_error(cx, format!("{err:#}"));
+                                            return;
                                         }
+                                        cx.jobs.callback(async move {
+                                            Ok(crate::job::Callback::EditorCompositor(Box::new(move |_, compositor| {
+                                                compositor.push(Box::new(crate::ui::popup::Popup::new("ssh-connect-choice", ConnectChoice { location, selected: 0 }).centered().with_border()));
+                                            })))
+                                        });
                                     });
                                 compositor.push(Box::new(prompt));
                             }
@@ -455,12 +461,58 @@ fn ssh_input_error(cx: &mut Context, message: String) {
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn authentication_dialog(compositor: &mut crate::compositor::Compositor, location: crate::remote::registry::RemoteLocation, url: String, project: Option<std::path::PathBuf>) {
-    compositor.push(Box::new(crate::ui::popup::Popup::new("ssh-authentication", AuthenticationDialog { location, url, project, selected: 0, opened: false, cancelled: Default::default() }).centered().with_border()));
+pub(crate) fn authentication_dialog(compositor: &mut crate::compositor::Compositor, location: crate::remote::registry::RemoteLocation, url: String, project: Option<std::path::PathBuf>, save_host: bool) {
+    compositor.push(Box::new(crate::ui::popup::Popup::new("ssh-authentication", AuthenticationDialog { location, url, project, save_host, selected: 0, opened: false, cancelled: Default::default() }).centered().with_border()));
+}
+
+#[cfg(target_os = "linux")]
+struct ConnectChoice {
+    location: crate::remote::registry::RemoteLocation,
+    selected: usize,
+}
+
+#[cfg(target_os = "linux")]
+impl Component for ConnectChoice {
+    fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
+        Some((64.min(viewport.0), 10.min(viewport.1)))
+    }
+    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+        render_ssh_dialog(area, surface, cx, "SSH Connection", &["Connect".into(), "Connect and Save Host".into(), "Cancel".into()], Some(self.selected), "j/k navigate  ·  Enter select  ·  Esc cancel");
+    }
+    fn handle_event(&mut self, event: &Event, _cx: &mut Context) -> EventResult {
+        match event {
+            Event::Key(event) => match *event {
+                key!('j') | key!(Down) | key!(Tab) => {
+                    self.selected = (self.selected + 1) % 3;
+                    EventResult::Consumed(None)
+                }
+                key!('k') | key!(Up) => {
+                    self.selected = (self.selected + 2) % 3;
+                    EventResult::Consumed(None)
+                }
+                key!(Enter) => {
+                    let location = self.location.clone();
+                    let selected = self.selected;
+                    EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+                        compositor.pop();
+                        if selected != 2 {
+                            if let Err(error) = commands::typed::ssh_connect_with_options(cx, location, None, selected == 1) {
+                                crate::ui::notification::notify(cx.jobs, crate::ui::notification::Severity::Error, "SSH connection failed", format!("{error:#}"));
+                            }
+                        }
+                    })))
+                }
+                key!(Esc) => EventResult::Consumed(Some(Box::new(|compositor, _| { compositor.pop(); }))),
+                _ => EventResult::Consumed(None),
+            },
+            _ => EventResult::Ignored(None),
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]
 struct AuthenticationDialog {
+    save_host: bool,
     project: Option<std::path::PathBuf>,
     location: crate::remote::registry::RemoteLocation,
     url: String,
@@ -494,6 +546,7 @@ impl Component for AuthenticationDialog {
                             let cancelled = self.cancelled.clone();
                             let location = self.location.clone();
                             let project = self.project.clone();
+                            let save_host = self.save_host;
                             cx.jobs.spawn(async move {
                                 use std::sync::atomic::Ordering;
                                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
@@ -504,7 +557,7 @@ impl Component for AuthenticationDialog {
                                         if cancelled.swap(true, Ordering::AcqRel) { return Ok(()); }
                                         crate::job::dispatch(|_, compositor| { compositor.remove("ssh-authentication"); }).await;
                                         let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).ok_or_else(|| anyhow::anyhow!("XDG_RUNTIME_DIR is not set"))?;
-                                        let callback = commands::typed::ssh_connection_job(location, runtime, project).await?;
+                                        let callback = commands::typed::ssh_connection_job(location, runtime, project, save_host).await?;
                                         crate::job::dispatch_callback(callback).await;
                                         return Ok(());
                                     }
