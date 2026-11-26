@@ -318,7 +318,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "a" => primer_project_register,
                 "c" => primer_project_clear,
                 "f" => primer_project_forget,
-                "s" => primer_project_status,
             },
             "j" => jumplist_picker,
             "s" => { "Search"
@@ -413,8 +412,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "h" => primer_terminal_hsplit,
                 "v" => primer_terminal_vsplit,
                 "n" => primer_terminal_rename,
-                "g" => primer_terminal_lazygit,
-                "d" => primer_terminal_lazydocker,
             },
             "c" => { "Comments"
                 "l" => toggle_line_comments,
