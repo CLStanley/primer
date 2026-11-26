@@ -3383,7 +3383,12 @@ fn ssh_connect_confirmed(cx: &mut compositor::Context, location: crate::remote::
         .map(PathBuf::from)
         .ok_or_else(|| anyhow::anyhow!("XDG_RUNTIME_DIR is not set"))?;
     cx.editor.set_status("Checking SSH and Tailscale connectivity...");
-    cx.jobs.callback(async move {
+    cx.jobs.callback(ssh_connection_job(location, runtime));
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) async fn ssh_connection_job(location: crate::remote::registry::RemoteLocation, runtime: PathBuf) -> anyhow::Result<job::Callback> {
         let host = location.destination.clone();
         job::dispatch(move |_, compositor| {
             ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Info, "Connecting to SSH", host, true);
@@ -3438,8 +3443,6 @@ fn ssh_connect_confirmed(cx: &mut compositor::Context, location: crate::remote::
                 }
             }
         })))
-    });
-    Ok(())
 }
 
 #[cfg(target_os = "linux")]
