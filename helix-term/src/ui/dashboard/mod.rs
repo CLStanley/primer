@@ -591,14 +591,17 @@ impl Component for AuthenticationDialog {
                     self.selected = if matches!(*event, key!(Up) | key!('k')) { (self.selected + 3) % 4 } else { (self.selected + 1) % 4 };
                     EventResult::Consumed(None)
                 }
-                key!(Enter) if self.selected == 3 => {
-                    match cx.editor.registers.write('+', vec![self.url.clone()]) {
-                        Ok(_) => crate::ui::notification::notify(cx.jobs, crate::ui::notification::Severity::Success, "Authentication link copied", "Use the link in your browser"),
-                        Err(error) => cx.editor.set_error(error.to_string()),
+                key!(Enter) if self.selected != 0 && (!self.opened || self.selected == 3) => {
+                    if self.selected == 3 {
+                        match cx.editor.registers.write('+', vec![self.url.clone()]) {
+                            Ok(_) => crate::ui::notification::notify(cx.jobs, crate::ui::notification::Severity::Success, "Authentication link copied", "Use the link in your browser"),
+                            Err(error) => {
+                                cx.editor.set_error(error.to_string());
+                                return EventResult::Consumed(None);
+                            }
+                        }
+                        if self.opened { return EventResult::Consumed(None); }
                     }
-                    EventResult::Consumed(None)
-                }
-                key!(Enter) if self.selected != 0 && !self.opened => {
                     let launch = if self.selected == 1 { std::process::Command::new("xdg-open").arg(&self.url).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().map(Some) } else { Ok(None) };
                     match launch {
                         Ok(child) => {
