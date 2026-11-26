@@ -67,6 +67,40 @@ pub fn confirmation_channel(confirmation: HostConfirmation) -> (
     (PendingConfirmation { confirmation, decision }, receiver)
 }
 
+/// Own the private socket directory for the duration of a verification attempt.
+pub struct VerificationSocket {
+    directory: std::path::PathBuf,
+    pub listener: std::os::unix::net::UnixListener,
+}
+
+impl VerificationSocket {
+    pub fn new(runtime: &std::path::Path) -> std::io::Result<Self> {
+        use std::os::unix::fs::DirBuilderExt;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let directory = runtime.join(format!("primer-verify-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+        std::fs::DirBuilder::new().mode(0o700).create(&directory)?;
+        match std::os::unix::net::UnixListener::bind(directory.join("ask")) {
+            Ok(listener) => Ok(Self { directory, listener }),
+            Err(error) => {
+                let _ = std::fs::remove_dir(&directory);
+                Err(error)
+            }
+        }
+    }
+
+    pub fn path(&self) -> std::path::PathBuf {
+        self.directory.join("ask")
+    }
+}
+
+impl Drop for VerificationSocket {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(self.path());
+        let _ = std::fs::remove_dir(&self.directory);
+    }
+}
+
 /// Serve one confirmation over a private Unix socket connection.
 /// The caller owns the listener, process lifetime and private socket directory.
 pub fn serve_confirmation(
@@ -137,6 +171,24 @@ mod tests {
     use super::*;
 
     const PROMPT: &str = "The authenticity of host 'example (192.0.2.1)' can't be established.\nED25519 key fingerprint is SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.\nAre you sure you want to continue connecting (yes/no/[fingerprint])? ";
+
+    #[test]
+    fn private_socket_round_trip_and_cleanup() {
+        use std::os::unix::fs::PermissionsExt;
+        let runtime = tempfile::tempdir().unwrap();
+        let socket = VerificationSocket::new(runtime.path()).unwrap();
+        let path = socket.path();
+        assert_eq!(std::fs::metadata(path.parent().unwrap()).unwrap().permissions().mode() & 0o777, 0o700);
+        let request_path = path.clone();
+        let client = std::thread::spawn(move || request_confirmation(&request_path, "confirm", PROMPT).unwrap());
+        let (stream, _) = socket.listener.accept().unwrap();
+        serve_confirmation(stream, |pending| {
+            pending.decision.send(HostDecision::Trust).unwrap();
+        }).unwrap();
+        assert_eq!(client.join().unwrap(), parse_confirmation("confirm", PROMPT).unwrap().fingerprint);
+        drop(socket);
+        assert!(!path.parent().unwrap().exists());
+    }
 
     #[test]
     fn decisions_pin_the_presented_fingerprint() {
