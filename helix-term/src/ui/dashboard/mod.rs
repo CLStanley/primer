@@ -64,12 +64,22 @@ impl Dashboard {
                 DashboardAction::LazyDocker,
                 DashboardAction::RemoteConnect,
                 DashboardAction::RemoteConnections,
-                DashboardAction::RemoteBrowse,
                 DashboardAction::RemoteDisconnect,
                 DashboardAction::RemoteDirectory,
                 DashboardAction::RemoteSavedHosts,
             ],
         }
+    }
+
+    fn refresh_actions(&mut self) {
+        let selected = self.selected_action();
+        let mut actions = Self::new().actions;
+        #[cfg(target_os = "linux")]
+        if commands::ssh_dashboard_indicator().is_some() {
+            actions.retain(|action| !matches!(action, DashboardAction::LazyGit | DashboardAction::LazyDocker));
+        }
+        self.actions = actions;
+        self.selected = selected.and_then(|action| self.actions.iter().position(|candidate| *candidate == action)).unwrap_or(0);
     }
 
     // Navigation follows the visible two-column arrangement, not the
@@ -106,7 +116,7 @@ impl Dashboard {
                 | DashboardAction::Agenda => DashboardAction::OpenProject,
                 DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::ProjectStatus | DashboardAction::RemoteConnect | DashboardAction::RemoteConnections | DashboardAction::RemoteBrowse | DashboardAction::RemoteDisconnect | DashboardAction::RemoteDirectory | DashboardAction::RemoteSavedHosts => DashboardAction::FindFile,
                 DashboardAction::Terminal | DashboardAction::LazyGit | DashboardAction::LazyDocker | DashboardAction::Help | DashboardAction::Quit => {
-                    let footer = [DashboardAction::Terminal, DashboardAction::LazyGit, DashboardAction::LazyDocker, DashboardAction::Help, DashboardAction::Quit];
+                    let footer: Vec<_> = [DashboardAction::Terminal, DashboardAction::LazyGit, DashboardAction::LazyDocker, DashboardAction::Help, DashboardAction::Quit].into_iter().filter(|action| self.actions.contains(action)).collect();
                     let i = footer.iter().position(|a| *a == current).unwrap_or(0);
                     footer[if forward { (i + 1) % footer.len() } else { (i + footer.len() - 1) % footer.len() }]
                 },
@@ -139,6 +149,7 @@ impl Dashboard {
                     &[DashboardAction::OpenProject, DashboardAction::AddProject, DashboardAction::ForgetProject, DashboardAction::ClearProject, DashboardAction::ProjectStatus, DashboardAction::RemoteConnect, DashboardAction::RemoteConnections, DashboardAction::RemoteBrowse, DashboardAction::RemoteDisconnect, DashboardAction::RemoteDirectory, DashboardAction::RemoteSavedHosts, DashboardAction::Quit]
                 }
             };
+            let column: Vec<_> = column.iter().copied().filter(|action| self.actions.contains(action)).collect();
             let index = column
                 .iter()
                 .position(|action| *action == current)
@@ -162,10 +173,12 @@ impl Dashboard {
 
 impl Component for Dashboard {
     fn render(&mut self, area: Rect, surface: &mut Surface, _ctx: &mut Context) {
+        self.refresh_actions();
         render::render_dashboard(self, area, surface, _ctx);
     }
 
     fn handle_event(&mut self, event: &Event, _ctx: &mut Context) -> EventResult {
+        self.refresh_actions();
         let key = match event {
             Event::Key(key) => *key,
             Event::Mouse(_) => return EventResult::Consumed(None),
@@ -248,6 +261,9 @@ impl Component for Dashboard {
                     key!('D') => Some(DashboardAction::LazyDocker),
                     _ => self.selected_action(),
                 };
+                if !action.is_some_and(|action| self.actions.contains(&action)) {
+                    return EventResult::Consumed(None);
+                }
                 EventResult::Consumed(Some(Box::new(move |compositor, cx| {
                     // Keep the dashboard beneath pickers so cancelling returns home.
                     // It is dismissed after a file is successfully opened.
