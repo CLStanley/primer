@@ -3539,7 +3539,9 @@ pub(crate) async fn ssh_connection_job(location: crate::remote::registry::Remote
                 }
                 Err(err) => {
                     let diagnostic = format!("{err:#}");
-                    if let Some(url) = crate::remote::authentication_url(&diagnostic) {
+                    if diagnostic.contains("No ") && diagnostic.contains("host key is known") && diagnostic.contains("strict checking") {
+                        ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Error, "SSH host not trusted", format!("{}\nInitialize with ssh {} in a terminal. Verify the host fingerprint before accepting, then reconnect in Primer.", diagnostic, retry_location.destination), false);
+                    } else if let Some(url) = crate::remote::authentication_url(&diagnostic) {
                         ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Warning, "SSH authentication required", retry_location.destination.clone(), false);
                         ui::dashboard::authentication_dialog(compositor, retry_location, url, retry_project, save_host);
                     } else {
