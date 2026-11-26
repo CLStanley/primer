@@ -101,8 +101,41 @@ Primer includes PTY-backed terminal buffers that share the editor's tabs, splits
 
 Terminal Normal/Select modes support basic output navigation and copying; they are not full editable documents. Interactive applications such as lazygit and lazydocker have been tested. `btop` currently has a known rendering issue in the embedded terminal.
 
+### Planned: configurable terminal application launcher
+
+Deferred until after the shared UI and architecture consolidation. Replace
+application-specific integrations with user-defined terminal launchers.
+
+- Define a display name, executable command and optional arguments in configuration.
+- Allow a custom keybinding and optional dashboard entry for each launcher.
+- Reuse the embedded terminal, project/remote working directory handling,
+  dashboard components and notification system.
+- Report missing executables and launch failures clearly; do not require
+  applications to be installed for Primer itself to start.
+- Respect the active local or remote environment when launching applications.
+
+Illustrative configuration (proposed syntax, not implemented):
+
+```toml
+[[terminal.applications]]
+name = "LazyGit"
+command = "lazygit"
+keybind = "space t g"
+dashboard = true
+
+[[terminal.applications]]
+name = "LazyDocker"
+command = "lazydocker"
+keybind = "space t d"
+dashboard = false
+```
+
+LazyGit and LazyDocker are examples, not built-in integrations. The final
+configuration schema and keybinding conflict handling will be decided during
+implementation.
+
 ### Projects
 
-Projects are remembered locally in `$XDG_DATA_HOME/primer/projects.toml` (default `~/.local/share/primer/projects.toml`). Add a Git repository or any directory with `Space p a`; switch with `Space p p`, forget with `Space p f`, clear with `Space p c`, and inspect with `Space p s`. Forgetting requires the exact project name and never deletes files. Switching preserves open buffers. Missing directories are omitted from the picker; identical names are distinguished by their paths.
+Projects are remembered locally in `$XDG_DATA_HOME/primer/projects.toml` (default `~/.local/share/primer/projects.toml`). Add a Git repository or any directory with `Space p a`; switch with `Space p p`, forget with `Space p f`, clear with `Space p c`. Forgetting requires the exact project name and never deletes files. Switching preserves open buffers. Missing directories are omitted from the picker; identical names are distinguished by their paths.
 
 Dashboard shortcuts: `p` switch, `b` register, `x` forget, `c` clear, `t` terminal.
