@@ -9,7 +9,7 @@ pub struct HostConfirmation {
 /// Accept only OpenSSH's confirmation prompt type and SHA256 host fingerprint.
 /// The eventual response must be returned to the same waiting SSH process.
 pub fn parse_confirmation(kind: &str, prompt: &str) -> Option<HostConfirmation> {
-    if kind != "confirm"
+    if !kind.is_empty() && kind != "confirm"
         || !prompt.starts_with("The authenticity of host ")
         || !prompt.ends_with("Are you sure you want to continue connecting (yes/no/[fingerprint])? ")
             && !prompt.ends_with("Are you sure you want to continue connecting (yes/no/[fingerprint])?")
@@ -120,7 +120,7 @@ pub fn verify_host(
             "-o", "PubkeyAuthentication=no", "-o", "GSSAPIAuthentication=no",
             "-o", "HostbasedAuthentication=no", "-o", "ControlMaster=no",
             "-o", "ControlPath=none", "-o", "ConnectTimeout=10",
-            "--", destination, "true"])
+            "-o", "FingerprintHash=sha256", "-o", "UpdateHostKeys=no", "-o", "ClearAllForwardings=yes", "-o", "PermitLocalCommand=no", "-N", "--", destination])
         .env("LC_ALL", "C")
         .env("SSH_ASKPASS", std::env::current_exe()?)
         .env("SSH_ASKPASS_REQUIRE", "force")
