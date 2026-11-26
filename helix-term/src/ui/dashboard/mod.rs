@@ -598,19 +598,53 @@ struct SavedHosts {
 #[cfg(target_os = "linux")]
 impl Component for SavedHosts {
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
-        Some((100.min(viewport.0), (self.hosts.len().min(15) as u16 + 10).min(viewport.1)))
+        let width = self.hosts.iter().map(|host| host.destination.chars().count() + host.remote_path.chars().count() + 8)
+            .chain(self.active.iter().flat_map(|active| active.lines().map(|line| line.chars().count() + 8)))
+            .max().unwrap_or(56).clamp(56, 90) as u16;
+        Some((width.min(viewport.0), (self.hosts.len().max(1).min(15) as u16 + if self.active.is_some() { 13 } else { 7 }).min(viewport.1)))
     }
 
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
-        let mut labels = Vec::new();
+        if area.width < 8 || area.height < 7 { return; }
+        let theme = &cx.editor.theme;
+        let normal = theme.get("ui.text");
+        let heading = theme.try_get("ui.window").unwrap_or(normal);
+        let muted = theme.try_get("ui.text.inactive").unwrap_or(normal);
+        let success = theme.try_get("diff.plus").unwrap_or(normal);
+        let selected = theme.get("ui.menu.selected");
+        let x = area.x + 2;
+        let width = (area.width - 4) as usize;
+        let title = "SSH Connections";
+        surface.set_stringn(x + (width.saturating_sub(title.len()) / 2) as u16, area.y + 1, title, width, heading);
+        let mut y = area.y + 3;
+        let end = area.bottom().saturating_sub(3);
         if let Some(active) = &self.active {
-            labels.push(active.clone());
-            labels.push("──────────────── Saved connections ────────────────".into());
+            if y + 5 < end {
+                surface.set_stringn(x, y, "ACTIVE CONNECTION", width, heading);
+                for (index, line) in active.lines().enumerate() {
+                    surface.set_stringn(x, y + 1 + index as u16, line, width, if index == 0 && line.contains("(Mounted)") { success } else { muted });
+                }
+                y += 4;
+                surface.set_stringn(x, y, &"─".repeat(width), width, heading);
+                y += 2;
+            }
         }
-        let offset = labels.len();
-        labels.extend(self.hosts.iter().map(|host| format!("{}:{}", host.destination, host.remote_path)));
-        if self.hosts.is_empty() { labels.push("No saved connections".into()); }
-        render_ssh_dialog(area, surface, cx, "SSH Connections", &labels, (!self.hosts.is_empty()).then_some(self.selected + offset), "j/k navigate  ·  Enter connect  ·  Esc close");
+        if y < end {
+            surface.set_stringn(x, y, "SAVED CONNECTIONS", width, heading);
+            y += 1;
+        }
+        let visible = end.saturating_sub(y) as usize;
+        let offset = self.selected.saturating_sub(visible.saturating_sub(1));
+        if self.hosts.is_empty() && visible > 0 {
+            surface.set_stringn(x, y, "No saved connections", width, muted);
+        }
+        for (index, host) in self.hosts.iter().enumerate().skip(offset).take(visible) {
+            let focused = index == self.selected;
+            let active = self.active.as_ref().is_some_and(|summary| summary.lines().next().is_some_and(|line| line.starts_with(&format!("SSH: {} (", host.destination))));
+            let label = format!("{} {}:{}{}", if focused { "›" } else { " " }, host.destination, host.remote_path, if active { "  [Connected host]" } else { "" });
+            surface.set_stringn(x, y + (index - offset) as u16, &format!("{label:<width$}"), width, if focused { selected } else { normal });
+        }
+        surface.set_stringn(x, area.bottom() - 2, "j/k navigate  ·  Enter connect  ·  Esc close", width, muted);
     }
 
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
