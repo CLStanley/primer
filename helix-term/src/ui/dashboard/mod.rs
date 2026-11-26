@@ -670,7 +670,7 @@ impl Component for AuthenticationDialog {
                                 while std::time::Instant::now() < deadline && !cancelled.load(Ordering::Acquire) {
                                     let host = location.destination.clone();
                                     let ready = tokio::task::spawn_blocking(move || crate::remote::tailscale_preflight(&host).and_then(|_| crate::remote::ssh_auth_preflight(&host))).await;
-                                    if matches!(&ready, Ok(Ok(()))) {
+                                    if matches!(&ready, Ok(Ok(()))) || matches!(&ready, Ok(Err(error)) if crate::remote::unknown_host_key(&format!("{error:#}"))) {
                                         if cancelled.swap(true, Ordering::AcqRel) { return Ok(()); }
                                         crate::job::dispatch(|_, compositor| { compositor.remove("ssh-authentication"); }).await;
                                         let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).ok_or_else(|| anyhow::anyhow!("XDG_RUNTIME_DIR is not set"))?;
