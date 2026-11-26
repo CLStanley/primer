@@ -291,6 +291,14 @@ impl MappableCommand {
         }
     }
 
+    pub fn feature_enabled(&self, features: &helix_view::editor::FeatureConfig) -> bool {
+        let name = self.name();
+        if name.starts_with("primer_project_") { features.projects }
+        else if name.starts_with("primer_notes_") || name.starts_with("primer_agenda") { features.notes }
+        else if name.starts_with("ssh-") { features.remote_ssh && cfg!(target_os = "linux") }
+        else { true }
+    }
+
     pub fn name(&self) -> &str {
         match &self {
             Self::Typable { name, .. } => name,
@@ -4304,6 +4312,7 @@ pub fn command_palette(cx: &mut Context) {
                     }),
             );
 
+            let commands = commands.filter(|command| command.feature_enabled(&cx.editor.config().features)).collect::<Vec<_>>();
             let columns = [
                 ui::PickerColumn::new("name", |item, _| match item {
                     MappableCommand::Typable { name, .. } => format!(":{name}").into(),
