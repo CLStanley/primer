@@ -578,17 +578,24 @@ struct AuthenticationDialog {
 #[cfg(target_os = "linux")]
 impl Component for AuthenticationDialog {
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
-        Some((90.min(viewport.0), 12.min(viewport.1)))
+        Some((90.min(viewport.0), 14.min(viewport.1)))
     }
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
         let action = if self.opened { "Waiting for authentication…" } else { "Authenticate in browser" };
-        render_ssh_dialog(area, surface, cx, "Tailscale authentication required", &["Cancel".into(), action.into(), "Authenticate manually (use link below)".into(), self.url.clone()], Some(self.selected), "Enter select  ·  Esc cancel");
+        render_ssh_dialog(area, surface, cx, "Tailscale authentication required", &["Cancel".into(), action.into(), "Authenticate manually (use link below)".into(), "Copy authentication link".into(), self.url.clone()], Some(self.selected), "Enter select  ·  Esc cancel");
     }
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
         match event {
             Event::Key(event) => match *event {
                 key!('j') | key!('k') | key!(Up) | key!(Down) | key!(Tab) => {
-                    self.selected = if matches!(*event, key!(Up) | key!('k')) { (self.selected + 2) % 3 } else { (self.selected + 1) % 3 };
+                    self.selected = if matches!(*event, key!(Up) | key!('k')) { (self.selected + 3) % 4 } else { (self.selected + 1) % 4 };
+                    EventResult::Consumed(None)
+                }
+                key!(Enter) if self.selected == 3 => {
+                    match cx.editor.registers.write('+', vec![self.url.clone()]) {
+                        Ok(_) => crate::ui::notification::notify(cx.jobs, crate::ui::notification::Severity::Success, "Authentication link copied", "Use the link in your browser"),
+                        Err(error) => cx.editor.set_error(error.to_string()),
+                    }
                     EventResult::Consumed(None)
                 }
                 key!(Enter) if self.selected != 0 && !self.opened => {
