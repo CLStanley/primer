@@ -4772,6 +4772,10 @@ pub(super) fn execute_command(
     args: &str,
     event: PromptEvent,
 ) -> anyhow::Result<()> {
+    if cmd.name.starts_with("ssh-") && !cx.editor.config().features.remote_ssh {
+        if event == PromptEvent::Validate { anyhow::bail!("Remote SSH is disabled in configuration"); }
+        return Ok(());
+    }
     let args = if event == PromptEvent::Validate {
         Args::parse(args, cmd.signature, true, |token| {
             expansion::expand(cx.editor, token).map_err(|err| err.into())
