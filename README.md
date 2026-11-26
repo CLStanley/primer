@@ -152,6 +152,27 @@ Primer includes PTY-backed terminal buffers that share the editor's tabs, splits
 
 Terminal Normal/Select modes support basic output navigation and copying; they are not full editable documents. Interactive applications such as lazygit and lazydocker have been tested. `btop` currently has a known rendering issue in the embedded terminal.
 
+### Planned: shared UI visual validation
+
+During the application-wide UI standardization, test the shared components
+with multiple themes rather than validating against a single development
+palette. Include light and dark themes, high- and low-saturation palettes,
+built-in themes, and several independently generated themes from the
+wallpaper-based theming workflow.
+
+- Check dashboards, pickers, prompts, confirmation dialogs, notifications,
+  which-key, statusline and bufferline pills, panels, and terminal surfaces.
+- Verify cohesive colors across components, readable foreground/background
+  contrast, distinct selection and focus states, and recognizable semantic
+  success, warning, error and informational colors.
+- Prefer shared semantic theme scopes and consistent fallbacks over hardcoded
+  colors. Test themes with missing optional scopes and inherited palettes.
+- Check theme changes without restarting where supported, and ensure no
+  component retains stale colors from a previous theme.
+- Record the tested themes and any visual regressions in the UI consolidation
+  PR before merging. Do not consider the visual unification complete based
+  on a single theme.
+
 ### Planned: language-specific statusline pills
 
 During shared UI consolidation, investigate distinct, theme-aware colors for
