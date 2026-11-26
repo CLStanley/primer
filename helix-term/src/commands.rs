@@ -264,7 +264,13 @@ impl MappableCommand {
                     cx.editor.set_error(format!("no such command: '{name}'"));
                 }
             }
-            Self::Static { fun, .. } => (fun)(cx),
+            Self::Static { name, fun, .. } => {
+                let features = &cx.editor.config().features;
+                let enabled = if name.starts_with("primer_project_") { features.projects }
+                    else if name.starts_with("primer_notes_") || name.starts_with("primer_agenda") { features.notes }
+                    else { true };
+                if enabled { (fun)(cx) } else { cx.editor.set_error("This feature is disabled in configuration"); }
+            },
             Self::Macro { keys, .. } => {
                 // Protect against recursive macros.
                 if cx.editor.macro_replaying.contains(&'@') {
@@ -3796,7 +3802,7 @@ fn open_project_picker(compositor: &mut crate::compositor::Compositor, cx: &mut 
         Err(error) => { cx.editor.set_error(error.to_string()); return; }
     };
     #[cfg(target_os = "linux")]
-    if remote && !connected {
+    if remote && !connected && cx.editor.config().features.remote_ssh {
         let columns = [
             PickerColumn::new("Project", |project: &crate::projects::registry::RemoteProject, _| project.path.file_name().unwrap_or_default().to_string_lossy().into_owned().into()),
             PickerColumn::new("Host", |project: &crate::projects::registry::RemoteProject, _| project.destination.clone().into()),
@@ -3846,7 +3852,7 @@ fn open_project_picker(compositor: &mut crate::compositor::Compositor, cx: &mut 
     });
     let picker = picker.with_title(if connected { "Remote Projects" } else { "Local Projects" });
     #[cfg(target_os = "linux")]
-    let picker = if connected { picker } else {
+    let picker = if connected || !cx.editor.config().features.remote_ssh { picker } else {
         picker.with_title("Local Projects · Ctrl-r: Remote").with_source_toggle(|compositor, cx| open_project_picker(compositor, cx, true))
     };
     compositor.push(Box::new(overlaid(picker)));
