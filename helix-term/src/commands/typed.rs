@@ -3417,6 +3417,54 @@ pub(crate) async fn ssh_connection_job(location: crate::remote::registry::Remote
             }).await;
             let destination = location.destination.clone();
             tokio::task::spawn_blocking(move || crate::remote::ssh_auth_preflight(&destination)).await??;
+            let previous = active_remote().lock().map_err(|_| anyhow::anyhow!("Remote context unavailable"))?.clone();
+            if let Some(previous) = previous.filter(|previous| previous != &location) {
+                let target = location.clone();
+                let runtime = runtime.clone();
+                let (sender, receiver) = tokio::sync::oneshot::channel();
+                job::dispatch(move |editor, compositor| {
+                    let result = (|| -> anyhow::Result<()> {
+                        let mut active = active_remote().try_lock().map_err(|_| anyhow::anyhow!("Remote context is busy"))?;
+                        anyhow::ensure!(active.as_ref() == Some(&previous), "Active connection changed during authentication");
+                        let mut registry = remote_registry().try_lock().map_err(|_| anyhow::anyhow!("Remote connection is busy"))?;
+                        let mount = registry.mounted_path(&previous)?.to_path_buf();
+                        anyhow::ensure!(!editor.documents().any(|doc| doc.path().is_some_and(|path| path.starts_with(&mount))), "Close all remote buffers before switching connections");
+                        anyhow::ensure!(editor.terminal_documents.is_empty(), "Close terminal buffers before switching connections");
+                        ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Info, "Switching SSH connection", "Replacing previous mount", true);
+                        registry.disconnect(&previous)?;
+                        if let Err(error) = registry.connect(&runtime, target.clone()) {
+                            match registry.connect(&runtime, previous.clone()) {
+                                Ok(restored) => {
+                                    if let Some(root) = editor.active_project_root.as_mut() {
+                                        if let Ok(relative) = root.strip_prefix(&mount) { *root = restored.join(relative); }
+                                    }
+                                    anyhow::bail!("New mount failed: {error:#}. Previous connection restored.");
+                                }
+                                Err(restore) => {
+                                    *active = None;
+                                    editor.active_project_root = None;
+                                    editor.active_project_name = None;
+                                    if let Ok(mut saved) = suspended_local_project().lock() {
+                                        if let Some((root, name)) = saved.take() {
+                                            editor.active_project_root = root;
+                                            editor.active_project_name = name;
+                                        }
+                                    }
+                                    if let Ok(mut directory) = remote_directory().lock() { directory.clear(); }
+                                    anyhow::bail!("New mount failed: {error:#}. Previous connection could not be restored: {restore:#}. Local environment restored.");
+                                }
+                            }
+                        }
+                        *active = Some(target);
+                        editor.active_project_root = None;
+                        editor.active_project_name = None;
+                        if let Ok(mut directory) = remote_directory().lock() { directory.clear(); }
+                        Ok(())
+                    })();
+                    let _ = sender.send(result);
+                }).await;
+                receiver.await??;
+            }
             job::dispatch(|_, compositor| {
                 ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Info, "Connecting to SSH", "Mounting remote filesystem", true);
             }).await;
