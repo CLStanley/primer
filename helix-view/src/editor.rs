@@ -1207,7 +1207,7 @@ pub struct FeatureConfig {
 }
 
 impl Default for FeatureConfig {
-    fn default() -> Self { Self { projects: true, remote_ssh: true, notes: true } }
+    fn default() -> Self { Self { projects: false, remote_ssh: false, notes: false } }
 }
 
 impl Default for Config {
