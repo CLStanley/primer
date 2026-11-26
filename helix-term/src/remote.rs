@@ -90,6 +90,7 @@ pub fn ssh_auth_preflight(destination: &str) -> Result<()> {
     let output = Command::new("timeout")
         .args(["20s", "sftp", "-b", "/dev/null", "-o", "BatchMode=yes",
             "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10", "--", destination])
+        .env("LC_ALL", "C")
         .stdin(Stdio::null()).output()?;
     let diagnostic = String::from_utf8_lossy(&output.stderr);
     ensure!(output.status.success(), "SSH authentication/SFTP check failed: {}",
