@@ -3439,7 +3439,25 @@ pub(crate) async fn ssh_connection_job(location: crate::remote::registry::Remote
                 ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Info, "Connecting to SSH", "Checking SSH authentication and SFTP", true);
             }).await;
             let destination = location.destination.clone();
-            tokio::task::spawn_blocking(move || crate::remote::ssh_auth_preflight(&destination)).await??;
+            let preflight = tokio::task::spawn_blocking(move || crate::remote::ssh_auth_preflight(&destination)).await?;
+            if let Err(error) = preflight {
+                if !crate::remote::unknown_host_key(&format!("{error:#}")) { return Err(error); }
+                let destination = location.destination.clone();
+                let verification_runtime = runtime.clone();
+                let handle = tokio::runtime::Handle::current();
+                let verification = tokio::task::spawn_blocking(move || {
+                    let host = destination.clone();
+                    crate::remote::host_verification::verify_host(&verification_runtime, &destination, move |pending| {
+                        handle.block_on(job::dispatch(move |_, compositor| {
+                            ui::dashboard::host_verification_dialog(compositor, host, pending);
+                        }));
+                    })
+                }).await;
+                job::dispatch(|_, compositor| { compositor.remove("ssh-host-verification"); }).await;
+                verification??;
+                let destination = location.destination.clone();
+                tokio::task::spawn_blocking(move || crate::remote::ssh_auth_preflight(&destination)).await??;
+            }
             let previous = active_remote().lock().map_err(|_| anyhow::anyhow!("Remote context unavailable"))?.clone();
             if let Some(previous) = previous.filter(|previous| previous != &location) {
                 let target = location.clone();
