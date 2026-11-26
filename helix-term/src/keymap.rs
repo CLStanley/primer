@@ -55,6 +55,12 @@ impl KeyTrieNode {
         }
     }
 
+    pub fn feature_infobox(&self, features: &helix_view::editor::FeatureConfig) -> Info {
+        let mut visible = self.clone();
+        visible.map.retain(|_, trie| trie.feature_visible(features));
+        visible.infobox()
+    }
+
     pub fn infobox(&self) -> Info {
         let mut body: Vec<(BTreeSet<KeyEvent>, &str)> = Vec::with_capacity(self.len());
         for (&key, trie) in self.iter() {
@@ -183,6 +189,14 @@ impl<'de> serde::de::Visitor<'de> for KeyTrieVisitor {
 }
 
 impl KeyTrie {
+    fn feature_visible(&self, features: &helix_view::editor::FeatureConfig) -> bool {
+        match self {
+            Self::MappableCommand(command) => command.name() != "no_op" && command.feature_enabled(features),
+            Self::Sequence(commands) => commands.iter().all(|command| command.feature_enabled(features)),
+            Self::Node(node) => node.values().any(|trie| trie.feature_visible(features)),
+        }
+    }
+
     pub fn reverse_map(&self) -> ReverseKeymap {
         // recursively visit all nodes in keymap
         fn map_node(cmd_map: &mut ReverseKeymap, node: &KeyTrie, keys: &mut Vec<KeyEvent>) {
