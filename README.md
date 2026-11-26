@@ -101,6 +101,15 @@ Primer includes PTY-backed terminal buffers that share the editor's tabs, splits
 
 Terminal Normal/Select modes support basic output navigation and copying; they are not full editable documents. Interactive applications such as lazygit and lazydocker have been tested. `btop` currently has a known rendering issue in the embedded terminal.
 
+### Planned: language-specific statusline pills
+
+During shared UI consolidation, investigate distinct, theme-aware colors for
+the language pill in the statusline. Allow per-language theme overrides and
+retain a default fallback for languages without a specific color. Reuse the
+shared pill renderer, preserve readable foreground contrast, and keep the
+existing branch, project and mode indicators visually consistent. Exact color
+assignments and configuration keys are not finalized.
+
 ### Planned: configurable terminal application launcher
 
 Deferred until after the shared UI and architecture consolidation. Replace
