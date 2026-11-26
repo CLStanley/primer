@@ -3464,8 +3464,8 @@ pub(crate) fn ssh_connections(cx: &mut compositor::Context, _args: Args, event: 
             let active = active_remote().lock().map_err(|_| anyhow::anyhow!("Remote context unavailable"))?.clone();
             let indicator = ssh_dashboard_indicator();
             let directory = remote_directory().lock().map_err(|_| anyhow::anyhow!("Remote directory unavailable"))?.clone();
-            let hosts = ssh_saved_hosts()?.into_iter().filter(|host| Some(host) != active.as_ref()).collect::<Vec<_>>();
-            let summary = active.map(|location| format!("{} — {}", indicator.unwrap_or(location.destination), Path::new(&location.remote_path).join(directory).display()));
+            let hosts = ssh_saved_hosts()?;
+            let summary = active.map(|location| format!("{}\n{}", indicator.unwrap_or(location.destination), Path::new(&location.remote_path).join(directory).display()));
             Ok((hosts, summary))
         }).await;
         Ok(job::Callback::EditorCompositor(Box::new(move |_, compositor| {
