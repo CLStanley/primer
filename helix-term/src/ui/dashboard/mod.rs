@@ -598,10 +598,10 @@ struct SavedHosts {
 #[cfg(target_os = "linux")]
 impl Component for SavedHosts {
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
-        let width = self.hosts.iter().map(|host| host.destination.chars().count() + host.remote_path.chars().count() + 8)
+        let width = self.hosts.iter().map(|host| (host.destination.chars().count() + 16).max(host.remote_path.chars().count() + 6))
             .chain(self.active.iter().flat_map(|active| active.lines().map(|line| line.chars().count() + 8)))
             .max().unwrap_or(56).clamp(56, 90) as u16;
-        Some((width.min(viewport.0), (self.hosts.len().max(1).min(15) as u16 + if self.active.is_some() { 13 } else { 7 }).min(viewport.1)))
+        Some((width.min(viewport.0), (self.hosts.len().max(1).min(15) as u16 * 3 + if self.active.is_some() { 11 } else { 7 }).min(viewport.1)))
     }
 
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
@@ -624,7 +624,7 @@ impl Component for SavedHosts {
                 for (index, line) in active.lines().enumerate() {
                     surface.set_stringn(x, y + 1 + index as u16, line, width, if index == 0 && line.contains("(Mounted)") { success } else { muted });
                 }
-                y += 4;
+                y += 3;
                 surface.set_stringn(x, y, &"─".repeat(width), width, heading);
                 y += 2;
             }
@@ -633,7 +633,7 @@ impl Component for SavedHosts {
             surface.set_stringn(x, y, "SAVED CONNECTIONS", width, heading);
             y += 1;
         }
-        let visible = end.saturating_sub(y) as usize;
+        let visible = (end.saturating_sub(y) / 3) as usize;
         let offset = self.selected.saturating_sub(visible.saturating_sub(1));
         if self.hosts.is_empty() && visible > 0 {
             surface.set_stringn(x, y, "No saved connections", width, muted);
@@ -641,8 +641,15 @@ impl Component for SavedHosts {
         for (index, host) in self.hosts.iter().enumerate().skip(offset).take(visible) {
             let focused = index == self.selected;
             let active = self.active.as_ref().is_some_and(|summary| summary.lines().next().is_some_and(|line| line.starts_with(&format!("SSH: {} (", host.destination))));
-            let label = format!("{} {}:{}{}", if focused { "›" } else { " " }, host.destination, host.remote_path, if active { "  [Connected host]" } else { "" });
-            surface.set_stringn(x, y + (index - offset) as u16, &format!("{label:<width$}"), width, if focused { selected } else { normal });
+            let row = y + (index - offset) as u16 * 3;
+            let marker = if active { "Connected" } else { "" };
+            let name_width = width.saturating_sub(if active { marker.len() + 2 } else { 0 });
+            let label = format!("{} {}", if focused { "›" } else { " " }, host.destination);
+            surface.set_stringn(x, row, &format!("{label:<name_width$}"), name_width, if focused { selected } else { normal });
+            if active && width >= marker.len() + 2 {
+                surface.set_stringn(x + (width - marker.len()) as u16, row, marker, marker.len(), success);
+            }
+            surface.set_stringn(x + 2, row + 1, &host.remote_path, width.saturating_sub(2), muted);
         }
         surface.set_stringn(x, area.bottom() - 2, "j/k navigate  ·  Enter connect  ·  Esc close", width, muted);
     }
