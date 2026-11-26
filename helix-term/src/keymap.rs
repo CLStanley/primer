@@ -189,6 +189,14 @@ impl<'de> serde::de::Visitor<'de> for KeyTrieVisitor {
 }
 
 impl KeyTrie {
+    fn feature_available(&self, features: &helix_view::editor::FeatureConfig) -> bool {
+        match self {
+            Self::MappableCommand(command) => command.feature_enabled(features),
+            Self::Sequence(commands) => commands.iter().all(|command| command.feature_enabled(features)),
+            Self::Node(node) => node.values().any(|trie| trie.feature_available(features)),
+        }
+    }
+
     fn feature_visible(&self, features: &helix_view::editor::FeatureConfig) -> bool {
         match self {
             Self::MappableCommand(command) => command.name() != "no_op" && command.feature_enabled(features),
@@ -320,6 +328,10 @@ impl Keymaps {
     /// key cancels pending keystrokes. If there are no pending keystrokes but a
     /// sticky node is in use, it will be cleared.
     pub fn get(&mut self, mode: Mode, key: KeyEvent) -> KeymapResult {
+        self.get_with_features(mode, key, &helix_view::editor::FeatureConfig { projects: true, remote_ssh: true, notes: true })
+    }
+
+    pub fn get_with_features(&mut self, mode: Mode, key: KeyEvent, features: &helix_view::editor::FeatureConfig) -> KeymapResult {
         // TODO: remove the sticky part and look up manually
         let keymaps = &*self.map();
         let keymap = &keymaps[&mode];
@@ -338,19 +350,23 @@ impl Keymaps {
             None => Cow::Borrowed(keymap),
         };
 
-        let trie = match trie_node.search(&[*first]) {
+        let trie = match trie_node.search(&[*first]).filter(|trie| trie.feature_available(features)) {
             Some(KeyTrie::MappableCommand(ref cmd)) => {
                 return KeymapResult::Matched(cmd.clone());
             }
             Some(KeyTrie::Sequence(ref cmds)) => {
                 return KeymapResult::MatchedSequence(cmds.clone());
             }
-            None => return KeymapResult::NotFound,
+            None => {
+                if self.state.is_empty() { return KeymapResult::NotFound; }
+                self.state.push(key);
+                return KeymapResult::Cancelled(self.state.drain(..).collect());
+            }
             Some(t) => t,
         };
 
         self.state.push(key);
-        match trie.search(&self.state[1..]) {
+        match trie.search(&self.state[1..]).filter(|trie| trie.feature_available(features)) {
             Some(KeyTrie::Node(map)) => {
                 if map.is_sticky {
                     self.state.clear();
