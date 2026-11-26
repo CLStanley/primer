@@ -31,16 +31,13 @@ impl DashboardAction {
             Self::Agenda => "Agenda",
             Self::FileExplorer => "File explorer",
             Self::OpenProject => "Switch project",
-            Self::AddProject => "Add directory",
+            Self::AddProject => "Register project",
             Self::ForgetProject => "Forget project",
             Self::ClearProject => "Clear active project",
-            Self::ProjectStatus => "Project status",
             Self::Help => "Keybind help",
             Self::NewFile => "New file",
             Self::Quit => "Quit",
             Self::Terminal => "Terminal",
-            Self::LazyGit => "LazyGit",
-            Self::LazyDocker => "LazyDocker",
             Self::RemoteConnect => "Connect to host",
             Self::RemoteConnections => "Connections",
             Self::RemoteBrowse => "Remote files",
@@ -63,13 +60,10 @@ impl DashboardAction {
             Self::AddProject => 'b',
             Self::ForgetProject => 'x',
             Self::ClearProject => 'c',
-            Self::ProjectStatus => 's',
             Self::Help => '?',
             Self::NewFile => 'n',
             Self::Quit => 'q',
             Self::Terminal => 't',
-            Self::LazyGit => 'G',
-            Self::LazyDocker => 'D',
             Self::RemoteConnect => 'u',
             Self::RemoteConnections => 'i',
             Self::RemoteBrowse => 'v',
@@ -217,10 +211,9 @@ pub fn render_dashboard(
             "PROJECTS",
             vec![
                 ("p", "Switch project", Some(DashboardAction::OpenProject)),
-                ("b", "Add directory", Some(DashboardAction::AddProject)),
+                ("b", "Register project", Some(DashboardAction::AddProject)),
                 ("x", "Forget project", Some(DashboardAction::ForgetProject)),
                 ("c", "Clear active project", Some(DashboardAction::ClearProject)),
-                ("s", "Project status", Some(DashboardAction::ProjectStatus)),
             ],
         ),
         (
@@ -298,11 +291,9 @@ pub fn render_dashboard(
         // This keeps the spacing balanced regardless of label length.
         let footer_width = (total_width + 20).min(area.width);
         let footer_left = area.x + area.width.saturating_sub(footer_width) / 2;
-        let third = footer_width / if dashboard.actions.contains(&DashboardAction::LazyGit) { 5 } else { 3 };
+        let third = footer_width / 3;
         let footer = [
             ("t", "Terminal", Some(DashboardAction::Terminal)),
-            ("G", "LazyGit", Some(DashboardAction::LazyGit)),
-            ("D", "LazyDocker", Some(DashboardAction::LazyDocker)),
             ("?", "Keybind help", Some(DashboardAction::Help)),
             ("q", "Quit", Some(DashboardAction::Quit)),
         ]
@@ -385,8 +376,6 @@ pub fn render_dashboard(
         }
         for (key, label, action) in [
             ("t", "Terminal", Some(DashboardAction::Terminal)),
-            ("G", "LazyGit", Some(DashboardAction::LazyGit)),
-            ("D", "LazyDocker", Some(DashboardAction::LazyDocker)),
             ("?", "Keybind help", Some(DashboardAction::Help)),
             ("q", "Quit", Some(DashboardAction::Quit)),
         ] {
