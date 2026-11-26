@@ -3145,10 +3145,28 @@ pub(crate) fn ssh_saved_hosts() -> anyhow::Result<Vec<crate::remote::registry::R
 }
 
 #[cfg(target_os = "linux")]
-fn remember_ssh_host(location: &crate::remote::registry::RemoteLocation) -> anyhow::Result<()> {
+pub(crate) fn remember_ssh_host(location: &crate::remote::registry::RemoteLocation) -> anyhow::Result<()> {
     let mut hosts = ssh_saved_hosts()?;
     if hosts.contains(location) { return Ok(()); }
+    crate::remote::mount_source(&location.destination, &location.remote_path)?;
     hosts.push(location.clone());
+    write_saved_hosts(hosts)
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn edit_saved_host(old: &crate::remote::registry::RemoteLocation, replacement: Option<crate::remote::registry::RemoteLocation>) -> anyhow::Result<()> {
+    let mut hosts = ssh_saved_hosts()?;
+    let index = hosts.iter().position(|host| host == old).ok_or_else(|| anyhow::anyhow!("Saved connection no longer exists"))?;
+    if let Some(replacement) = replacement {
+        crate::remote::mount_source(&replacement.destination, &replacement.remote_path)?;
+        anyhow::ensure!(replacement == *old || !hosts.contains(&replacement), "Connection already saved");
+        hosts[index] = replacement;
+    } else { hosts.remove(index); }
+    write_saved_hosts(hosts)
+}
+
+#[cfg(target_os = "linux")]
+fn write_saved_hosts(hosts: Vec<crate::remote::registry::RemoteLocation>) -> anyhow::Result<()> {
     let entries: Vec<_> = hosts.into_iter().map(|host| (host.destination, host.remote_path)).collect();
     let path = saved_hosts_path();
     if let Some(parent) = path.parent() { std::fs::create_dir_all(parent)?; }
