@@ -5,6 +5,8 @@ pub mod mount;
 pub mod registry;
 #[cfg(target_os = "linux")]
 pub mod host_verification;
+#[cfg(target_os = "linux")]
+pub mod session;
 
 use std::collections::BTreeSet;
 use std::path::Path;
