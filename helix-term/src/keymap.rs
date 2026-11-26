@@ -193,7 +193,7 @@ impl KeyTrie {
         match self {
             Self::MappableCommand(command) => command.feature_enabled(features),
             Self::Sequence(commands) => commands.iter().all(|command| command.feature_enabled(features)),
-            Self::Node(node) => node.values().any(|trie| trie.feature_available(features)),
+            Self::Node(node) => node.values().any(|trie| trie.feature_visible(features)),
         }
     }
 
@@ -527,6 +527,24 @@ mod tests {
             node.node().unwrap().keys().copied().collect::<Vec<_>>(),
             vec![key!('f'), key!('p'), key!('v'), key!('c')]
         );
+    }
+
+    #[test]
+    fn disabled_feature_prefixes_cancel_pending_keys() {
+        let mut keymaps = Keymaps::default();
+        let mut features = helix_view::editor::FeatureConfig::default();
+        for prefix in [key!('p'), key!('n')] {
+            assert!(matches!(keymaps.get_with_features(Mode::Normal, key!(' '), &features), KeymapResult::Pending(_)));
+            assert!(matches!(keymaps.get_with_features(Mode::Normal, prefix, &features), KeymapResult::Cancelled(_)));
+            assert!(keymaps.pending().is_empty());
+        }
+        features.projects = true;
+        features.notes = true;
+        for prefix in [key!('p'), key!('n')] {
+            assert!(matches!(keymaps.get_with_features(Mode::Normal, key!(' '), &features), KeymapResult::Pending(_)));
+            assert!(matches!(keymaps.get_with_features(Mode::Normal, prefix, &features), KeymapResult::Pending(_)));
+            keymaps.get_with_features(Mode::Normal, key!(Esc), &features);
+        }
     }
 
     #[test]
