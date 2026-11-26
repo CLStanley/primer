@@ -97,6 +97,21 @@ pub fn ssh_auth_preflight(destination: &str) -> Result<()> {
     Ok(())
 }
 
+/// Recognize OpenSSH's strict-checking rejection of a previously unknown key.
+/// Never offer enrollment for a changed or revoked key.
+#[cfg(target_os = "linux")]
+pub fn unknown_host_key(diagnostic: &str) -> bool {
+    !diagnostic.contains("REMOTE HOST IDENTIFICATION HAS CHANGED")
+        && !diagnostic.contains("REVOKED HOST KEY")
+        && diagnostic.lines().any(|line| {
+            let line = line.trim().strip_prefix("SSH authentication/SFTP check failed: ").unwrap_or(line.trim());
+            line.starts_with("No ")
+                && line.contains(" host key is known for ")
+                && line.contains("strict checking")
+        })
+        && diagnostic.contains("Host key verification failed")
+}
+
 /// Accept only the official Tailscale login origin, never arbitrary server URLs.
 #[cfg(target_os = "linux")]
 pub fn authentication_url(diagnostic: &str) -> Option<String> {
@@ -168,6 +183,17 @@ mod tests {
         assert!(check_tailscale_status(&status, "other", false).is_ok());
         assert!(check_tailscale_status(&status, "host.ts.net", true).is_err());
         assert!(check_tailscale_status(&serde_json::json!({"BackendState":"Running"}), "host.ts.net", true).is_ok());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn unknown_host_key_recovery_excludes_changed_keys() {
+        let unknown = "SSH authentication/SFTP check failed: No ED25519 host key is known for example and you have requested strict checking.\nHost key verification failed.";
+        // The preflight wraps the first diagnostic line with context.
+        assert!(unknown_host_key(unknown));
+        assert!(!unknown_host_key("WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!\nHost key verification failed."));
+        assert!(!unknown_host_key("Host key verification failed."));
+        assert!(!unknown_host_key("Permission denied (publickey)."));
     }
 
     #[cfg(target_os = "linux")]
