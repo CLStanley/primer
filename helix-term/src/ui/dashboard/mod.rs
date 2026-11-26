@@ -455,12 +455,13 @@ fn ssh_input_error(cx: &mut Context, message: String) {
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn authentication_dialog(compositor: &mut crate::compositor::Compositor, location: crate::remote::registry::RemoteLocation, url: String) {
-    compositor.push(Box::new(crate::ui::popup::Popup::new("ssh-authentication", AuthenticationDialog { location, url, selected: 0, opened: false, cancelled: Default::default() }).centered().with_border()));
+pub(crate) fn authentication_dialog(compositor: &mut crate::compositor::Compositor, location: crate::remote::registry::RemoteLocation, url: String, project: Option<std::path::PathBuf>) {
+    compositor.push(Box::new(crate::ui::popup::Popup::new("ssh-authentication", AuthenticationDialog { location, url, project, selected: 0, opened: false, cancelled: Default::default() }).centered().with_border()));
 }
 
 #[cfg(target_os = "linux")]
 struct AuthenticationDialog {
+    project: Option<std::path::PathBuf>,
     location: crate::remote::registry::RemoteLocation,
     url: String,
     selected: usize,
@@ -492,6 +493,7 @@ impl Component for AuthenticationDialog {
                             self.selected = 0;
                             let cancelled = self.cancelled.clone();
                             let location = self.location.clone();
+                            let project = self.project.clone();
                             cx.jobs.spawn(async move {
                                 use std::sync::atomic::Ordering;
                                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
@@ -502,7 +504,7 @@ impl Component for AuthenticationDialog {
                                         if cancelled.swap(true, Ordering::AcqRel) { return Ok(()); }
                                         crate::job::dispatch(|_, compositor| { compositor.remove("ssh-authentication"); }).await;
                                         let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).ok_or_else(|| anyhow::anyhow!("XDG_RUNTIME_DIR is not set"))?;
-                                        let callback = commands::typed::ssh_connection_job(location, runtime).await?;
+                                        let callback = commands::typed::ssh_connection_job(location, runtime, project).await?;
                                         crate::job::dispatch_callback(callback).await;
                                         return Ok(());
                                     }
