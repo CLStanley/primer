@@ -601,7 +601,7 @@ impl Component for SavedHosts {
         let width = self.hosts.iter().map(|host| (host.destination.chars().count() + 16).max(host.remote_path.chars().count() + 6))
             .chain(self.active.iter().flat_map(|active| active.lines().map(|line| line.chars().count() + 8)))
             .max().unwrap_or(56).clamp(56, 90) as u16;
-        Some((width.min(viewport.0), (self.hosts.len().max(1).min(15) as u16 * 3 + if self.active.is_some() { 11 } else { 7 }).min(viewport.1)))
+        Some((width.min(viewport.0), (self.hosts.len().max(1).min(15) as u16 * 3 + if self.active.is_some() { 18 } else { 10 }).min(viewport.1)))
     }
 
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
@@ -619,21 +619,21 @@ impl Component for SavedHosts {
         let mut y = area.y + 3;
         let end = area.bottom().saturating_sub(3);
         if let Some(active) = &self.active {
-            if y + 5 < end {
+            if y + 10 < end {
                 surface.set_stringn(x, y, "ACTIVE CONNECTION", width, heading);
                 for (index, line) in active.lines().enumerate() {
-                    surface.set_stringn(x, y + 1 + index as u16, line, width, if index == 0 && line.contains("(Mounted)") { success } else { muted });
+                    surface.set_stringn(x, y + 2 + index as u16, line, width, if index == 0 && line.contains("(Mounted)") { success } else { muted });
                 }
-                y += 3;
+                y += 5;
                 surface.set_stringn(x, y, &"─".repeat(width), width, heading);
                 y += 2;
             }
         }
         if y < end {
             surface.set_stringn(x, y, "SAVED CONNECTIONS", width, heading);
-            y += 1;
+            y += 2;
         }
-        let visible = (end.saturating_sub(y) / 3) as usize;
+        let visible = (end.saturating_sub(y).saturating_add(1) / 3) as usize;
         let offset = self.selected.saturating_sub(visible.saturating_sub(1));
         if self.hosts.is_empty() && visible > 0 {
             surface.set_stringn(x, y, "No saved connections", width, muted);
@@ -649,7 +649,8 @@ impl Component for SavedHosts {
             if active && width >= marker.len() + 2 {
                 surface.set_stringn(x + (width - marker.len()) as u16, row, marker, marker.len(), success);
             }
-            surface.set_stringn(x + 2, row + 1, &host.remote_path, width.saturating_sub(2), muted);
+            let path_label = format!("  {}", host.remote_path);
+            surface.set_stringn(x, row + 1, &format!("{path_label:<width$}"), width, if focused { selected } else { muted });
         }
         surface.set_stringn(x, area.bottom() - 2, "j/k navigate  ·  Enter connect  ·  Esc close", width, muted);
     }
