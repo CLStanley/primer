@@ -73,6 +73,43 @@ Primer builds on Helix's selection-first editing model with a dashboard, floatin
 
 The UI uses terminal characters for rounded corners (╭ ╮ ╰ ╯), not pixel-level window rounding. Powerline caps require a font containing the `` and `` glyphs.
 
+### Optional features
+
+Projects, Notes and Remote SSH are opt-in and default to disabled.
+
+```toml
+[editor.features]
+projects = true
+remote-ssh = true
+notes = true
+```
+
+Disabled features should be absent from the dashboard, command palette and
+which-key hints, and their key sequences should behave like unbound keys.
+Configured mappings and saved data are retained when features are disabled.
+
+### Remote SSH
+
+Remote SSH currently uses dashboard shortcuts and typed commands; there are
+no dedicated default or Enzyme editor-mode SSH keybindings.
+
+| Dashboard key | Action |
+| --- | --- |
+| `u` | Connect to host |
+| `i` | Connections |
+| `y` | Change remote root |
+| `w` | Disconnect |
+
+Typed commands: `:ssh-connect` and `:ssh-connections`.
+The Connections popup supports Enter to connect, `e` to edit and `d` to
+delete a saved connection. Saving a connection is independent of connecting.
+
+**Deferred:** During the application-wide UI and keybinding review, consider
+dedicated editor-mode SSH bindings alongside the existing Enzyme grammar.
+Do not assign them as part of the SSH feature PR. Any future mappings must
+respect the Remote SSH feature toggle in both visibility and execution,
+including cancellation of disabled nested key sequences.
+
 ### Primer buffer navigation
 
 | Key | Action |
