@@ -487,7 +487,7 @@ fn ssh_input_error(cx: &mut Context, message: String) {
 
 #[cfg(target_os = "linux")]
 pub(crate) fn authentication_dialog(compositor: &mut crate::compositor::Compositor, location: crate::remote::registry::RemoteLocation, url: String) {
-    compositor.push(Box::new(crate::ui::popup::Popup::new("ssh-authentication", AuthenticationDialog { location, url, selected: 0, opened: false }).centered().with_border()));
+    compositor.push(Box::new(crate::ui::popup::Popup::new("ssh-authentication", AuthenticationDialog { location, url, selected: 0, opened: false, cancelled: Default::default() }).centered().with_border()));
 }
 
 #[cfg(target_os = "linux")]
@@ -496,6 +496,7 @@ struct AuthenticationDialog {
     url: String,
     selected: usize,
     opened: bool,
+    cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[cfg(target_os = "linux")]
@@ -504,7 +505,7 @@ impl Component for AuthenticationDialog {
         Some((64.min(viewport.0), 9.min(viewport.1)))
     }
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
-        let action = if self.opened { "Retry connection after authentication" } else { "Authenticate in browser" };
+        let action = if self.opened { "Waiting for browser authentication…" } else { "Authenticate in browser" };
         render_ssh_dialog(area, surface, cx, "Tailscale authentication required", &["Cancel".into(), action.into()], Some(self.selected), "Enter select  ·  Esc cancel");
     }
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
@@ -519,17 +520,41 @@ impl Component for AuthenticationDialog {
                         Ok(mut child) => {
                             std::thread::spawn(move || { let _ = child.wait(); });
                             self.opened = true;
+                            self.selected = 0;
+                            let cancelled = self.cancelled.clone();
+                            let location = self.location.clone();
+                            cx.jobs.spawn(async move {
+                                use std::sync::atomic::Ordering;
+                                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+                                while std::time::Instant::now() < deadline && !cancelled.load(Ordering::Acquire) {
+                                    let host = location.destination.clone();
+                                    let ready = tokio::task::spawn_blocking(move || crate::remote::tailscale_preflight(&host).and_then(|_| crate::remote::ssh_auth_preflight(&host))).await;
+                                    if matches!(ready, Ok(Ok(()))) {
+                                        if cancelled.swap(true, Ordering::AcqRel) { return Ok(()); }
+                                        crate::job::dispatch(|_, compositor| { compositor.remove("ssh-authentication"); }).await;
+                                        let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).ok_or_else(|| anyhow::anyhow!("XDG_RUNTIME_DIR is not set"))?;
+                                        let callback = commands::typed::ssh_connection_job(location, runtime).await?;
+                                        crate::job::dispatch_callback(callback).await;
+                                        return Ok(());
+                                    }
+                                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                                }
+                                if !cancelled.swap(true, Ordering::AcqRel) {
+                                    crate::job::dispatch(|_, compositor| {
+                                        compositor.remove("ssh-authentication");
+                                        crate::ui::notification::show_operation(compositor, Some("ssh-connect"), crate::ui::notification::Severity::Warning, "SSH authentication timed out", "Reconnect to try again", false);
+                                    }).await;
+                                }
+                                Ok(())
+                            });
                         }
                         Err(err) => cx.editor.set_error(format!("Unable to open browser: {err}")),
                     }
                     EventResult::Consumed(None)
                 }
                 key!(Enter) | key!(Esc) => {
-                    if *event == key!(Enter) && self.selected == 1 && self.opened {
-                        if let Err(err) = commands::ssh_connect_location(cx, self.location.clone()) {
-                            cx.editor.set_error(err.to_string());
-                        }
-                    }
+                    if self.opened && *event == key!(Enter) && self.selected == 1 { return EventResult::Consumed(None); }
+                    self.cancelled.store(true, std::sync::atomic::Ordering::Release);
                     EventResult::Consumed(Some(Box::new(|compositor, _| { compositor.pop(); })))
                 }
                 _ => EventResult::Consumed(None),
