@@ -3627,7 +3627,7 @@ fn primer_project_register_picker(directory: PathBuf, change_remote: bool) -> an
             cx.jobs.callback(async move {
                 Ok(Callback::EditorCompositor(Box::new(move |editor, compositor| {
                     match primer_project_register_picker(next, change_remote) {
-                        Ok(picker) => compositor.push(Box::new(overlaid(picker.with_title(if change_remote { "Change Remote Directory" } else { "Add Project" })))),
+                        Ok(picker) => compositor.push(Box::new(overlaid(picker.with_title(if change_remote { "Change Remote Root Directory" } else { "Add Project" })))),
                         Err(error) => editor.set_error(format!("Cannot browse directory: {error}")),
                     }
                 })))
@@ -8915,7 +8915,7 @@ fn lsp_or_syntax_workspace_symbol_picker(cx: &mut Context) {
 #[cfg(target_os = "linux")]
 pub(crate) fn ssh_directory_picker(cx: &mut crate::compositor::Context, compositor: &mut crate::compositor::Compositor) {
     match typed::remote_file_root(None).and_then(|root| root.ok_or_else(|| anyhow::anyhow!("Connect to an SSH host first"))).and_then(|root| primer_project_register_picker(root, true)) {
-        Ok(picker) => compositor.push(Box::new(overlaid(picker.with_title("Change Remote Directory")))),
+        Ok(picker) => compositor.push(Box::new(overlaid(picker.with_title("Change Remote Root Directory")))),
         Err(error) => cx.editor.set_error(format!("Cannot browse remote directories: {error}")),
     }
 }
