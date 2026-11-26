@@ -43,7 +43,6 @@ impl DashboardAction {
             Self::RemoteBrowse => "Remote files",
             Self::RemoteDisconnect => "Disconnect",
             Self::RemoteDirectory => "Change directory",
-            Self::RemoteSavedHosts => "Saved hosts",
         }
     }
 
@@ -69,7 +68,6 @@ impl DashboardAction {
             Self::RemoteBrowse => 'v',
             Self::RemoteDisconnect => 'w',
             Self::RemoteDirectory => 'y',
-            Self::RemoteSavedHosts => 'z',
         }
     }
 }
@@ -230,7 +228,6 @@ pub fn render_dashboard(
             vec![
                 ("u", "Connect to host", Some(DashboardAction::RemoteConnect)),
                 ("i", "Connections", Some(DashboardAction::RemoteConnections)),
-                ("z", "Saved hosts", Some(DashboardAction::RemoteSavedHosts)),
                 ("y", "Change directory", Some(DashboardAction::RemoteDirectory)),
                 ("w", "Disconnect", Some(DashboardAction::RemoteDisconnect)),
             ],
