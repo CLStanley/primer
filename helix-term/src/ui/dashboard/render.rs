@@ -228,12 +228,13 @@ pub fn render_dashboard(
             vec![
                 ("u", "Connect to host", Some(DashboardAction::RemoteConnect)),
                 ("i", "Connections", Some(DashboardAction::RemoteConnections)),
-                ("y", "Change directory", Some(DashboardAction::RemoteDirectory)),
+                ("y", "Change remote root", Some(DashboardAction::RemoteDirectory)),
                 ("w", "Disconnect", Some(DashboardAction::RemoteDisconnect)),
             ],
         ),
     ];
 
+    let sections: Vec<_> = sections.into_iter().filter(|(_, entries)| entries.iter().any(|(_, _, action)| action.is_some_and(|action| dashboard.actions.contains(&action)))).collect();
     if wide {
         let total_width = COLUMN_WIDTH * 2 + COLUMN_GAP;
         let left = area.x + area.width.saturating_sub(total_width) / 2;
@@ -282,7 +283,7 @@ pub fn render_dashboard(
                 );
             }
         }
-        let footer_y = menu_top + 18;
+        let footer_y = menu_top + ((sections.len() as u16 + 1) / 2) * 8 + 2;
         // Shared actions form one evenly spaced horizontal footer.
         // Center each footer item in an equal-width slot of the menu.
         // This keeps the spacing balanced regardless of label length.
@@ -332,9 +333,9 @@ pub fn render_dashboard(
             .sum();
         let mut hint_x = left + total_width.saturating_sub(hint_width) / 2;
         for (key, label) in hint {
-            draw_line(key, hint_x, menu_top + 20, key.len() as u16, shortcut);
+            draw_line(key, hint_x, footer_y + 2, key.len() as u16, shortcut);
             hint_x += key.len() as u16;
-            draw_line(label, hint_x, menu_top + 20, label.len() as u16, normal);
+            draw_line(label, hint_x, footer_y + 2, label.len() as u16, normal);
             hint_x += label.len() as u16;
         }
     } else {
