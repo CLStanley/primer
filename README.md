@@ -143,6 +143,40 @@ LazyGit and LazyDocker are examples, not built-in integrations. The final
 configuration schema and keybinding conflict handling will be decided during
 implementation.
 
+### Planned: project workspace sessions
+
+Implement in a separate project-sessions feature branch after the SSH work.
+A project is a registered directory; its workspace is the current editing
+environment, and a saved session is an optional persistent snapshot.
+
+- Isolate project buffers and restore document order, active buffer, cursor
+  and scroll positions, splits, and terminal names and working directories.
+- Use stable local paths or remote host/path identities, not temporary mounts.
+- Offer restore or fresh start when opening a saved session, and save or
+  leave the previous snapshot unchanged when leaving a workspace.
+- Keep document saving independent from workspace saving. Never silently
+  discard modified documents or terminate running terminal processes.
+- Preserve live terminals across switches where safe; recreate terminal
+  configuration on restart, without promising to restore running processes.
+- Provide a way to clear a saved workspace without unregistering the project.
+- Consolidate relevant decisions into one transition dialog. Skip irrelevant
+  questions and honor automatic preferences; use notifications for progress,
+  outcomes and actual errors. Preserve the original workspace on cancellation
+  or failure wherever possible.
+
+Proposed configuration (not implemented):
+
+```toml
+[editor.project-sessions]
+enabled = true
+on-open = "ask"  # ask, restore, fresh
+on-close = "ask" # ask, save, discard
+```
+
+Apply the lifecycle consistently to switching, clearing projects, SSH
+disconnects and quitting. The exact schema and terminal lifecycle remain
+implementation decisions.
+
 ### Projects
 
 Projects are remembered locally in `$XDG_DATA_HOME/primer/projects.toml` (default `~/.local/share/primer/projects.toml`). Add a Git repository or any directory with `Space p a`; switch with `Space p p`, forget with `Space p f`, clear with `Space p c`. Forgetting requires the exact project name and never deletes files. Switching preserves open buffers. Missing directories are omitted from the picker; identical names are distinguished by their paths.
