@@ -466,6 +466,50 @@ pub(crate) fn authentication_dialog(compositor: &mut crate::compositor::Composit
 }
 
 #[cfg(target_os = "linux")]
+fn saved_connection_feedback(compositor: &mut crate::compositor::Compositor, result: anyhow::Result<()>, title: &str) {
+    use crate::ui::notification::{show_operation, Severity};
+    match result {
+        Ok(()) => show_operation(compositor, None, Severity::Success, title, "Saved connections updated", false),
+        Err(error) => show_operation(compositor, None, Severity::Error, "Saved connection update failed", format!("{error:#}"), false),
+    }
+}
+
+#[cfg(target_os = "linux")]
+struct DeleteConnection {
+    location: crate::remote::registry::RemoteLocation,
+    selected: usize,
+}
+
+#[cfg(target_os = "linux")]
+impl Component for DeleteConnection {
+    fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
+        Some((64.min(viewport.0), 10.min(viewport.1)))
+    }
+    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+        render_ssh_dialog(area, surface, cx, &format!("Delete saved connection: {}", self.location.destination), &["Cancel".into(), "Delete connection".into()], Some(self.selected), "Enter select · Esc cancel");
+    }
+    fn handle_event(&mut self, event: &Event, _: &mut Context) -> EventResult {
+        match event {
+            Event::Key(event) => match *event {
+                key!('j') | key!('k') | key!(Up) | key!(Down) | key!(Tab) => { self.selected = 1 - self.selected; EventResult::Consumed(None) }
+                key!(Enter) if self.selected == 1 => {
+                    let location = self.location.clone();
+                    EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+                        compositor.pop();
+                        compositor.pop();
+                        saved_connection_feedback(compositor, commands::typed::edit_saved_host(&location, None), "SSH connection deleted");
+                        let _ = commands::ssh_connections(cx, Default::default(), crate::ui::prompt::PromptEvent::Validate);
+                    })))
+                }
+                key!(Enter) | key!(Esc) => EventResult::Consumed(Some(Box::new(|compositor, _| { compositor.pop(); }))),
+                _ => EventResult::Consumed(None),
+            },
+            _ => EventResult::Ignored(None),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
 struct ConnectChoice {
     location: crate::remote::registry::RemoteLocation,
     selected: usize,
@@ -474,20 +518,20 @@ struct ConnectChoice {
 #[cfg(target_os = "linux")]
 impl Component for ConnectChoice {
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
-        Some((64.min(viewport.0), 10.min(viewport.1)))
+        Some((64.min(viewport.0), 12.min(viewport.1)))
     }
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
-        render_ssh_dialog(area, surface, cx, "SSH Connection", &["Connect".into(), "Connect and Save Host".into(), "Cancel".into()], Some(self.selected), "j/k navigate  ·  Enter select  ·  Esc cancel");
+        render_ssh_dialog(area, surface, cx, "SSH Connection", &["Connect".into(), "Connect and Save".into(), "Save Connection".into(), "Cancel".into()], Some(self.selected), "j/k navigate  ·  Enter select  ·  Esc cancel");
     }
     fn handle_event(&mut self, event: &Event, _cx: &mut Context) -> EventResult {
         match event {
             Event::Key(event) => match *event {
                 key!('j') | key!(Down) | key!(Tab) => {
-                    self.selected = (self.selected + 1) % 3;
+                    self.selected = (self.selected + 1) % 4;
                     EventResult::Consumed(None)
                 }
                 key!('k') | key!(Up) => {
-                    self.selected = (self.selected + 2) % 3;
+                    self.selected = (self.selected + 3) % 4;
                     EventResult::Consumed(None)
                 }
                 key!(Enter) => {
@@ -495,9 +539,13 @@ impl Component for ConnectChoice {
                     let selected = self.selected;
                     EventResult::Consumed(Some(Box::new(move |compositor, cx| {
                         compositor.pop();
-                        if selected != 2 {
-                            if let Err(error) = commands::typed::ssh_connect_with_options(cx, location, None, selected == 1) {
-                                crate::ui::notification::notify(cx.jobs, crate::ui::notification::Severity::Error, "SSH connection failed", format!("{error:#}"));
+                        if selected == 1 || selected == 2 {
+                            let result = commands::typed::remember_ssh_host(&location);
+                            saved_connection_feedback(compositor, result, "SSH connection saved");
+                        }
+                        if selected == 0 || selected == 1 {
+                            if let Err(error) = commands::typed::ssh_connect_with_options(cx, location, None, false) {
+                                crate::ui::notification::show_operation(compositor, None, crate::ui::notification::Severity::Error, "SSH connection failed", format!("{error:#}"), false);
                             }
                         }
                     })))
@@ -707,7 +755,7 @@ impl Component for SavedHosts {
             let path_label = format!("  {}", host.remote_path);
             surface.set_stringn(x, row + 1, &format!("{path_label:<width$}"), width, if focused { selected } else { muted });
         }
-        surface.set_stringn(x, area.bottom() - 2, "j/k navigate  ·  Enter connect  ·  Esc close", width, muted);
+        surface.set_stringn(x, area.bottom() - 2, "Enter connect · e edit · d delete · Esc close", width, muted);
     }
 
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
@@ -715,6 +763,34 @@ impl Component for SavedHosts {
             Event::Key(event) => match *event {
                 key!('j') | key!(Down) if !self.hosts.is_empty() => { self.selected = (self.selected + 1) % self.hosts.len(); EventResult::Consumed(None) }
                 key!('k') | key!(Up) if !self.hosts.is_empty() => { self.selected = (self.selected + self.hosts.len() - 1) % self.hosts.len(); EventResult::Consumed(None) }
+                key!('e') if !self.hosts.is_empty() => {
+                    let old = self.hosts[self.selected].clone();
+                    EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+                        use crate::ui::prompt::{Prompt, PromptEvent};
+                        let initial = format!("{} {}", old.destination, old.remote_path);
+                        let prompt = Prompt::new("Edit SSH connection: ".into(), None, |_, _| Vec::new(), move |cx, input, event| {
+                            if event != PromptEvent::Validate { return; }
+                            let result = (|| -> anyhow::Result<()> {
+                                let (host, path) = input.trim_start().split_once(char::is_whitespace).ok_or_else(|| anyhow::anyhow!("Enter host and absolute path"))?;
+                                commands::typed::edit_saved_host(&old, Some(crate::remote::registry::RemoteLocation { destination: host.into(), remote_path: path.trim_start().into() }))
+                            })();
+                            cx.jobs.callback(async move {
+                                Ok(crate::job::Callback::EditorCompositor(Box::new(move |_, compositor| {
+                                    saved_connection_feedback(compositor, result, "SSH connection updated");
+                                })))
+                            });
+                            let _ = commands::ssh_connections(cx, Default::default(), PromptEvent::Validate);
+                        }).with_line(initial, cx.editor);
+                        compositor.pop();
+                        compositor.push(Box::new(prompt));
+                    })))
+                }
+                key!('d') if !self.hosts.is_empty() => {
+                    let location = self.hosts[self.selected].clone();
+                    EventResult::Consumed(Some(Box::new(move |compositor, _| {
+                        compositor.push(Box::new(crate::ui::popup::Popup::new("ssh-delete-choice", DeleteConnection { location, selected: 0 }).centered().with_border()));
+                    })))
+                }
                 key!(Enter) if !self.hosts.is_empty() => {
                     if let Err(err) = commands::ssh_connect_location(cx, self.hosts[self.selected].clone()) {
                         ssh_input_error(cx, format!("{err:#}"));
