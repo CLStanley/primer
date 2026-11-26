@@ -101,6 +101,54 @@ impl Drop for VerificationSocket {
     }
 }
 
+/// Run a bounded OpenSSH handshake using the editor as its askpass helper.
+/// Authentication is checked again using the normal strict SFTP preflight.
+pub fn verify_host(
+    runtime: &std::path::Path,
+    destination: &str,
+    present: impl FnOnce(PendingConfirmation),
+) -> anyhow::Result<()> {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+    anyhow::ensure!(super::valid_destination(destination), "Invalid SSH destination");
+    let socket = VerificationSocket::new(runtime)?;
+    socket.listener.set_nonblocking(true)?;
+    let mut child = Command::new("timeout")
+        .args(["150s", "ssh", "-T", "-o", "StrictHostKeyChecking=ask",
+            "-o", "BatchMode=no", "-o", "NumberOfPasswordPrompts=0",
+            "-o", "PasswordAuthentication=no", "-o", "KbdInteractiveAuthentication=no",
+            "-o", "PubkeyAuthentication=no", "-o", "GSSAPIAuthentication=no",
+            "-o", "HostbasedAuthentication=no", "-o", "ControlMaster=no",
+            "-o", "ControlPath=none", "-o", "ConnectTimeout=10",
+            "--", destination, "true"])
+        .env("LC_ALL", "C")
+        .env("SSH_ASKPASS", std::env::current_exe()?)
+        .env("SSH_ASKPASS_REQUIRE", "force")
+        .env("PRIMER_HOST_CONFIRMATION_SOCKET", socket.path())
+        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
+        .spawn()?;
+    let result = (|| -> anyhow::Result<()> {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            match socket.listener.accept() {
+                Ok((stream, _)) => {
+                    serve_confirmation(stream, present)?;
+                    return Ok(());
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    anyhow::ensure!(child.try_wait()?.is_none(), "SSH exited without requesting host confirmation");
+                    anyhow::ensure!(Instant::now() < deadline, "SSH host confirmation timed out");
+                    std::thread::sleep(Duration::from_millis(25));
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+    })();
+    if result.is_err() { let _ = child.kill(); }
+    let _ = child.wait();
+    result
+}
+
 /// Serve one confirmation over a private Unix socket connection.
 /// The caller owns the listener, process lifetime and private socket directory.
 pub fn serve_confirmation(
