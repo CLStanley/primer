@@ -148,7 +148,8 @@ pub fn render_dashboard(
     let show_logo = area.width >= logo_width && area.height >= 20;
     let wide = area.width >= WIDE_LAYOUT_WIDTH && area.height >= 19;
     let heading_height: u16 = if show_logo { LOGO.len() as u16 } else { 1 };
-    let menu_height = if wide { 22 } else { 33 };
+    let section_count = 1 + usize::from(ctx.editor.config().features.projects) + usize::from(ctx.editor.config().features.notes) + usize::from(ctx.editor.config().features.remote_ssh && cfg!(target_os = "linux"));
+    let menu_height = if wide { ((section_count as u16 + 1) / 2) * 8 + 6 } else { section_count as u16 * 6 + 5 };
     let content_height = heading_height + 5 + menu_height;
     let top = area.y + (area.height.saturating_sub(content_height) / 2).saturating_sub(2);
 
@@ -240,7 +241,9 @@ pub fn render_dashboard(
         let left = area.x + area.width.saturating_sub(total_width) / 2;
         let right = left + COLUMN_WIDTH + COLUMN_GAP;
         for (section_index, (heading, entries)) in sections.iter().enumerate() {
-            let x = if section_index % 2 == 0 { left } else { right };
+            let x = if section_index % 2 == 0 && section_index + 1 == sections.len() {
+                area.x + area.width.saturating_sub(COLUMN_WIDTH) / 2
+            } else if section_index % 2 == 0 { left } else { right };
             let section_top = menu_top + (section_index / 2) as u16 * 8;
             let heading_width = heading.len() as u16;
             draw_line(
