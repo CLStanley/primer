@@ -3379,6 +3379,15 @@ fn suspended_local_project() -> &'static std::sync::Mutex<Option<(Option<PathBuf
 #[cfg(target_os = "linux")]
 fn ssh_connect_confirmed(cx: &mut compositor::Context, location: crate::remote::registry::RemoteLocation) -> anyhow::Result<()> {
     crate::remote::mount_source(&location.destination, &location.remote_path)?;
+    {
+        let active = active_remote().try_lock().map_err(|_| anyhow::anyhow!("Remote context is busy"))?;
+        if let Some(previous) = active.as_ref().filter(|previous| *previous != &location) {
+            let registry = remote_registry().try_lock().map_err(|_| anyhow::anyhow!("Remote connection is busy"))?;
+            let mount = registry.get(previous).ok_or_else(|| anyhow::anyhow!("Unknown remote connection"))?;
+            anyhow::ensure!(!cx.editor.documents().any(|doc| doc.path().is_some_and(|path| path.starts_with(mount.path()))), "Close all remote buffers before switching connections");
+            anyhow::ensure!(cx.editor.terminal_documents.is_empty(), "Close terminal buffers before switching connections");
+        }
+    }
     let runtime = std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .ok_or_else(|| anyhow::anyhow!("XDG_RUNTIME_DIR is not set"))?;
@@ -3449,23 +3458,21 @@ pub(crate) async fn ssh_connection_job(location: crate::remote::registry::Remote
 
 #[cfg(target_os = "linux")]
 pub(crate) fn ssh_connections(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow::Result<()> {
-    if event != PromptEvent::Validate {
-        return Ok(());
-    }
+    if event != PromptEvent::Validate { return Ok(()); }
     cx.jobs.callback(async move {
-        let result = tokio::task::spawn_blocking(|| -> anyhow::Result<String> {
-            let registry = remote_registry().lock()
-                .map_err(|_| anyhow::anyhow!("Remote registry unavailable"))?;
-            let entries: Vec<_> = registry.entries().map(|(location, mount)| {
-                format!("{}:{}\nStatus: {}", location.destination, location.remote_path, match mount.state() { Ok(state) => format!("{state:?}"), Err(err) => format!("Unavailable: {err}") })
-            }).collect();
-            Ok(if entries.is_empty() { "No remote connections".into() } else { entries.join("\n") })
+        let result = tokio::task::spawn_blocking(|| -> anyhow::Result<_> {
+            let active = active_remote().lock().map_err(|_| anyhow::anyhow!("Remote context unavailable"))?.clone();
+            let indicator = ssh_dashboard_indicator();
+            let directory = remote_directory().lock().map_err(|_| anyhow::anyhow!("Remote directory unavailable"))?.clone();
+            let hosts = ssh_saved_hosts()?.into_iter().filter(|host| Some(host) != active.as_ref()).collect::<Vec<_>>();
+            let summary = active.map(|location| format!("{} — {}", indicator.unwrap_or(location.destination), Path::new(&location.remote_path).join(directory).display()));
+            Ok((hosts, summary))
         }).await;
-        Ok(job::Callback::EditorCompositor(Box::new(move |_editor, compositor| {
+        Ok(job::Callback::EditorCompositor(Box::new(move |_, compositor| {
             match result {
-                Ok(Ok(status)) => remote_feedback(compositor, format!("SSH Connections\n\n{status}")),
-                Ok(Err(err)) => remote_feedback(compositor, format!("SSH Connections\n\n{err:#}")),
-                Err(err) => remote_feedback(compositor, format!("SSH worker failed\n\n{err}")),
+                Ok(Ok((hosts, active))) => ui::dashboard::connections_dialog(compositor, hosts, active),
+                Ok(Err(err)) => ui::notification::show_operation(compositor, None, ui::notification::Severity::Error, "SSH connections unavailable", format!("{err:#}"), false),
+                Err(err) => ui::notification::show_operation(compositor, None, ui::notification::Severity::Error, "SSH worker failed", err.to_string(), false),
             }
         })))
     });
