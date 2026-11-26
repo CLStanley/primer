@@ -125,8 +125,15 @@ pub fn verify_host(
         .env("SSH_ASKPASS", std::env::current_exe()?)
         .env("SSH_ASKPASS_REQUIRE", "force")
         .env("PRIMER_HOST_CONFIRMATION_SOCKET", socket.path())
-        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
+        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped())
         .spawn()?;
+    let mut stderr = child.stderr.take().expect("SSH stderr is piped");
+    let diagnostic_reader = std::thread::spawn(move || {
+        use std::io::Read;
+        let mut diagnostic = Vec::new();
+        let _ = stderr.read_to_end(&mut diagnostic);
+        String::from_utf8_lossy(&diagnostic).trim().to_owned()
+    });
     let result = (|| -> anyhow::Result<()> {
         let deadline = Instant::now() + Duration::from_secs(20);
         loop {
@@ -146,7 +153,10 @@ pub fn verify_host(
     })();
     if result.is_err() { let _ = child.kill(); }
     let _ = child.wait();
-    result
+    let diagnostic = diagnostic_reader.join().unwrap_or_default();
+    result.map_err(|error| {
+        if diagnostic.is_empty() { error } else { anyhow::anyhow!("{error:#}: {diagnostic}") }
+    })
 }
 
 /// Serve one confirmation over a private Unix socket connection.
