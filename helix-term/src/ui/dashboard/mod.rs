@@ -578,23 +578,24 @@ struct AuthenticationDialog {
 #[cfg(target_os = "linux")]
 impl Component for AuthenticationDialog {
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
-        Some((64.min(viewport.0), 9.min(viewport.1)))
+        Some((90.min(viewport.0), 12.min(viewport.1)))
     }
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
-        let action = if self.opened { "Waiting for browser authentication…" } else { "Authenticate in browser" };
-        render_ssh_dialog(area, surface, cx, "Tailscale authentication required", &["Cancel".into(), action.into()], Some(self.selected), "Enter select  ·  Esc cancel");
+        let action = if self.opened { "Waiting for authentication…" } else { "Authenticate in browser" };
+        render_ssh_dialog(area, surface, cx, "Tailscale authentication required", &["Cancel".into(), action.into(), "Authenticate manually (use link below)".into(), self.url.clone()], Some(self.selected), "Enter select  ·  Esc cancel");
     }
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
         match event {
             Event::Key(event) => match *event {
                 key!('j') | key!('k') | key!(Up) | key!(Down) | key!(Tab) => {
-                    self.selected = 1 - self.selected;
+                    self.selected = if matches!(*event, key!(Up) | key!('k')) { (self.selected + 2) % 3 } else { (self.selected + 1) % 3 };
                     EventResult::Consumed(None)
                 }
-                key!(Enter) if self.selected == 1 && !self.opened => {
-                    match std::process::Command::new("xdg-open").arg(&self.url).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn() {
-                        Ok(mut child) => {
-                            std::thread::spawn(move || { let _ = child.wait(); });
+                key!(Enter) if self.selected != 0 && !self.opened => {
+                    let launch = if self.selected == 1 { std::process::Command::new("xdg-open").arg(&self.url).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().map(Some) } else { Ok(None) };
+                    match launch {
+                        Ok(child) => {
+                            if let Some(mut child) = child { std::thread::spawn(move || { let _ = child.wait(); }); }
                             self.opened = true;
                             self.selected = 0;
                             let cancelled = self.cancelled.clone();
@@ -645,7 +646,7 @@ impl Component for AuthenticationDialog {
                     EventResult::Consumed(None)
                 }
                 key!(Enter) | key!(Esc) => {
-                    if self.opened && *event == key!(Enter) && self.selected == 1 { return EventResult::Consumed(None); }
+                    if self.opened && *event == key!(Enter) && self.selected != 0 { return EventResult::Consumed(None); }
                     self.cancelled.store(true, std::sync::atomic::Ordering::Release);
                     EventResult::Consumed(Some(Box::new(|compositor, _| { compositor.pop(); })))
                 }
