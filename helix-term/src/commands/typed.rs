@@ -4772,7 +4772,7 @@ pub(super) fn execute_command(
     args: &str,
     event: PromptEvent,
 ) -> anyhow::Result<()> {
-    if cmd.name.starts_with("ssh-") && !cx.editor.config().features.remote_ssh {
+    if !typed_feature_enabled(cmd.name, &cx.editor.config().features) {
         if event == PromptEvent::Validate { anyhow::bail!("Remote SSH is disabled in configuration"); }
         return Ok(());
     }
@@ -4801,7 +4801,13 @@ pub(super) fn command_mode(cx: &mut Context) {
             }
         },
     );
-    prompt.doc_fn = Box::new(command_line_doc);
+    let features = cx.editor.config().features.clone();
+    prompt.doc_fn = Box::new(move |input| {
+        let (name, _, _) = command_line::split(input);
+        let command = TYPABLE_COMMAND_MAP.get(name)?;
+        if !typed_feature_enabled(command.name, &features) { return None; }
+        command_line_doc(input)
+    });
 
     // Calculate initial completion
     prompt.recalculate_completion(cx.editor);
@@ -4880,13 +4886,17 @@ fn command_line_doc(input: &str) -> Option<Cow<'_, str>> {
     Some(Cow::Owned(doc))
 }
 
+fn typed_feature_enabled(name: &str, features: &helix_view::editor::FeatureConfig) -> bool {
+    !name.starts_with("ssh-") || (features.remote_ssh && cfg!(target_os = "linux"))
+}
+
 fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Completion> {
     let (command, rest, complete_command) = command_line::split(input);
 
     if complete_command {
         fuzzy_match(
             input,
-            TYPABLE_COMMAND_LIST.iter().map(|command| command.name),
+            TYPABLE_COMMAND_LIST.iter().filter(|command| typed_feature_enabled(command.name, &editor.config().features)).map(|command| command.name),
             false,
         )
         .into_iter()
@@ -4895,6 +4905,7 @@ fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Comple
     } else {
         TYPABLE_COMMAND_MAP
             .get(command)
+            .filter(|cmd| typed_feature_enabled(cmd.name, &editor.config().features))
             .map_or_else(Vec::new, |cmd| {
                 let args_offset = command.len() + 1;
                 complete_command_args(editor, cmd.signature, &cmd.completer, rest, args_offset)
