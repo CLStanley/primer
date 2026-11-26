@@ -584,8 +584,8 @@ impl Component for HostVerificationDialog {
     }
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
         let fingerprint = self.pending.as_ref().map(|p| p.confirmation.fingerprint.clone()).unwrap_or_default();
-        let lines = vec!["Cancel".into(), "Trust host and connect".into(), "Verify by fingerprint".into(), self.host.clone(), fingerprint, "Verify this fingerprint with a trusted source.".into(), self.input.as_ref().map(|s| format!("Fingerprint: {s}")).unwrap_or_default()];
-        render_ssh_dialog(area, surface, cx, "Verify SSH host", &lines, Some(self.selected), "Enter select · Esc cancel");
+        let lines = vec![format!("Destination: {}", self.host), format!("Fingerprint: {fingerprint}"), "Verify this fingerprint with a trusted source.".into(), String::new(), "Cancel".into(), "Trust host and connect".into(), "Verify by fingerprint".into(), String::new(), self.input.as_ref().map(|s| format!("Fingerprint: {s}")).unwrap_or_default()];
+        render_ssh_dialog(area, surface, cx, "Verify SSH host", &lines, Some(self.selected + 4), "Enter select · Esc cancel");
     }
     fn handle_event(&mut self, event: &Event, _cx: &mut Context) -> EventResult {
         use crate::remote::host_verification::HostDecision;
