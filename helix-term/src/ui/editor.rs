@@ -968,7 +968,7 @@ impl EditorView {
     ) -> Option<KeymapResult> {
         let mut last_mode = mode;
         self.pseudo_pending.extend(self.keymaps.pending());
-        let key_result = self.keymaps.get(mode, event);
+        let key_result = self.keymaps.get_with_features(mode, event, &cxt.editor.config().features);
         cxt.editor.autoinfo = self.keymaps.sticky().map(|node| node.feature_infobox(&cxt.editor.config().features));
 
         let mut execute_command = |command: &commands::MappableCommand| {
@@ -1027,7 +1027,7 @@ impl EditorView {
                             Some(ch) => commands::insert::insert_char(cx, ch),
                             None => {
                                 if let KeymapResult::Matched(command) =
-                                    self.keymaps.get(Mode::Insert, ev)
+                                    self.keymaps.get_with_features(Mode::Insert, ev, &cx.editor.config().features)
                                 {
                                     command.execute(cx);
                                 }
