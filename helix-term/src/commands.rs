@@ -404,7 +404,6 @@ impl MappableCommand {
         primer_project_picker, "Switch remembered projects",
         primer_project_register, "Add a directory as a project",
         primer_project_clear, "Clear the active project context",
-        primer_project_status, "Show active and focused project status",
         primer_project_forget, "Forget the active project without deleting files",
         file_picker_in_current_buffer_directory, "Open file picker at current buffer's directory",
         file_picker_in_current_directory, "Open file picker at current working directory",
@@ -465,8 +464,6 @@ impl MappableCommand {
         primer_terminal_hsplit, "Open terminal in horizontal split",
         primer_terminal_vsplit, "Open terminal in vertical split",
         primer_terminal_rename, "Rename terminal tab",
-        primer_terminal_lazygit, "Open lazygit in terminal",
-        primer_terminal_lazydocker, "Open lazydocker in terminal",
         primer_buffer_previous, "Previous buffer",
         primer_buffer_next, "Next buffer",
         primer_buffer_new, "New empty buffer",
@@ -3664,37 +3661,6 @@ fn primer_project_register(cx: &mut Context) {
     }
 }
 
-fn primer_project_status(cx: &mut Context) {
-    use crate::projects::registry::ProjectRegistry;
-    let scope = cx.editor.active_project_root.clone()
-        .unwrap_or_else(|| active_buffer_directory(cx.editor));
-    let discovered = crate::projects::discover(&scope).ok().flatten();
-    let active_name = cx.editor.active_project_name.as_deref().unwrap_or("None");
-    let active_root = cx.editor.active_project_root.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "No active project".to_owned());
-    let remembered_root = cx.editor.active_project_root.as_ref()
-        .or_else(|| discovered.as_ref().map(|project| &project.root));
-    let remembered = remembered_root.and_then(|root| {
-        let path = ProjectRegistry::default_path().ok()?;
-        let registry = ProjectRegistry::read(&path).ok()?;
-        Some(registry.roots.contains(root))
-    }).unwrap_or(false);
-    let current = discovered.as_ref().map(|project| project.name.as_str()).unwrap_or("None");
-    let detected_root = discovered.as_ref().map(|project| project.root.display().to_string()).unwrap_or_else(|| "No Git repository".to_owned());
-    let lines = vec![
-        ("Active project  ".to_owned(), active_name.to_owned(), String::new(), String::new()),
-        ("Active root     ".to_owned(), active_root, String::new(), String::new()),
-        ("Detected Git    ".to_owned(), current.to_owned(), String::new(), String::new()),
-        ("Git root        ".to_owned(), detected_root, String::new(), String::new()),
-        ("Remembered      ".to_owned(), if remembered { "Yes" } else { "No" }.to_owned(), String::new(), String::new()),
-    ];
-    cx.callback.push(Box::new(move |compositor, _| {
-        let popup = Popup::new("primer-project-status",
-            ui::GitChangePreview::new("Project information".to_owned(), lines)
-                .with_title("Project status").compact());
-        compositor.replace_or_push("primer-project-status", popup.with_border().centered().with_scrollbar(false));
-    }));
-}
-
 /// Clear project scoping without closing or modifying any buffers.
 fn primer_project_clear(cx: &mut Context) {
     if cx.editor.active_project_root.take().is_some() {
@@ -4783,22 +4749,6 @@ fn primer_terminal_vsplit(cx: &mut Context) {
         name: "terminal-vsplit".to_owned(),
         args: String::new(),
         doc: "Open terminal in vertical split".to_owned(),
-    }.execute(cx);
-}
-
-fn primer_terminal_lazygit(cx: &mut Context) {
-    MappableCommand::Typable {
-        name: "terminal-lazygit".to_owned(),
-        args: String::new(),
-        doc: "Open lazygit in terminal".to_owned(),
-    }.execute(cx);
-}
-
-fn primer_terminal_lazydocker(cx: &mut Context) {
-    MappableCommand::Typable {
-        name: "terminal-lazydocker".to_owned(),
-        args: String::new(),
-        doc: "Open lazydocker in terminal".to_owned(),
     }.execute(cx);
 }
 
