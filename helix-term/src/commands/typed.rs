@@ -3041,14 +3041,6 @@ fn open_terminal_hsplit(cx: &mut compositor::Context, args: Args, event: PromptE
     open_terminal_with_action(cx, args, event, Action::HorizontalSplit)
 }
 
-fn open_lazygit(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
-    open_terminal_program(cx, args, event, Action::Replace, Some("lazygit"))
-}
-
-fn open_lazydocker(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
-    open_terminal_program(cx, args, event, Action::Replace, Some("lazydocker"))
-}
-
 fn open_terminal_with_action(
     cx: &mut compositor::Context,
     _args: Args,
@@ -3495,22 +3487,6 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         aliases: &[],
         doc: "Show registered remote SSH connections.",
         fun: ssh_connections,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
-    },
-    TypableCommand {
-        name: "terminal-lazygit",
-        aliases: &[],
-        doc: "Open lazygit in a terminal buffer.",
-        fun: open_lazygit,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
-    },
-    TypableCommand {
-        name: "terminal-lazydocker",
-        aliases: &[],
-        doc: "Open lazydocker in a terminal buffer.",
-        fun: open_lazydocker,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
     },
