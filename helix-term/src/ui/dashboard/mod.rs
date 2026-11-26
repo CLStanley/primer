@@ -63,9 +63,15 @@ impl Dashboard {
         }
     }
 
-    fn refresh_actions(&mut self) {
+    fn refresh_actions(&mut self, features: &helix_view::editor::FeatureConfig) {
         let selected = self.selected_action();
-        let actions = Self::new().actions;
+        let mut actions = Self::new().actions;
+        actions.retain(|action| match action {
+            DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject => features.projects,
+            DashboardAction::FindNotes | DashboardAction::NewNote | DashboardAction::DailyNote | DashboardAction::Agenda => features.notes,
+            DashboardAction::RemoteConnect | DashboardAction::RemoteConnections | DashboardAction::RemoteBrowse | DashboardAction::RemoteDisconnect | DashboardAction::RemoteDirectory => features.remote_ssh && cfg!(target_os = "linux"),
+            _ => true,
+        });
         self.actions = actions;
         self.selected = selected.and_then(|action| self.actions.iter().position(|candidate| *candidate == action)).unwrap_or(0);
     }
@@ -101,7 +107,7 @@ impl Dashboard {
                 | DashboardAction::FindNotes
                 | DashboardAction::NewNote
                 | DashboardAction::DailyNote
-                | DashboardAction::Agenda => DashboardAction::OpenProject,
+                | DashboardAction::Agenda => [DashboardAction::OpenProject, DashboardAction::RemoteConnect, DashboardAction::Quit].into_iter().find(|action| self.actions.contains(action)).unwrap_or(DashboardAction::FindFile),
                 DashboardAction::OpenProject | DashboardAction::AddProject | DashboardAction::ForgetProject | DashboardAction::ClearProject | DashboardAction::RemoteConnect | DashboardAction::RemoteConnections | DashboardAction::RemoteBrowse | DashboardAction::RemoteDisconnect | DashboardAction::RemoteDirectory => DashboardAction::FindFile,
                 DashboardAction::Terminal | DashboardAction::Help | DashboardAction::Quit => {
                     let footer: Vec<_> = [DashboardAction::Terminal, DashboardAction::Help, DashboardAction::Quit].into_iter().filter(|action| self.actions.contains(action)).collect();
@@ -159,12 +165,12 @@ impl Dashboard {
 
 impl Component for Dashboard {
     fn render(&mut self, area: Rect, surface: &mut Surface, _ctx: &mut Context) {
-        self.refresh_actions();
+        self.refresh_actions(&_ctx.editor.config().features);
         render::render_dashboard(self, area, surface, _ctx);
     }
 
     fn handle_event(&mut self, event: &Event, _ctx: &mut Context) -> EventResult {
-        self.refresh_actions();
+        self.refresh_actions(&_ctx.editor.config().features);
         let key = match event {
             Event::Key(key) => *key,
             Event::Mouse(_) => return EventResult::Consumed(None),
