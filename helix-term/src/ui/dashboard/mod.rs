@@ -565,6 +565,58 @@ impl Component for ConnectChoice {
 }
 
 #[cfg(target_os = "linux")]
+pub(crate) fn host_verification_dialog(compositor: &mut crate::compositor::Compositor, host: String, pending: crate::remote::host_verification::PendingConfirmation) {
+    compositor.push(Box::new(crate::ui::popup::Popup::new("ssh-host-verification", HostVerificationDialog { host, pending: Some(pending), selected: 0, input: None }).centered().with_border()));
+}
+
+#[cfg(target_os = "linux")]
+struct HostVerificationDialog {
+    host: String,
+    pending: Option<crate::remote::host_verification::PendingConfirmation>,
+    selected: usize,
+    input: Option<String>,
+}
+
+#[cfg(target_os = "linux")]
+impl Component for HostVerificationDialog {
+    fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
+        Some((90.min(viewport.0), 16.min(viewport.1)))
+    }
+    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+        let fingerprint = self.pending.as_ref().map(|p| p.confirmation.fingerprint.clone()).unwrap_or_default();
+        let lines = vec!["Cancel".into(), "Trust host and connect".into(), "Verify by fingerprint".into(), self.host.clone(), fingerprint, "Verify this fingerprint with a trusted source.".into(), self.input.as_ref().map(|s| format!("Fingerprint: {s}")).unwrap_or_default()];
+        render_ssh_dialog(area, surface, cx, "Verify SSH host", &lines, Some(self.selected), "Enter select · Esc cancel");
+    }
+    fn handle_event(&mut self, event: &Event, _cx: &mut Context) -> EventResult {
+        use crate::remote::host_verification::HostDecision;
+        let Event::Key(event) = event else { return EventResult::Consumed(None); };
+        let decision = if let Some(input) = self.input.as_mut() {
+            match *event {
+                key!(Esc) => HostDecision::Reject,
+                key!(Enter) => HostDecision::Fingerprint(input.clone()),
+                key!(Backspace) => { input.pop(); return EventResult::Consumed(None); }
+                _ => {
+                    if let Some(character) = event.char() { if input.len() < 128 { input.push(character); } }
+                    return EventResult::Consumed(None);
+                }
+            }
+        } else {
+            match *event {
+                key!(Esc) => HostDecision::Reject,
+                key!(Up) | key!('k') => { self.selected = (self.selected + 2) % 3; return EventResult::Consumed(None); }
+                key!(Down) | key!('j') | key!(Tab) => { self.selected = (self.selected + 1) % 3; return EventResult::Consumed(None); }
+                key!(Enter) if self.selected == 1 => HostDecision::Trust,
+                key!(Enter) if self.selected == 2 => { self.input = Some(String::new()); return EventResult::Consumed(None); }
+                key!(Enter) => HostDecision::Reject,
+                _ => return EventResult::Consumed(None),
+            }
+        };
+        if let Some(pending) = self.pending.take() { let _ = pending.decision.send(decision); }
+        EventResult::Consumed(Some(Box::new(|compositor, _| { compositor.pop(); })))
+    }
+}
+
+#[cfg(target_os = "linux")]
 struct AuthenticationDialog {
     save_host: bool,
     project: Option<std::path::PathBuf>,
