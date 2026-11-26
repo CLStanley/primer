@@ -3268,7 +3268,7 @@ pub(crate) fn ssh_change_directory(cx: &mut compositor::Context, input: String) 
         use ui::notification::{dispatch_notification, Severity};
         match result {
             Ok(Ok((directory, path))) => job::dispatch(move |editor, compositor| {
-                let cleared = editor.active_project_root.as_ref().is_some_and(|root| !directory.starts_with(root));
+                let cleared = editor.active_project_root.as_ref().is_some_and(|root| !directory.starts_with(root) && !root.starts_with(&directory));
                 if cleared {
                     editor.active_project_root = None;
                     editor.active_project_name = None;
