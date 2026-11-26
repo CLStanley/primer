@@ -273,17 +273,7 @@ impl Component for Dashboard {
                         }
                         Some(DashboardAction::RemoteDirectory) => {
                             #[cfg(target_os = "linux")]
-                            {
-                                use crate::ui::prompt::{Prompt, PromptEvent};
-                                let prompt = Prompt::new("Remote directory: ".into(), None,
-                                    |_, _| Vec::new(),
-                                    |cx, input, event| {
-                                        if event == PromptEvent::Validate {
-                                            commands::ssh_change_directory(cx, input.to_string());
-                                        }
-                                    });
-                                compositor.push(Box::new(prompt));
-                            }
+                            commands::ssh_directory_picker(cx, compositor);
                             #[cfg(not(target_os = "linux"))]
                             cx.editor.set_error("Remote SSH currently requires Linux");
                             return;
