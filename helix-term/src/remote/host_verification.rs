@@ -33,11 +33,61 @@ pub fn parse_confirmation(kind: &str, prompt: &str) -> Option<HostConfirmation> 
     Some(HostConfirmation { fingerprint })
 }
 
+/// A decision is scoped to a single pending OpenSSH confirmation.
+#[derive(Debug, PartialEq, Eq)]
+pub enum HostDecision {
+    Reject,
+    Trust,
+    Fingerprint(String),
+}
+
+impl HostConfirmation {
+    /// Return the exact fingerprint even for explicit trust, so OpenSSH
+    /// validates the response against the key in its current handshake.
+    pub fn response(&self, decision: HostDecision) -> &'_ str {
+        match decision {
+            HostDecision::Trust => &self.fingerprint,
+            HostDecision::Fingerprint(value) if value.trim() == self.fingerprint => &self.fingerprint,
+            _ => "no",
+        }
+    }
+}
+
+/// One-shot response channel. Dropping the UI sender rejects the request.
+pub struct PendingConfirmation {
+    pub confirmation: HostConfirmation,
+    pub decision: tokio::sync::oneshot::Sender<HostDecision>,
+}
+
+pub fn confirmation_channel(confirmation: HostConfirmation) -> (
+    PendingConfirmation,
+    tokio::sync::oneshot::Receiver<HostDecision>,
+) {
+    let (decision, receiver) = tokio::sync::oneshot::channel();
+    (PendingConfirmation { confirmation, decision }, receiver)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const PROMPT: &str = "The authenticity of host 'example (192.0.2.1)' can't be established.\nED25519 key fingerprint is SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.\nAre you sure you want to continue connecting (yes/no/[fingerprint])? ";
+
+    #[test]
+    fn decisions_pin_the_presented_fingerprint() {
+        let confirmation = parse_confirmation("confirm", PROMPT).unwrap();
+        assert_eq!(confirmation.response(HostDecision::Trust), confirmation.fingerprint);
+        assert_eq!(confirmation.response(HostDecision::Reject), "no");
+        assert_eq!(confirmation.response(HostDecision::Fingerprint("wrong".into())), "no");
+        assert_eq!(confirmation.response(HostDecision::Fingerprint(confirmation.fingerprint.clone())), confirmation.fingerprint);
+    }
+
+    #[test]
+    fn dropping_confirmation_cancels_the_channel() {
+        let (pending, mut receiver) = confirmation_channel(parse_confirmation("confirm", PROMPT).unwrap());
+        drop(pending);
+        assert!(matches!(receiver.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Closed)));
+    }
 
     #[test]
     fn accepts_openssh_host_confirmation() {
