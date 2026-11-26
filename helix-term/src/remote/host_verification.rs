@@ -17,8 +17,10 @@ pub fn parse_confirmation(kind: &str, prompt: &str) -> Option<HostConfirmation> 
         return None;
     }
     let mut fingerprints = prompt.lines().filter_map(|line| {
-        let (_, value) = line.split_once(" key fingerprint is ")?;
-        let encoded = value.strip_prefix("SHA256:")?.strip_suffix('.')?;
+        let (_, value) = line.split_once(" key fingerprint is: ")
+            .or_else(|| line.split_once(" key fingerprint is "))?;
+        let encoded = value.strip_prefix("SHA256:")?;
+        let encoded = encoded.strip_suffix('.').unwrap_or(encoded);
         if encoded.len() != 43
             || !encoded.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'+' || byte == b'/')
         {
@@ -266,6 +268,10 @@ mod tests {
 
     #[test]
     fn accepts_openssh_host_confirmation() {
+        let modern = PROMPT.replace("key fingerprint is ", "key fingerprint is: ")
+            .replace("AAA.\n", "AAA\nThis key is not known by any other names.\n");
+        assert_eq!(parse_confirmation("", &modern), parse_confirmation("confirm", PROMPT));
+        assert!(parse_confirmation("", &modern.replace("AAA\n", "AA!\n")).is_none());
         assert_eq!(parse_confirmation("", PROMPT), parse_confirmation("confirm", PROMPT));
         assert_eq!(parse_confirmation("confirm", PROMPT).unwrap().fingerprint,
             "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
