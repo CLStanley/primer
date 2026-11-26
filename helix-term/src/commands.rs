@@ -3764,6 +3764,10 @@ fn primer_project_forget(cx: &mut Context) {
 
 /// Pick a previously visited Git repository or manually added directory.
 fn primer_project_picker(cx: &mut Context) {
+    cx.callback.push(Box::new(|compositor, cx| open_project_picker(compositor, cx, false)));
+}
+
+fn open_project_picker(compositor: &mut crate::compositor::Compositor, cx: &mut crate::compositor::Context, remote: bool) {
     use crate::projects::registry::ProjectRegistry;
 
     let registry_path = match ProjectRegistry::default_path() {
@@ -3787,14 +3791,32 @@ fn primer_project_picker(cx: &mut Context) {
             return;
         }
     };
-    if projects.is_empty() {
-        cx.callback.push(Box::new(move |compositor, _| {
-            let popup = Popup::new("primer-project-empty",
-                ui::GitChangePreview::new(String::new(), vec![
-                    ("Add a directory using ".to_owned(), "Space p a (dashboard: b)".to_owned(), String::new(), String::new()),
-                ]).with_title("No remembered projects").compact());
-            compositor.replace_or_push("primer-project-empty", popup.with_border().centered().with_scrollbar(false));
-        }));
+    let connected = match typed::remote_project_context() {
+        Ok(context) => context.is_some(),
+        Err(error) => { cx.editor.set_error(error.to_string()); return; }
+    };
+    #[cfg(target_os = "linux")]
+    if remote && !connected {
+        let columns = [
+            PickerColumn::new("Project", |project: &crate::projects::registry::RemoteProject, _| project.path.file_name().unwrap_or_default().to_string_lossy().into_owned().into()),
+            PickerColumn::new("Host", |project: &crate::projects::registry::RemoteProject, _| project.destination.clone().into()),
+            PickerColumn::new("Root", |project: &crate::projects::registry::RemoteProject, _| project.path.display().to_string().into()),
+        ];
+        let picker = Picker::new(columns, 0, registry.remote_roots, (), |cx, project: &crate::projects::registry::RemoteProject, _| {
+            let result = (|| -> anyhow::Result<()> {
+                anyhow::ensure!(typed::remote_project_context()?.is_none(), "Disconnect before opening another remote project");
+                let location = typed::ssh_saved_hosts()?.into_iter()
+                    .filter(|host| host.destination == project.destination && project.path.starts_with(Path::new(&host.remote_path)))
+                    .max_by_key(|host| Path::new(&host.remote_path).components().count())
+                    .unwrap_or_else(|| crate::remote::registry::RemoteLocation {
+                        destination: project.destination.clone(),
+                        remote_path: project.path.display().to_string(),
+                    });
+                typed::ssh_connect_with_project(cx, location, Some(project.path.clone()))
+            })();
+            if let Err(error) = result { cx.editor.set_error(format!("{error:#}")); }
+        }).with_title("Remote Projects · Ctrl-r: Local").with_source_toggle(|compositor, cx| open_project_picker(compositor, cx, false));
+        compositor.push(Box::new(overlaid(picker)));
         return;
     }
     let columns = [
@@ -3822,7 +3844,12 @@ fn primer_project_picker(cx: &mut Context) {
         cx.editor.active_project_name = Some(project.name.clone());
         cx.editor.set_status(format!("Active project: {} · Space f f to browse files", project.name));
     });
-    cx.push_layer(Box::new(overlaid(picker.with_title("Projects"))));
+    let picker = picker.with_title(if connected { "Remote Projects" } else { "Local Projects" });
+    #[cfg(target_os = "linux")]
+    let picker = if connected { picker } else {
+        picker.with_title("Local Projects · Ctrl-r: Remote").with_source_toggle(|compositor, cx| open_project_picker(compositor, cx, true))
+    };
+    compositor.push(Box::new(overlaid(picker)));
 }
 
 fn file_picker(cx: &mut Context) {
