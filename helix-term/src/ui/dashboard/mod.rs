@@ -529,12 +529,26 @@ impl Component for AuthenticationDialog {
                                 while std::time::Instant::now() < deadline && !cancelled.load(Ordering::Acquire) {
                                     let host = location.destination.clone();
                                     let ready = tokio::task::spawn_blocking(move || crate::remote::tailscale_preflight(&host).and_then(|_| crate::remote::ssh_auth_preflight(&host))).await;
-                                    if matches!(ready, Ok(Ok(()))) {
+                                    if matches!(&ready, Ok(Ok(()))) {
                                         if cancelled.swap(true, Ordering::AcqRel) { return Ok(()); }
                                         crate::job::dispatch(|_, compositor| { compositor.remove("ssh-authentication"); }).await;
                                         let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).ok_or_else(|| anyhow::anyhow!("XDG_RUNTIME_DIR is not set"))?;
                                         let callback = commands::typed::ssh_connection_job(location, runtime).await?;
                                         crate::job::dispatch_callback(callback).await;
+                                        return Ok(());
+                                    }
+                                    let diagnostic = match ready {
+                                        Ok(Err(err)) => format!("{err:#}"),
+                                        Err(err) => err.to_string(),
+                                        Ok(Ok(())) => unreachable!(),
+                                    };
+                                    if crate::remote::authentication_url(&diagnostic).is_none() {
+                                        if !cancelled.swap(true, Ordering::AcqRel) {
+                                            crate::job::dispatch(move |_, compositor| {
+                                                compositor.remove("ssh-authentication");
+                                                crate::ui::notification::show_operation(compositor, Some("ssh-connect"), crate::ui::notification::Severity::Error, "SSH connection failed", diagnostic, false);
+                                            }).await;
+                                        }
                                         return Ok(());
                                     }
                                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
