@@ -256,13 +256,14 @@ mod tests {
 
     #[test]
     fn accepts_openssh_host_confirmation() {
+        assert_eq!(parse_confirmation("", PROMPT), parse_confirmation("confirm", PROMPT));
         assert_eq!(parse_confirmation("confirm", PROMPT).unwrap().fingerprint,
             "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
     }
 
     #[test]
     fn rejects_other_prompt_types_and_malformed_fingerprints() {
-        assert!(parse_confirmation("", PROMPT).is_none());
+        assert!(parse_confirmation("", "Password: ").is_none());
         assert!(parse_confirmation("none", PROMPT).is_none());
         assert!(parse_confirmation("confirm", "Password:").is_none());
         assert!(parse_confirmation("confirm", &PROMPT.replace("SHA256:", "MD5:")).is_none());
