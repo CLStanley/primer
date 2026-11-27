@@ -593,7 +593,6 @@ impl Component for CredentialDialog {
         let normal = theme.get("ui.text");
         let heading = theme.try_get("ui.window").unwrap_or(normal);
         let muted = theme.try_get("ui.text.inactive").unwrap_or(normal);
-        let focus = theme.get("ui.menu.selected");
         let x = area.x + 2;
         let y = area.y;
         let width = (area.width - 4) as usize;
@@ -616,8 +615,8 @@ impl Component for CredentialDialog {
         };
         surface.set_stringn(x, y + 6, &format!("╭{}╮", "─".repeat(inner)), width, heading);
         surface.set_stringn(x, y + 7, "│", 1, heading);
-        surface.set_stringn(x + 1, y + 7, &" ".repeat(inner), inner, focus);
-        surface.set_stringn(x + 1, y + 7, &value, inner, focus);
+        surface.set_stringn(x + 1, y + 7, &" ".repeat(inner), inner, normal);
+        surface.set_stringn(x + 1, y + 7, &value, inner, if self.input.is_empty() { muted } else { normal });
         surface.set_stringn(x + width as u16 - 1, y + 7, "│", 1, heading);
         surface.set_stringn(x, y + 8, &format!("╰{}╯", "─".repeat(inner)), width, heading);
         surface.set_stringn(x, area.bottom() - 2, "Enter submit  ·  Esc cancel", width, muted);
