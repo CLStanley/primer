@@ -603,7 +603,9 @@ impl Component for CredentialDialog {
         surface.set_stringn(x, y + 2, &format!("Host: {}", self.host), width, muted);
         surface.set_stringn(x, y + 3, &"─".repeat(width), width, muted);
         surface.set_stringn(x, y + 4, label, width, normal);
-        if !password {
+        if self.pending.as_ref().is_some_and(|pending| pending.repeated_password) {
+            surface.set_stringn(x, y + 5, "Password requested again. Please try again.", width, theme.try_get("warning").unwrap_or(normal));
+        } else if !password {
             surface.set_stringn(x, y + 5, &prompt, width, normal);
         }
         let inner = width - 2;
