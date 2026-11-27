@@ -3439,9 +3439,8 @@ pub(crate) async fn ssh_connection_job(location: crate::remote::registry::Remote
                 ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Info, "Connecting to SSH", "Checking SSH authentication and SFTP", true);
             }).await;
             let destination = location.destination.clone();
-            let preflight = tokio::task::spawn_blocking(move || crate::remote::ssh_auth_preflight(&destination)).await?;
-            if let Err(error) = preflight {
-                if !crate::remote::unknown_host_key(&format!("{error:#}")) { return Err(error); }
+            let mut preflight = tokio::task::spawn_blocking(move || crate::remote::ssh_auth_preflight(&destination)).await?;
+            if preflight.as_ref().err().is_some_and(|error| crate::remote::unknown_host_key(&format!("{error:#}"))) {
                 let destination = location.destination.clone();
                 let verification_runtime = runtime.clone();
                 let handle = tokio::runtime::Handle::current();
@@ -3456,11 +3455,33 @@ pub(crate) async fn ssh_connection_job(location: crate::remote::registry::Remote
                 job::dispatch(|_, compositor| { compositor.remove("ssh-host-verification"); }).await;
                 verification??;
                 let destination = location.destination.clone();
-                tokio::task::spawn_blocking(move || crate::remote::ssh_auth_preflight(&destination)).await??;
+                preflight = tokio::task::spawn_blocking(move || crate::remote::ssh_auth_preflight(&destination)).await?;
             }
+            let session = if let Err(error) = preflight {
+                let diagnostic = format!("{error:#}");
+                if !diagnostic.contains("Permission denied") || crate::remote::authentication_url(&diagnostic).is_some() {
+                    return Err(error);
+                }
+                let destination = location.destination.clone();
+                let authentication_runtime = runtime.clone();
+                let handle = tokio::runtime::Handle::current();
+                let authenticated = tokio::task::spawn_blocking(move || {
+                    let session = crate::remote::session::Session::authenticate(&authentication_runtime, &destination, |pending| {
+                        let host = destination.clone();
+                        handle.block_on(job::dispatch(move |_, compositor| {
+                            ui::dashboard::credential_dialog(compositor, host, pending);
+                        }));
+                    })?;
+                    crate::remote::ssh_auth_preflight_with_session(&destination, Some(&session))?;
+                    Ok::<_, anyhow::Error>(std::sync::Arc::new(session))
+                }).await;
+                job::dispatch(|_, compositor| { compositor.remove("ssh-credential"); }).await;
+                Some(authenticated??)
+            } else { None };
             let previous = active_remote().lock().map_err(|_| anyhow::anyhow!("Remote context unavailable"))?.clone();
             if let Some(previous) = previous.filter(|previous| previous != &location) {
                 let target = location.clone();
+                let target_session = session.clone();
                 let runtime = runtime.clone();
                 let (sender, receiver) = tokio::sync::oneshot::channel();
                 job::dispatch(move |editor, compositor| {
@@ -3472,9 +3493,10 @@ pub(crate) async fn ssh_connection_job(location: crate::remote::registry::Remote
                         anyhow::ensure!(!editor.documents().any(|doc| doc.path().is_some_and(|path| path.starts_with(&mount))), "Close all remote buffers before switching connections");
                         anyhow::ensure!(editor.terminal_documents.is_empty(), "Close terminal buffers before switching connections");
                         ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Info, "Switching SSH connection", "Replacing previous mount", true);
+                        let previous_session = registry.session(&previous);
                         registry.disconnect(&previous)?;
-                        if let Err(error) = registry.connect(&runtime, target.clone()) {
-                            match registry.connect(&runtime, previous.clone()) {
+                        if let Err(error) = registry.connect_with_session(&runtime, target.clone(), target_session) {
+                            match registry.connect_with_session(&runtime, previous.clone(), previous_session) {
                                 Ok(restored) => {
                                     if let Some(root) = editor.active_project_root.as_mut() {
                                         if let Ok(relative) = root.strip_prefix(&mount) { *root = restored.join(relative); }
@@ -3512,7 +3534,7 @@ pub(crate) async fn ssh_connection_job(location: crate::remote::registry::Remote
             tokio::task::spawn_blocking(move || {
             let mut registry = remote_registry().lock()
                 .map_err(|_| anyhow::anyhow!("Remote registry unavailable"))?;
-            let mount = registry.connect(&runtime, location.clone())?;
+            let mount = registry.connect_with_session(&runtime, location.clone(), session)?;
             let selected = project.map(|path| -> anyhow::Result<_> {
                 let relative = path.strip_prefix(Path::new(&location.remote_path))?;
                 let project = crate::projects::from_directory(&mount.join(relative))?;
