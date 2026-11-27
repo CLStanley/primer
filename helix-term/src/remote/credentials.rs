@@ -50,3 +50,12 @@ pub fn forget(destination: &str) -> Result<()> {
     }
     Ok(())
 }
+
+/// Check metadata only; do not retrieve the password to render connection status.
+pub fn has_saved(destination: &str) -> Result<bool> {
+    let attributes = attributes(destination)?;
+    let service = SecretService::connect(EncryptionType::Dh)?;
+    let collection = service.get_default_collection()?;
+    ensure!(!collection.is_locked()?, "System keyring is locked");
+    Ok(!collection.search_items(attributes)?.is_empty())
+}
