@@ -584,13 +584,43 @@ struct CredentialDialog {
 #[cfg(target_os = "linux")]
 impl Component for CredentialDialog {
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
-        Some((90.min(viewport.0), 12.min(viewport.1)))
+        Some((62.min(viewport.0), 13.min(viewport.1)))
     }
 
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+        if area.width < 10 || area.height < 11 { return; }
+        let theme = &cx.editor.theme;
+        let normal = theme.get("ui.text");
+        let heading = theme.try_get("ui.window").unwrap_or(normal);
+        let muted = theme.try_get("ui.text.inactive").unwrap_or(normal);
+        let focus = theme.get("ui.menu.selected");
+        let x = area.x + 2;
+        let y = area.y;
+        let width = (area.width - 4) as usize;
         let prompt = self.pending.as_ref().map(|pending| pending.prompt.chars().map(|character| if character.is_control() { ' ' } else { character }).collect::<String>()).unwrap_or_default();
-        let masked = "*".repeat(self.input.chars().count().min(64));
-        render_ssh_dialog(area, surface, cx, "SSH authentication", &[format!("Destination: {}", self.host), prompt, String::new(), format!("Response: {masked}")], None, "Enter submit · Esc cancel");
+        let password = prompt.trim_end().ends_with("'s password:") || prompt.trim().eq_ignore_ascii_case("password:");
+        let label = if password { "Enter SSH password" } else { "Enter authentication response" };
+        surface.set_stringn(x, y + 1, "SSH authentication", width, heading);
+        surface.set_stringn(x, y + 2, &format!("Host: {}", self.host), width, muted);
+        surface.set_stringn(x, y + 3, &"─".repeat(width), width, muted);
+        surface.set_stringn(x, y + 4, label, width, normal);
+        if !password {
+            surface.set_stringn(x, y + 5, &prompt, width, normal);
+        }
+        let inner = width - 2;
+        let masked = "*".repeat(self.input.chars().count().min(inner.saturating_sub(2)));
+        let value = if self.input.is_empty() {
+            "▏ Type here…".to_owned()
+        } else {
+            format!("{masked}▏")
+        };
+        surface.set_stringn(x, y + 6, &format!("╭{}╮", "─".repeat(inner)), width, heading);
+        surface.set_stringn(x, y + 7, "│", 1, heading);
+        surface.set_stringn(x + 1, y + 7, &" ".repeat(inner), inner, focus);
+        surface.set_stringn(x + 1, y + 7, &value, inner, focus);
+        surface.set_stringn(x + width as u16 - 1, y + 7, "│", 1, heading);
+        surface.set_stringn(x, y + 8, &format!("╰{}╯", "─".repeat(inner)), width, heading);
+        surface.set_stringn(x, area.bottom() - 2, "Enter submit  ·  Esc cancel", width, muted);
     }
 
     fn handle_event(&mut self, event: &Event, _cx: &mut Context) -> EventResult {
