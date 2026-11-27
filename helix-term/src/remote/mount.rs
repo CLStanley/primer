@@ -56,12 +56,19 @@ impl RemoteMount {
 
     /// Noninteractive initial mount. Authentication prompts must be handled
     /// separately in an interactive OpenSSH session before retrying.
-    pub fn connect(&self) -> Result<()> {
+    pub fn connect(&self) -> Result<()> { self.connect_with_session(None) }
+
+    pub fn connect_with_session(&self, session: Option<&super::session::Session>) -> Result<()> {
         ensure!(self.state()? == MountState::Unmounted, "Mount directory is already mounted");
         // FUSE requires owner write access to the underlying mountpoint.
         // Restore protection on failure, but never chmod a mounted remote directory.
         std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o700))?;
-        let output = Command::new("sshfs")
+        let mut command = Command::new("sshfs");
+        if let Some(session) = session {
+            ensure!(session.ready(), "SSH session is no longer available");
+            command.arg("-o").arg(format!("ControlPath={}", session.control_path().display())).args(["-o", "ControlMaster=no"]);
+        }
+        let output = command
             .arg(&self.source).arg(&self.path)
             .args(["-o", "BatchMode=yes,StrictHostKeyChecking=yes,ConnectTimeout=10,ServerAliveInterval=15,ServerAliveCountMax=2"])
             .stdin(Stdio::null()).output();
