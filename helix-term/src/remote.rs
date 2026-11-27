@@ -89,11 +89,20 @@ pub fn terminal_args(destination: &str, remote_path: &str) -> Result<Vec<String>
 /// Probe the same SFTP subsystem used by SSHFS, without opening a shell.
 #[cfg(target_os = "linux")]
 pub fn ssh_auth_preflight(destination: &str) -> Result<()> {
+    ssh_auth_preflight_with_session(destination, None)
+}
+
+#[cfg(target_os = "linux")]
+pub fn ssh_auth_preflight_with_session(destination: &str, session: Option<&session::Session>) -> Result<()> {
     use std::process::{Command, Stdio};
     ensure!(valid_destination(destination), "Invalid SSH destination");
-    let output = Command::new("timeout")
-        .args(["20s", "sftp", "-b", "/dev/null", "-o", "BatchMode=yes",
-            "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10", "--", destination])
+    let mut command = Command::new("timeout");
+    command.args(["20s", "sftp", "-b", "/dev/null", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=10"]);
+    if let Some(session) = session {
+        ensure!(session.ready(), "SSH session is no longer available");
+        command.arg("-o").arg(format!("ControlPath={}", session.control_path().display())).args(["-o", "ControlMaster=no"]);
+    }
+    let output = command.args(["--", destination])
         .env("LC_ALL", "C")
         .stdin(Stdio::null()).output()?;
     let diagnostic = String::from_utf8_lossy(&output.stderr);
