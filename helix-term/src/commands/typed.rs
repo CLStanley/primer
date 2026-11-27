@@ -3073,13 +3073,18 @@ fn open_terminal_program(
                 #[cfg(target_os = "linux")]
                 {
                     match remote_terminal_context(editor.active_project_root.as_deref()) {
-                        Ok(Some((destination, path))) => {
+                        Ok(Some((destination, path, session))) => {
                             if program.is_some() {
                                 editor.set_error("Use the remote terminal for Git and Docker commands");
                                 return;
                             }
                             match crate::remote::terminal_args(&destination, &path) {
-                                Ok(args) => arguments = args,
+                                Ok(mut args) => {
+                                    if let Some(session) = session {
+                                        args.splice(0..0, ["-S".to_owned(), session.control_path().to_string_lossy().into_owned(), "-o".to_owned(), "ControlMaster=no".to_owned()]);
+                                    }
+                                    arguments = args;
+                                },
                                 Err(err) => {
                                     editor.set_error(format!("Unable to open remote terminal: {err}"));
                                     return;
@@ -3116,7 +3121,7 @@ fn open_terminal_program(
 }
 
 #[cfg(target_os = "linux")]
-fn remote_terminal_context(project: Option<&Path>) -> anyhow::Result<Option<(String, String)>> {
+fn remote_terminal_context(project: Option<&Path>) -> anyhow::Result<Option<(String, String, Option<std::sync::Arc<crate::remote::session::Session>>)>> {
     let active = active_remote().try_lock().map_err(|_| anyhow::anyhow!("Remote context is busy"))?;
     let Some(location) = active.as_ref() else { return Ok(None); };
     let registry = remote_registry().try_lock().map_err(|_| anyhow::anyhow!("Remote connection is busy"))?;
@@ -3125,7 +3130,11 @@ fn remote_terminal_context(project: Option<&Path>) -> anyhow::Result<Option<(Str
     let relative = project.and_then(|path| path.strip_prefix(&mount).ok()).unwrap_or(&*directory);
     let path = Path::new(&location.remote_path).join(relative);
     let path = path.to_str().ok_or_else(|| anyhow::anyhow!("Remote directory is not UTF-8"))?;
-    Ok(Some((location.destination.clone(), path.to_owned())))
+    let session = registry.session(location);
+    if let Some(session) = &session {
+        anyhow::ensure!(session.ready(), "SSH authentication session expired; disconnect and reconnect");
+    }
+    Ok(Some((location.destination.clone(), path.to_owned(), session)))
 }
 
 #[cfg(target_os = "linux")]
