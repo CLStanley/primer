@@ -482,6 +482,7 @@ fn saved_connection_feedback(compositor: &mut crate::compositor::Compositor, res
 
 #[cfg(target_os = "linux")]
 struct ForgetPassword {
+    passwords: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Option<bool>>>>,
     destination: String,
     selected: usize,
 }
@@ -506,12 +507,18 @@ impl Component for ForgetPassword {
                 }
                 key!(Enter) if self.selected == 1 => {
                     let destination = self.destination.clone();
+                    let passwords = self.passwords.clone();
                     EventResult::Consumed(Some(Box::new(move |compositor, cx| {
                         compositor.pop();
                         cx.jobs.callback(async move {
-                            let result = tokio::task::spawn_blocking(move || crate::remote::credentials::forget(&destination)).await;
+                            let target = destination.clone();
+                            let result = tokio::task::spawn_blocking(move || crate::remote::credentials::forget(&target)).await;
                             let result = result.map_err(anyhow::Error::from).and_then(|result| result);
+                            if result.is_ok() {
+                                if let Ok(mut statuses) = passwords.lock() { statuses.insert(destination, Some(false)); }
+                            }
                             Ok(crate::job::Callback::EditorCompositor(Box::new(move |_, compositor| {
+
                                 use crate::ui::notification::{show_operation, Severity};
                                 match result {
                                     Ok(()) => show_operation(compositor, None, Severity::Success, "SSH password forgotten", "No saved password remains for this host", false),
@@ -897,12 +904,13 @@ impl Component for DisconnectConfirmation {
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn connections_dialog(compositor: &mut crate::compositor::Compositor, hosts: Vec<crate::remote::registry::RemoteLocation>, active: Option<String>) {
-    compositor.push(Box::new(crate::ui::popup::Popup::new("ssh-connections", SavedHosts { hosts, active, selected: 0 }).centered().with_border()));
+pub(crate) fn connections_dialog(compositor: &mut crate::compositor::Compositor, hosts: Vec<crate::remote::registry::RemoteLocation>, active: Option<String>, passwords: std::collections::HashMap<String, Option<bool>>) {
+    compositor.push(Box::new(crate::ui::popup::Popup::new("ssh-connections", SavedHosts { hosts, active, passwords: std::sync::Arc::new(std::sync::Mutex::new(passwords)), selected: 0 }).centered().with_border()));
 }
 
 #[cfg(target_os = "linux")]
 struct SavedHosts {
+    passwords: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Option<bool>>>>,
     hosts: Vec<crate::remote::registry::RemoteLocation>,
     active: Option<String>,
     selected: usize,
@@ -962,8 +970,17 @@ impl Component for SavedHosts {
             if active && width >= marker.len() + 2 {
                 surface.set_stringn(x + (width - marker.len()) as u16, row, marker, marker.len(), success);
             }
+            let password_marker = match self.passwords.lock().ok().and_then(|statuses| statuses.get(&host.destination).copied().flatten()) {
+                Some(true) => "Password saved",
+                Some(false) => "",
+                None => "Keyring unavailable",
+            };
+            let path_width = width.saturating_sub(if password_marker.is_empty() { 0 } else { password_marker.len() + 2 });
             let path_label = format!("  {}", host.remote_path);
-            surface.set_stringn(x, row + 1, &format!("{path_label:<width$}"), width, if focused { selected } else { muted });
+            surface.set_stringn(x, row + 1, &format!("{path_label:<path_width$}"), path_width, if focused { selected } else { muted });
+            if !password_marker.is_empty() && width > password_marker.len() + 2 {
+                surface.set_stringn(x + (width - password_marker.len()) as u16, row + 1, password_marker, password_marker.len(), if password_marker == "Password saved" { success } else { muted });
+            }
         }
         surface.set_stringn(x, area.bottom() - 2, "Enter connect · e edit · d delete · f forget password · Esc close", width, muted);
     }
@@ -995,10 +1012,11 @@ impl Component for SavedHosts {
                         compositor.push(Box::new(prompt));
                     })))
                 }
-                key!('f') if !self.hosts.is_empty() => {
+                key!('f') if !self.hosts.is_empty() && self.passwords.lock().ok().and_then(|statuses| statuses.get(&self.hosts[self.selected].destination).copied().flatten()) == Some(true) => {
                     let destination = self.hosts[self.selected].destination.clone();
+                    let passwords = self.passwords.clone();
                     EventResult::Consumed(Some(Box::new(move |compositor, _| {
-                        compositor.push(Box::new(crate::ui::popup::Popup::new("ssh-forget-password", ForgetPassword { destination, selected: 0 }).centered().with_border()));
+                        compositor.push(Box::new(crate::ui::popup::Popup::new("ssh-forget-password", ForgetPassword { destination, passwords, selected: 0 }).centered().with_border()));
                     })))
                 }
                 key!('d') if !self.hosts.is_empty() => {
