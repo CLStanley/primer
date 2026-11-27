@@ -89,6 +89,7 @@ mod tests {
 /// A single interactive OpenSSH request. A dropped sender cancels authentication.
 pub struct CredentialRequest {
     pub prompt: String,
+    pub repeated_password: bool,
     pub response: tokio::sync::oneshot::Sender<Option<String>>,
 }
 
@@ -139,7 +140,7 @@ pub fn serve_credential(mut stream: std::os::unix::net::UnixStream, present: imp
     let Some((kind, prompt)) = request.split_once('\0') else { return Ok(false); };
     if !credential_prompt(kind, prompt) { return Ok(false); }
     let (response, mut receiver) = tokio::sync::oneshot::channel();
-    present(CredentialRequest { prompt: prompt.into(), response });
+    present(CredentialRequest { prompt: prompt.into(), repeated_password: false, response });
     let deadline = Instant::now() + Duration::from_secs(120);
     loop {
         match receiver.try_recv() {
@@ -199,13 +200,23 @@ impl Session {
         });
         let result = (|| -> Result<()> {
             let mut deadline = Instant::now() + Duration::from_secs(30);
+            let mut previous_password_prompt: Option<String> = None;
             loop {
                 if session.ready() { return Ok(()); }
                 ensure!(session.child_mut().unwrap().try_wait()?.is_none(), "SSH authentication failed");
                 ensure!(Instant::now() < deadline, "SSH authentication timed out");
                 match socket.listener.accept() {
                     Ok((stream, _)) => {
-                        ensure!(serve_credential(stream, &mut present)?, "SSH authentication cancelled");
+                        ensure!(serve_credential(stream, |mut pending| {
+                            let prompt = pending.prompt.trim();
+                            if prompt.ends_with("'s password:") {
+                                pending.repeated_password = previous_password_prompt.as_deref() == Some(prompt);
+                                previous_password_prompt = Some(prompt.to_owned());
+                            } else {
+                                previous_password_prompt = None;
+                            }
+                            present(pending);
+                        })?, "SSH authentication cancelled");
                         deadline = Instant::now() + Duration::from_secs(30);
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
