@@ -86,7 +86,7 @@ mod tests {
     }
 }
 
- /// A single interactive OpenSSH request. A dropped sender cancels authentication.
+/// A single interactive OpenSSH request. A dropped sender cancels authentication.
 pub struct CredentialRequest {
     pub prompt: String,
     pub response: tokio::sync::oneshot::Sender<Option<String>>,
@@ -173,5 +173,55 @@ mod credential_tests {
         }
         assert!(!credential_prompt("confirm", "Continue?"));
         assert!(!credential_prompt("", "The authenticity of host example"));
+    }
+}
+
+impl Session {
+    /// Authenticate once, servicing sequential askpass requests until the master is ready.
+    pub fn authenticate(runtime: &Path, destination: &str, mut present: impl FnMut(CredentialRequest)) -> Result<Self> {
+        use std::io::Read;
+        use std::time::{Duration, Instant};
+        let mut session = Self::new(runtime, destination)?;
+        let socket = super::host_verification::VerificationSocket::new(runtime)?;
+        socket.listener.set_nonblocking(true)?;
+        let mut command = session.command();
+        command.env("LC_ALL", "C")
+            .env("SSH_ASKPASS", std::env::current_exe()?)
+            .env("SSH_ASKPASS_REQUIRE", "force")
+            .env("PRIMER_CREDENTIAL_SOCKET", socket.path())
+            .env_remove("PRIMER_HOST_CONFIRMATION_SOCKET");
+        session.start(&mut command)?;
+        let mut stderr = session.child_mut().unwrap().stderr.take().unwrap();
+        let diagnostic = std::thread::spawn(move || {
+            let mut output = Vec::new();
+            let _ = stderr.read_to_end(&mut output);
+            String::from_utf8_lossy(&output).trim().to_owned()
+        });
+        let result = (|| -> Result<()> {
+            let mut deadline = Instant::now() + Duration::from_secs(30);
+            loop {
+                if session.ready() { return Ok(()); }
+                ensure!(session.child_mut().unwrap().try_wait()?.is_none(), "SSH authentication failed");
+                ensure!(Instant::now() < deadline, "SSH authentication timed out");
+                match socket.listener.accept() {
+                    Ok((stream, _)) => {
+                        ensure!(serve_credential(stream, &mut present)?, "SSH authentication cancelled");
+                        deadline = Instant::now() + Duration::from_secs(30);
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        })();
+        match result {
+            Ok(()) => Ok(session),
+            Err(error) => {
+                drop(session);
+                let detail = diagnostic.join().unwrap_or_default();
+                if detail.is_empty() { Err(error) } else { Err(anyhow::anyhow!("{error:#}: {detail}")) }
+            }
+        }
     }
 }
