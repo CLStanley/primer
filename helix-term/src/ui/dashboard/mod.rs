@@ -584,7 +584,7 @@ struct CredentialDialog {
 #[cfg(target_os = "linux")]
 impl Component for CredentialDialog {
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
-        Some((62.min(viewport.0), 13.min(viewport.1)))
+        Some((62.min(viewport.0), 15.min(viewport.1)))
     }
 
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
@@ -621,7 +621,18 @@ impl Component for CredentialDialog {
         surface.set_stringn(x + 1, y + 7, &value, inner, if self.input.is_empty() { muted } else { normal });
         surface.set_stringn(x + width as u16 - 1, y + 7, "│", 1, heading);
         surface.set_stringn(x, y + 8, &format!("╰{}╯", "─".repeat(inner)), width, heading);
-        surface.set_stringn(x, area.bottom() - 2, "Enter submit  ·  Esc cancel", width, muted);
+        if area.height >= 13 {
+            if let Some(pending) = &self.pending {
+                if pending.can_remember {
+                    let checked = pending.remember.load(std::sync::atomic::Ordering::Relaxed);
+                    surface.set_stringn(x, y + 9, if checked { "[x] Remember Password" } else { "[ ] Remember Password" }, width, normal);
+                } else if password {
+                    surface.set_stringn(x, y + 9, "Password storage unavailable for this prompt", width, muted);
+                }
+            }
+        }
+        let help = if self.pending.as_ref().is_some_and(|p| p.can_remember) { "Tab remember  ·  Enter submit  ·  Esc cancel" } else { "Enter submit  ·  Esc cancel" };
+        surface.set_stringn(x, area.bottom() - 2, help, width, muted);
     }
 
     fn handle_event(&mut self, event: &Event, _cx: &mut Context) -> EventResult {
@@ -629,6 +640,12 @@ impl Component for CredentialDialog {
         let response = match *event {
             key!(Esc) => None,
             key!(Enter) => Some(std::mem::take(&mut self.input)),
+            key!(Tab) => {
+                if let Some(pending) = &self.pending {
+                    if pending.can_remember { pending.remember.fetch_xor(true, std::sync::atomic::Ordering::Relaxed); }
+                }
+                return EventResult::Consumed(None);
+            }
             key!(Backspace) => { self.input.pop(); return EventResult::Consumed(None); }
             _ => {
                 if let Some(character) = event.char() {
