@@ -85,3 +85,93 @@ mod tests {
         assert!(Session::new(runtime.path(), "-invalid").is_err());
     }
 }
+
+ /// A single interactive OpenSSH request. A dropped sender cancels authentication.
+pub struct CredentialRequest {
+    pub prompt: String,
+    pub response: tokio::sync::oneshot::Sender<Option<String>>,
+}
+
+/// Only credential requests are accepted here. Host trust remains a separate operation.
+fn credential_prompt(kind: &str, prompt: &str) -> bool {
+    kind.is_empty() && !prompt.is_empty() && prompt.len() <= 16384
+        && !prompt.starts_with("The authenticity of host ")
+        && !prompt.contains("REMOTE HOST IDENTIFICATION HAS CHANGED")
+}
+
+pub fn request_credential(socket: &Path, kind: &str, prompt: &str) -> std::io::Result<String> {
+    use std::io::{Read, Write};
+    use std::time::Duration;
+    if !credential_prompt(kind, prompt) {
+        return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "Unsupported SSH prompt"));
+    }
+    let mut stream = std::os::unix::net::UnixStream::connect(socket)?;
+    stream.set_read_timeout(Some(Duration::from_secs(130)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(10)))?;
+    let request = format!("{kind}\0{prompt}");
+    stream.write_all(&(request.len() as u32).to_be_bytes())?;
+    stream.write_all(request.as_bytes())?;
+    let mut accepted = [0];
+    stream.read_exact(&mut accepted)?;
+    if accepted[0] != 1 {
+        return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "SSH authentication cancelled"));
+    }
+    let mut response = String::new();
+    stream.take(16385).read_to_string(&mut response)?;
+    if response.len() > 16384 || response.contains(['\n', '\r', '\0']) {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid SSH response"));
+    }
+    Ok(response)
+}
+
+pub fn serve_credential(mut stream: std::os::unix::net::UnixStream, present: impl FnOnce(CredentialRequest)) -> std::io::Result<bool> {
+    use std::io::{Read, Write};
+    use std::time::{Duration, Instant};
+    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(10)))?;
+    let mut length = [0; 4];
+    stream.read_exact(&mut length)?;
+    let length = u32::from_be_bytes(length) as usize;
+    if length > 16385 { return Ok(false); }
+    let mut bytes = vec![0; length];
+    stream.read_exact(&mut bytes)?;
+    let request = String::from_utf8_lossy(&bytes);
+    let Some((kind, prompt)) = request.split_once('\0') else { return Ok(false); };
+    if !credential_prompt(kind, prompt) { return Ok(false); }
+    let (response, mut receiver) = tokio::sync::oneshot::channel();
+    present(CredentialRequest { prompt: prompt.into(), response });
+    let deadline = Instant::now() + Duration::from_secs(120);
+    loop {
+        match receiver.try_recv() {
+            Ok(Some(value)) if value.len() <= 16384 && !value.contains(['\n', '\r', '\0']) => {
+                stream.write_all(&[1])?;
+                stream.write_all(value.as_bytes())?;
+                return Ok(true);
+            }
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            _ => { stream.write_all(&[0])?; return Ok(false); }
+        }
+    }
+}
+
+#[cfg(test)]
+mod credential_tests {
+    use super::*;
+    #[test]
+    fn credential_round_trip_and_cancellation() {
+        let runtime = tempfile::tempdir().unwrap();
+        let socket = super::super::host_verification::VerificationSocket::new(runtime.path()).unwrap();
+        for answer in [Some("example response".to_owned()), None] {
+            let expected = answer.clone();
+            let path = socket.path();
+            let client = std::thread::spawn(move || request_credential(&path, "", "Password: "));
+            let (stream, _) = socket.listener.accept().unwrap();
+            assert_eq!(serve_credential(stream, |pending| { pending.response.send(answer).unwrap(); }).unwrap(), expected.is_some());
+            assert_eq!(client.join().unwrap().ok(), expected);
+        }
+        assert!(!credential_prompt("confirm", "Continue?"));
+        assert!(!credential_prompt("", "The authenticity of host example"));
+    }
+}
