@@ -570,6 +570,50 @@ pub(crate) fn host_verification_dialog(compositor: &mut crate::compositor::Compo
 }
 
 #[cfg(target_os = "linux")]
+pub(crate) fn credential_dialog(compositor: &mut crate::compositor::Compositor, host: String, pending: crate::remote::session::CredentialRequest) {
+    compositor.push(Box::new(crate::ui::popup::Popup::new("ssh-credential", CredentialDialog { host, pending: Some(pending), input: String::new() }).centered().with_border()));
+}
+
+#[cfg(target_os = "linux")]
+struct CredentialDialog {
+    host: String,
+    pending: Option<crate::remote::session::CredentialRequest>,
+    input: String,
+}
+
+#[cfg(target_os = "linux")]
+impl Component for CredentialDialog {
+    fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
+        Some((90.min(viewport.0), 12.min(viewport.1)))
+    }
+
+    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+        let prompt = self.pending.as_ref().map(|pending| pending.prompt.chars().map(|character| if character.is_control() { ' ' } else { character }).collect::<String>()).unwrap_or_default();
+        let masked = "*".repeat(self.input.chars().count().min(64));
+        render_ssh_dialog(area, surface, cx, "SSH authentication", &[format!("Destination: {}", self.host), prompt, String::new(), format!("Response: {masked}")], None, "Enter submit · Esc cancel");
+    }
+
+    fn handle_event(&mut self, event: &Event, _cx: &mut Context) -> EventResult {
+        let Event::Key(event) = event else { return EventResult::Consumed(None); };
+        let response = match *event {
+            key!(Esc) => None,
+            key!(Enter) => Some(std::mem::take(&mut self.input)),
+            key!(Backspace) => { self.input.pop(); return EventResult::Consumed(None); }
+            _ => {
+                if let Some(character) = event.char() {
+                    if !character.is_control() && self.input.len() + character.len_utf8() <= 16384 {
+                        self.input.push(character);
+                    }
+                }
+                return EventResult::Consumed(None);
+            }
+        };
+        if let Some(pending) = self.pending.take() { let _ = pending.response.send(response); }
+        EventResult::Consumed(Some(Box::new(|compositor, _| { compositor.remove("ssh-credential"); })))
+    }
+}
+
+#[cfg(target_os = "linux")]
 struct HostVerificationDialog {
     host: String,
     pending: Option<crate::remote::host_verification::PendingConfirmation>,
