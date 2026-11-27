@@ -3612,11 +3612,12 @@ pub(crate) fn ssh_connections(cx: &mut compositor::Context, _args: Args, event: 
             let directory = remote_directory().lock().map_err(|_| anyhow::anyhow!("Remote directory unavailable"))?.clone();
             let hosts = ssh_saved_hosts()?;
             let summary = active.map(|location| format!("{}\n{}", indicator.unwrap_or(location.destination), Path::new(&location.remote_path).join(directory).display()));
-            Ok((hosts, summary))
+            let passwords: std::collections::HashMap<String, Option<bool>> = hosts.iter().map(|host| (host.destination.clone(), crate::remote::credentials::has_saved(&host.destination).ok())).collect();
+            Ok((hosts, summary, passwords))
         }).await;
         Ok(job::Callback::EditorCompositor(Box::new(move |_, compositor| {
             match result {
-                Ok(Ok((hosts, active))) => ui::dashboard::connections_dialog(compositor, hosts, active),
+                Ok(Ok((hosts, active, passwords))) => ui::dashboard::connections_dialog(compositor, hosts, active, passwords),
                 Ok(Err(err)) => ui::notification::show_operation(compositor, None, ui::notification::Severity::Error, "SSH connections unavailable", format!("{err:#}"), false),
                 Err(err) => ui::notification::show_operation(compositor, None, ui::notification::Severity::Error, "SSH worker failed", err.to_string(), false),
             }
