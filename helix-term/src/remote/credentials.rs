@@ -57,5 +57,6 @@ pub fn has_saved(destination: &str) -> Result<bool> {
     let service = SecretService::connect(EncryptionType::Dh)?;
     let collection = service.get_default_collection()?;
     ensure!(!collection.is_locked()?, "System keyring is locked");
-    Ok(!collection.search_items(attributes)?.is_empty())
+    let has_saved = !collection.search_items(attributes)?.is_empty();
+    Ok(has_saved)
 }
