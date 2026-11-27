@@ -90,6 +90,8 @@ mod tests {
 pub struct CredentialRequest {
     pub prompt: String,
     pub repeated_password: bool,
+    pub can_remember: bool,
+    pub remember: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub response: tokio::sync::oneshot::Sender<Option<String>>,
 }
 
@@ -125,7 +127,11 @@ pub fn request_credential(socket: &Path, kind: &str, prompt: &str) -> std::io::R
     Ok(response)
 }
 
-pub fn serve_credential(mut stream: std::os::unix::net::UnixStream, present: impl FnOnce(CredentialRequest)) -> std::io::Result<bool> {
+pub fn serve_credential(stream: std::os::unix::net::UnixStream, present: impl FnOnce(CredentialRequest)) -> std::io::Result<bool> {
+    serve_credential_observed(stream, present, |_| {})
+}
+
+fn serve_credential_observed(mut stream: std::os::unix::net::UnixStream, present: impl FnOnce(CredentialRequest), observe: impl FnOnce(&str)) -> std::io::Result<bool> {
     use std::io::{Read, Write};
     use std::time::{Duration, Instant};
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
@@ -140,13 +146,14 @@ pub fn serve_credential(mut stream: std::os::unix::net::UnixStream, present: imp
     let Some((kind, prompt)) = request.split_once('\0') else { return Ok(false); };
     if !credential_prompt(kind, prompt) { return Ok(false); }
     let (response, mut receiver) = tokio::sync::oneshot::channel();
-    present(CredentialRequest { prompt: prompt.into(), repeated_password: false, response });
+    present(CredentialRequest { prompt: prompt.into(), repeated_password: false, can_remember: false, remember: Default::default(), response });
     let deadline = Instant::now() + Duration::from_secs(120);
     loop {
         match receiver.try_recv() {
             Ok(Some(value)) if value.len() <= 16384 && !value.contains(['\n', '\r', '\0']) => {
                 stream.write_all(&[1])?;
                 stream.write_all(value.as_bytes())?;
+                observe(&value);
                 return Ok(true);
             }
             Err(tokio::sync::oneshot::error::TryRecvError::Empty) if Instant::now() < deadline => {
@@ -201,21 +208,40 @@ impl Session {
         let result = (|| -> Result<()> {
             let mut deadline = Instant::now() + Duration::from_secs(30);
             let mut previous_password_prompt: Option<String> = None;
+            let keyring = super::credentials::available();
+            let mut saved = if keyring { super::credentials::retrieve(destination).ok().flatten() } else { None };
+            let candidate = std::cell::RefCell::new(None::<String>);
             loop {
-                if session.ready() { return Ok(()); }
+                if session.ready() {
+                    if let Some(password) = candidate.take() {
+                        let _ = super::credentials::store(destination, &password);
+                    }
+                    return Ok(());
+                }
                 ensure!(session.child_mut().unwrap().try_wait()?.is_none(), "SSH authentication failed");
                 ensure!(Instant::now() < deadline, "SSH authentication timed out");
                 match socket.listener.accept() {
                     Ok((stream, _)) => {
-                        ensure!(serve_credential(stream, |mut pending| {
+                        let remember = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                        let choice = remember.clone();
+                        ensure!(serve_credential_observed(stream, |mut pending| {
                             let prompt = pending.prompt.trim();
                             if prompt.ends_with("'s password:") {
                                 pending.repeated_password = previous_password_prompt.as_deref() == Some(prompt);
+                                candidate.replace(None);
                                 previous_password_prompt = Some(prompt.to_owned());
+                                pending.can_remember = keyring;
+                                pending.remember = choice;
+                                if let Some(password) = saved.take() {
+                                    let _ = pending.response.send(Some(password));
+                                    return;
+                                }
                             } else {
                                 previous_password_prompt = None;
                             }
                             present(pending);
+                        }, |value| {
+                            if remember.load(Ordering::Relaxed) { candidate.replace(Some(value.to_owned())); }
                         })?, "SSH authentication cancelled");
                         deadline = Instant::now() + Duration::from_secs(30);
                     }
