@@ -3469,6 +3469,7 @@ pub(crate) async fn ssh_connection_job(location: crate::remote::registry::Remote
                     let session = crate::remote::session::Session::authenticate(&authentication_runtime, &destination, |pending| {
                         let host = destination.clone();
                         handle.block_on(job::dispatch(move |_, compositor| {
+                            ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Info, "SSH authentication required", "Waiting for your response", true);
                             ui::dashboard::credential_dialog(compositor, host, pending);
                         }));
                     })?;
