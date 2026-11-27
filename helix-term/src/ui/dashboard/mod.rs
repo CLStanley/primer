@@ -481,6 +481,55 @@ fn saved_connection_feedback(compositor: &mut crate::compositor::Compositor, res
 }
 
 #[cfg(target_os = "linux")]
+struct ForgetPassword {
+    destination: String,
+    selected: usize,
+}
+
+#[cfg(target_os = "linux")]
+impl Component for ForgetPassword {
+    fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
+        Some((72.min(viewport.0), 12.min(viewport.1)))
+    }
+
+    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+        render_ssh_dialog(area, surface, cx, &format!("Forget password: {}", self.destination),
+            &["Cancel".into(), "Forget saved password".into()], Some(self.selected), "Enter select · Esc cancel");
+    }
+
+    fn handle_event(&mut self, event: &Event, _: &mut Context) -> EventResult {
+        match event {
+            Event::Key(event) => match *event {
+                key!('j') | key!('k') | key!(Up) | key!(Down) | key!(Tab) => {
+                    self.selected = 1 - self.selected;
+                    EventResult::Consumed(None)
+                }
+                key!(Enter) if self.selected == 1 => {
+                    let destination = self.destination.clone();
+                    EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+                        compositor.pop();
+                        cx.jobs.callback(async move {
+                            let result = tokio::task::spawn_blocking(move || crate::remote::credentials::forget(&destination)).await;
+                            let result = result.map_err(anyhow::Error::from).and_then(|result| result);
+                            Ok(crate::job::Callback::EditorCompositor(Box::new(move |_, compositor| {
+                                use crate::ui::notification::{show_operation, Severity};
+                                match result {
+                                    Ok(()) => show_operation(compositor, None, Severity::Success, "SSH password forgotten", "No saved password remains for this host", false),
+                                    Err(error) => show_operation(compositor, None, Severity::Error, "Cannot forget SSH password", format!("{error:#}"), false),
+                                }
+                            })))
+                        });
+                    })))
+                }
+                key!(Enter) | key!(Esc) => EventResult::Consumed(Some(Box::new(|compositor, _| { compositor.pop(); }))),
+                _ => EventResult::Consumed(None),
+            },
+            _ => EventResult::Ignored(None),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
 struct DeleteConnection {
     location: crate::remote::registry::RemoteLocation,
     selected: usize,
@@ -864,7 +913,7 @@ impl Component for SavedHosts {
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
         let width = self.hosts.iter().map(|host| (host.destination.chars().count() + 16).max(host.remote_path.chars().count() + 6))
             .chain(self.active.iter().flat_map(|active| active.lines().map(|line| line.chars().count() + 8)))
-            .max().unwrap_or(56).clamp(56, 90) as u16;
+            .max().unwrap_or(72).clamp(72, 90) as u16;
         Some((width.min(viewport.0), (self.hosts.len().max(1).min(15) as u16 * 3 + if self.active.is_some() { 18 } else { 10 }).min(viewport.1)))
     }
 
@@ -916,7 +965,7 @@ impl Component for SavedHosts {
             let path_label = format!("  {}", host.remote_path);
             surface.set_stringn(x, row + 1, &format!("{path_label:<width$}"), width, if focused { selected } else { muted });
         }
-        surface.set_stringn(x, area.bottom() - 2, "Enter connect · e edit · d delete · Esc close", width, muted);
+        surface.set_stringn(x, area.bottom() - 2, "Enter connect · e edit · d delete · f forget password · Esc close", width, muted);
     }
 
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
@@ -944,6 +993,12 @@ impl Component for SavedHosts {
                         }).with_line(initial, cx.editor);
                         compositor.pop();
                         compositor.push(Box::new(prompt));
+                    })))
+                }
+                key!('f') if !self.hosts.is_empty() => {
+                    let destination = self.hosts[self.selected].destination.clone();
+                    EventResult::Consumed(Some(Box::new(move |compositor, _| {
+                        compositor.push(Box::new(crate::ui::popup::Popup::new("ssh-forget-password", ForgetPassword { destination, selected: 0 }).centered().with_border()));
                     })))
                 }
                 key!('d') if !self.hosts.is_empty() => {
