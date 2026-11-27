@@ -14,6 +14,7 @@ pub struct RemoteLocation {
 #[derive(Debug, Default)]
 pub struct ConnectionRegistry {
     mounts: BTreeMap<RemoteLocation, RemoteMount>,
+    sessions: BTreeMap<RemoteLocation, std::sync::Arc<super::session::Session>>,
 }
 
 impl ConnectionRegistry {
@@ -28,6 +29,14 @@ impl ConnectionRegistry {
     /// Reuse a mounted location, or retry its existing protected directory.
     /// Keep failed attempts registered so their resources remain accountable.
     pub fn connect(&mut self, runtime: &Path, location: RemoteLocation) -> Result<PathBuf> {
+        self.connect_with_session(runtime, location, None)
+    }
+
+    pub fn session(&self, location: &RemoteLocation) -> Option<std::sync::Arc<super::session::Session>> {
+        self.sessions.get(location).cloned()
+    }
+
+    pub fn connect_with_session(&mut self, runtime: &Path, location: RemoteLocation, session: Option<std::sync::Arc<super::session::Session>>) -> Result<PathBuf> {
         // An editor instance owns at most one mounted remote environment.
         // Do not silently replace it while buffers or jobs may still use it.
         for (existing, mount) in &self.mounts {
@@ -44,7 +53,10 @@ impl ConnectionRegistry {
         let mount = self.mounts.get(&location).context("Missing remote mount")?;
         match mount.state()? {
             MountState::Mounted => {}
-            MountState::Unmounted => mount.connect()?,
+            MountState::Unmounted => {
+                mount.connect_with_session(session.as_deref())?;
+                if let Some(session) = session { self.sessions.insert(location.clone(), session); }
+            },
             MountState::UnexpectedFilesystem => anyhow::bail!("Unexpected filesystem at remote mount"),
         }
         Ok(mount.path().to_owned())
@@ -57,6 +69,7 @@ impl ConnectionRegistry {
         mount.disconnect()?;
         mount.cleanup()?;
         self.mounts.remove(location);
+        self.sessions.remove(location);
         Ok(())
     }
 
