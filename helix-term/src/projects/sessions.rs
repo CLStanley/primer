@@ -80,6 +80,76 @@ impl SessionStore {
     }
 }
 
+/// Capture file-backed buffers in the project, without modifying the editor.
+/// For remote projects, mounted_root is the local mount of the project root.
+pub fn capture(
+    editor: &helix_view::Editor,
+    project: ProjectIdentity,
+    mounted_root: &Path,
+) -> Result<WorkspaceSnapshot> {
+    let root = match &project {
+        ProjectIdentity::Local { root } | ProjectIdentity::Remote { root, .. } => root,
+    };
+    anyhow::ensure!(root.is_absolute() && mounted_root.is_absolute(), "Project roots must be absolute");
+    let focused = editor.tree.views().find(|(_, focused)| *focused).map(|(view, _)| view);
+    let mut documents = Vec::new();
+    let mut active_document = None;
+    for doc in editor.documents() {
+        let Some(path) = doc.path() else { continue };
+        let Ok(relative) = path.strip_prefix(mounted_root) else { continue };
+        let view = focused.filter(|view| doc.selections().contains_key(&view.id))
+            .or_else(|| editor.tree.views().map(|(view, _)| view)
+                .find(|view| doc.selections().contains_key(&view.id)));
+        let (cursor, scroll) = view.map(|view| (
+            doc.selection(view.id).primary().cursor(doc.text().slice(..)),
+            doc.view_offset(view.id).anchor,
+        )).unwrap_or_default();
+        if focused.is_some_and(|view| view.doc == doc.id()) {
+            active_document = Some(documents.len());
+        }
+        documents.push(DocumentSnapshot { path: root.join(relative), cursor, scroll });
+    }
+    Ok(WorkspaceSnapshot { project, documents, active_document })
+}
+
+/// Restore file-backed buffers additively. Never close existing documents.
+/// Resolve all paths before opening any buffers; reject paths outside the project.
+pub fn restore(
+    editor: &mut helix_view::Editor,
+    snapshot: &WorkspaceSnapshot,
+    mounted_root: &Path,
+) -> Result<()> {
+    use helix_view::{editor::Action, view::ViewPosition};
+    use helix_core::Selection;
+    let root = match &snapshot.project {
+        ProjectIdentity::Local { root } | ProjectIdentity::Remote { root, .. } => root,
+    };
+    anyhow::ensure!(root.is_absolute() && mounted_root.is_absolute(), "Project roots must be absolute");
+    anyhow::ensure!(snapshot.active_document.is_none_or(|index| index < snapshot.documents.len()), "Invalid active document index");
+    let canonical_root = fs::canonicalize(mounted_root)?;
+    let paths = snapshot.documents.iter().map(|doc| -> Result<PathBuf> {
+        let relative = doc.path.strip_prefix(root).context("Session document outside project")?;
+        anyhow::ensure!(relative.components().all(|part| matches!(part, std::path::Component::Normal(_))), "Invalid session document path");
+        let path = fs::canonicalize(canonical_root.join(relative))?;
+        anyhow::ensure!(path.starts_with(&canonical_root) && path.is_file(), "Session document outside project or not a file");
+        Ok(path)
+    }).collect::<Result<Vec<_>>>()?;
+    for (index, (path, saved)) in paths.iter().zip(&snapshot.documents).enumerate() {
+        let action = if editor.tree.is_empty() { Action::VerticalSplit } else { Action::Load };
+        let id = editor.open(path, action)?;
+        let view_id = editor.tree.focus;
+        if let Some(doc) = editor.document_mut(id) {
+            let len = doc.text().len_chars();
+            doc.set_selection(view_id, Selection::point(saved.cursor.min(len)));
+            doc.set_view_offset(view_id, ViewPosition { anchor: saved.scroll.min(len), horizontal_offset: 0, vertical_offset: 0 });
+        }
+        if snapshot.active_document == Some(index) {
+            editor.switch(id, Action::Replace);
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
