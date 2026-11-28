@@ -73,6 +73,74 @@ Primer builds on Helix's selection-first editing model with a dashboard, floatin
 
 The UI uses terminal characters for rounded corners (╭ ╮ ╰ ╯), not pixel-level window rounding. Powerline caps require a font containing the `` and `` glyphs.
 
+### Optional features
+
+Projects, Notes and Remote SSH are opt-in and default to disabled.
+
+```toml
+[editor.features]
+projects = true
+remote-ssh = true
+notes = true
+```
+
+Disabled features should be absent from the dashboard, command palette and
+which-key hints, and their key sequences should behave like unbound keys.
+Configured mappings and saved data are retained when features are disabled.
+
+### Remote SSH
+
+Remote SSH currently uses dashboard shortcuts and typed commands; there are
+no dedicated default or Enzyme editor-mode SSH keybindings.
+
+| Dashboard key | Action |
+| --- | --- |
+| `u` | Connect to host |
+| `i` | Connections |
+| `y` | Change remote root |
+| `w` | Disconnect |
+
+Typed commands: `:ssh-connect` and `:ssh-connections`.
+
+Password authentication uses Primer's masked dialogue. Tab toggles Remember
+Password when an unlocked Linux Secret Service keyring is available. Primer
+stores opted-in passwords after successful SSH authentication and attempts a
+saved password once on subsequent authentication. No plaintext fallback or
+additional credential-management executable is used. Without a compatible
+keyring, manual authentication remains available.
+
+In SSH Connections, Password saved indicates a stored credential; press `f`
+to forget it after confirmation. Credentials are shared by destination, not
+remote directory. Deleting the last saved connection attempts to remove its
+credential; forgetting a password does not disconnect an active session.
+Keyring errors are reported without invalidating successful authentication.
+
+The Connections popup supports Enter to connect, `e` to edit and `d` to
+delete a saved connection. Saving a connection is independent of connecting.
+
+SSH uses strict host-key checking for authentication and mounting. For an
+unknown host, Primer attempts to display OpenSSH's host confirmation with
+the destination and SHA256 fingerprint. Cancel is the default; verify the
+fingerprint independently before trusting the host or entering its exact
+fingerprint. OpenSSH manages the known-hosts file. Primer does not
+automatically accept or replace changed host keys.
+
+If native verification is unavailable, initialize the connection with
+OpenSSH in a terminal, verify its fingerprint, and reconnect in Primer.
+Tailscale authentication offers browser launch, manual URL entry in another
+browser, and copying the URL to the clipboard. Each successful action starts
+an automatic retry; cancel stops waiting.
+
+Native first-time host verification and both Tailscale authentication orders
+still require live acceptance testing. The workspace tests and release build
+have passed.
+
+**Deferred:** During the application-wide UI and keybinding review, consider
+dedicated editor-mode SSH bindings alongside the existing Enzyme grammar.
+Do not assign them as part of the SSH feature PR. Any future mappings must
+respect the Remote SSH feature toggle in both visibility and execution,
+including cancellation of disabled nested key sequences.
+
 ### Primer buffer navigation
 
 | Key | Action |
@@ -93,8 +161,6 @@ Primer includes PTY-backed terminal buffers that share the editor's tabs, splits
 | `Space t h` | Open a terminal in a horizontal split |
 | `Space t v` | Open a terminal in a vertical split |
 | `Space t n` | Rename a terminal buffer |
-| `Space t g` | Launch lazygit in a terminal buffer |
-| `Space t d` | Launch lazydocker in a terminal buffer |
 | `Ctrl+Space` (Terminal Mode) | Switch to read-only Normal Mode |
 | `Esc` (Terminal Mode) | Send Escape to the running application |
 | `v` (Normal Mode) | Select terminal output |
@@ -103,8 +169,105 @@ Primer includes PTY-backed terminal buffers that share the editor's tabs, splits
 
 Terminal Normal/Select modes support basic output navigation and copying; they are not full editable documents. Interactive applications such as lazygit and lazydocker have been tested. `btop` currently has a known rendering issue in the embedded terminal.
 
+### Planned: shared UI visual validation
+
+During the application-wide UI standardization, test the shared components
+with multiple themes rather than validating against a single development
+palette. Include light and dark themes, high- and low-saturation palettes,
+built-in themes, and several independently generated themes from the
+wallpaper-based theming workflow.
+
+- Check dashboards, pickers, prompts, confirmation dialogs, notifications,
+  which-key, statusline and bufferline pills, panels, and terminal surfaces.
+- Verify cohesive colors across components, readable foreground/background
+  contrast, distinct selection and focus states, and recognizable semantic
+  success, warning, error and informational colors.
+- Prefer shared semantic theme scopes and consistent fallbacks over hardcoded
+  colors. Test themes with missing optional scopes and inherited palettes.
+- Check theme changes without restarting where supported, and ensure no
+  component retains stale colors from a previous theme.
+- Record the tested themes and any visual regressions in the UI consolidation
+  PR before merging. Do not consider the visual unification complete based
+  on a single theme.
+
+### Planned: language-specific statusline pills
+
+During shared UI consolidation, investigate distinct, theme-aware colors for
+the language pill in the statusline. Allow per-language theme overrides and
+retain a default fallback for languages without a specific color. Reuse the
+shared pill renderer, preserve readable foreground contrast, and keep the
+existing branch, project and mode indicators visually consistent. Exact color
+assignments and configuration keys are not finalized.
+
+### Planned: configurable terminal application launcher
+
+Deferred until after the shared UI and architecture consolidation. Replace
+application-specific integrations with user-defined terminal launchers.
+
+- Define a display name, executable command and optional arguments in configuration.
+- Allow a custom keybinding and optional dashboard entry for each launcher.
+- Reuse the embedded terminal, project/remote working directory handling,
+  dashboard components and notification system.
+- Report missing executables and launch failures clearly; do not require
+  applications to be installed for Primer itself to start.
+- Respect the active local or remote environment when launching applications.
+
+Illustrative configuration (proposed syntax, not implemented):
+
+```toml
+[[terminal.applications]]
+name = "LazyGit"
+command = "lazygit"
+keybind = "space t g"
+dashboard = true
+
+[[terminal.applications]]
+name = "LazyDocker"
+command = "lazydocker"
+keybind = "space t d"
+dashboard = false
+```
+
+LazyGit and LazyDocker are examples, not built-in integrations. The final
+configuration schema and keybinding conflict handling will be decided during
+implementation.
+
+### Planned: project workspace sessions
+
+Implement in a separate project-sessions feature branch after the SSH work.
+A project is a registered directory; its workspace is the current editing
+environment, and a saved session is an optional persistent snapshot.
+
+- Isolate project buffers and restore document order, active buffer, cursor
+  and scroll positions, splits, and terminal names and working directories.
+- Use stable local paths or remote host/path identities, not temporary mounts.
+- Offer restore or fresh start when opening a saved session, and save or
+  leave the previous snapshot unchanged when leaving a workspace.
+- Keep document saving independent from workspace saving. Never silently
+  discard modified documents or terminate running terminal processes.
+- Preserve live terminals across switches where safe; recreate terminal
+  configuration on restart, without promising to restore running processes.
+- Provide a way to clear a saved workspace without unregistering the project.
+- Consolidate relevant decisions into one transition dialog. Skip irrelevant
+  questions and honor automatic preferences; use notifications for progress,
+  outcomes and actual errors. Preserve the original workspace on cancellation
+  or failure wherever possible.
+
+Proposed configuration (not implemented):
+
+```toml
+[editor.project-sessions]
+enabled = true
+on-open = "ask"  # ask, restore, fresh
+on-close = "ask" # ask, save, discard
+```
+
+Apply the lifecycle consistently to switching, clearing projects, SSH
+disconnects and quitting. The exact schema and terminal lifecycle remain
+implementation decisions.
+
 ### Projects
 
-Projects are remembered locally in `$XDG_DATA_HOME/primer/projects.toml` (default `~/.local/share/primer/projects.toml`). Add a Git repository or any directory with `Space p a`; switch with `Space p p`, forget with `Space p f`, clear with `Space p c`, and inspect with `Space p s`. Forgetting requires the exact project name and never deletes files. Switching preserves open buffers. Missing directories are omitted from the picker; identical names are distinguished by their paths.
+Projects are remembered locally in `$XDG_DATA_HOME/primer/projects.toml` (default `~/.local/share/primer/projects.toml`). Add a Git repository or any directory with `Space p a`; switch with `Space p p`, forget with `Space p f`, clear with `Space p c`. Forgetting requires the exact project name and never deletes files. Switching preserves open buffers. Missing directories are omitted from the picker; identical names are distinguished by their paths.
 
-Dashboard shortcuts: `p` switch, `b` add, `x` forget, `c` clear, `s` status, `t` terminal, `G` LazyGit, `D` LazyDocker.
+Dashboard shortcuts: `p` switch, `b` register, `x` forget, `c` clear, `t` terminal.

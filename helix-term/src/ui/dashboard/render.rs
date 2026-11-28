@@ -31,16 +31,18 @@ impl DashboardAction {
             Self::Agenda => "Agenda",
             Self::FileExplorer => "File explorer",
             Self::OpenProject => "Switch project",
-            Self::AddProject => "Add directory",
+            Self::AddProject => "Register project",
             Self::ForgetProject => "Forget project",
             Self::ClearProject => "Clear active project",
-            Self::ProjectStatus => "Project status",
             Self::Help => "Keybind help",
             Self::NewFile => "New file",
             Self::Quit => "Quit",
             Self::Terminal => "Terminal",
-            Self::LazyGit => "LazyGit",
-            Self::LazyDocker => "LazyDocker",
+            Self::RemoteConnect => "Connect to host",
+            Self::RemoteConnections => "Connections",
+            Self::RemoteBrowse => "Remote files",
+            Self::RemoteDisconnect => "Disconnect",
+            Self::RemoteDirectory => "Change directory",
         }
     }
 
@@ -57,13 +59,15 @@ impl DashboardAction {
             Self::AddProject => 'b',
             Self::ForgetProject => 'x',
             Self::ClearProject => 'c',
-            Self::ProjectStatus => 's',
             Self::Help => '?',
             Self::NewFile => 'n',
             Self::Quit => 'q',
             Self::Terminal => 't',
-            Self::LazyGit => 'G',
-            Self::LazyDocker => 'D',
+            Self::RemoteConnect => 'u',
+            Self::RemoteConnections => 'i',
+            Self::RemoteBrowse => 'v',
+            Self::RemoteDisconnect => 'w',
+            Self::RemoteDirectory => 'y',
         }
     }
 }
@@ -129,8 +133,12 @@ pub fn render_dashboard(
 
     // Reserve a footer row for the active project, independent of menu selection.
     let project_footer = ctx.editor.active_project_name.clone();
+    #[cfg(target_os = "linux")]
+    let remote_footer = crate::commands::ssh_dashboard_indicator();
+    #[cfg(not(target_os = "linux"))]
+    let remote_footer: Option<String> = None;
     let full_area = area;
-    let area = if project_footer.is_some() && area.height > 1 {
+    let area = if (project_footer.is_some() || remote_footer.is_some()) && area.height > 1 {
         area.with_height(area.height - 1)
     } else {
         area
@@ -140,7 +148,8 @@ pub fn render_dashboard(
     let show_logo = area.width >= logo_width && area.height >= 20;
     let wide = area.width >= WIDE_LAYOUT_WIDTH && area.height >= 19;
     let heading_height: u16 = if show_logo { LOGO.len() as u16 } else { 1 };
-    let menu_height = if wide { 22 } else { 33 };
+    let section_count = 1 + usize::from(ctx.editor.config().features.projects) + usize::from(ctx.editor.config().features.notes) + usize::from(ctx.editor.config().features.remote_ssh && cfg!(target_os = "linux"));
+    let menu_height = if wide { ((section_count as u16 + 1) / 2) * 8 + 6 } else { section_count as u16 * 6 + 5 };
     let content_height = heading_height + 5 + menu_height;
     let top = area.y + (area.height.saturating_sub(content_height) / 2).saturating_sub(2);
 
@@ -201,10 +210,9 @@ pub fn render_dashboard(
             "PROJECTS",
             vec![
                 ("p", "Switch project", Some(DashboardAction::OpenProject)),
-                ("b", "Add directory", Some(DashboardAction::AddProject)),
+                ("b", "Register project", Some(DashboardAction::AddProject)),
                 ("x", "Forget project", Some(DashboardAction::ForgetProject)),
                 ("c", "Clear active project", Some(DashboardAction::ClearProject)),
-                ("s", "Project status", Some(DashboardAction::ProjectStatus)),
             ],
         ),
         (
@@ -219,20 +227,23 @@ pub fn render_dashboard(
         (
             "REMOTE SSH",
             vec![
-                ("c", "Connect to host", None),
-                ("h", "Saved hosts", None),
-                ("u", "Remote files", None),
-                ("x", "Remote terminal", None),
+                ("u", "Connect to host", Some(DashboardAction::RemoteConnect)),
+                ("i", "Connections", Some(DashboardAction::RemoteConnections)),
+                ("y", "Change remote root", Some(DashboardAction::RemoteDirectory)),
+                ("w", "Disconnect", Some(DashboardAction::RemoteDisconnect)),
             ],
         ),
     ];
 
+    let sections: Vec<_> = sections.into_iter().filter(|(_, entries)| entries.iter().any(|(_, _, action)| action.is_some_and(|action| dashboard.actions.contains(&action)))).collect();
     if wide {
         let total_width = COLUMN_WIDTH * 2 + COLUMN_GAP;
         let left = area.x + area.width.saturating_sub(total_width) / 2;
         let right = left + COLUMN_WIDTH + COLUMN_GAP;
         for (section_index, (heading, entries)) in sections.iter().enumerate() {
-            let x = if section_index % 2 == 0 { left } else { right };
+            let x = if section_index % 2 == 0 && section_index + 1 == sections.len() {
+                area.x + area.width.saturating_sub(COLUMN_WIDTH) / 2
+            } else if section_index % 2 == 0 { left } else { right };
             let section_top = menu_top + (section_index / 2) as u16 * 8;
             let heading_width = heading.len() as u16;
             draw_line(
@@ -275,21 +286,20 @@ pub fn render_dashboard(
                 );
             }
         }
-        let footer_y = menu_top + 18;
+        let footer_y = menu_top + ((sections.len() as u16 + 1) / 2) * 8 + 2;
         // Shared actions form one evenly spaced horizontal footer.
         // Center each footer item in an equal-width slot of the menu.
         // This keeps the spacing balanced regardless of label length.
         let footer_width = (total_width + 20).min(area.width);
         let footer_left = area.x + area.width.saturating_sub(footer_width) / 2;
-        let third = footer_width / 5;
+        let third = footer_width / 3;
         let footer = [
             ("t", "Terminal", Some(DashboardAction::Terminal)),
-            ("G", "LazyGit", Some(DashboardAction::LazyGit)),
-            ("D", "LazyDocker", Some(DashboardAction::LazyDocker)),
             ("?", "Keybind help", Some(DashboardAction::Help)),
             ("q", "Quit", Some(DashboardAction::Quit)),
         ]
         .into_iter()
+        .filter(|(_, _, action)| action.is_some_and(|action| dashboard.actions.contains(&action)))
         .enumerate()
         .map(|(index, (key, label, action))| {
             let item_width = 2 + label.len() as u16;
@@ -326,9 +336,9 @@ pub fn render_dashboard(
             .sum();
         let mut hint_x = left + total_width.saturating_sub(hint_width) / 2;
         for (key, label) in hint {
-            draw_line(key, hint_x, menu_top + 20, key.len() as u16, shortcut);
+            draw_line(key, hint_x, footer_y + 2, key.len() as u16, shortcut);
             hint_x += key.len() as u16;
-            draw_line(label, hint_x, menu_top + 20, label.len() as u16, normal);
+            draw_line(label, hint_x, footer_y + 2, label.len() as u16, normal);
             hint_x += label.len() as u16;
         }
     } else {
@@ -367,11 +377,10 @@ pub fn render_dashboard(
         }
         for (key, label, action) in [
             ("t", "Terminal", Some(DashboardAction::Terminal)),
-            ("G", "LazyGit", Some(DashboardAction::LazyGit)),
-            ("D", "LazyDocker", Some(DashboardAction::LazyDocker)),
             ("?", "Keybind help", Some(DashboardAction::Help)),
             ("q", "Quit", Some(DashboardAction::Quit)),
         ] {
+            if !action.is_some_and(|action| dashboard.actions.contains(&action)) { continue; }
             let active = action.is_some() && action == dashboard.selected_action();
             draw_line(key, x + 2, y, 1, shortcut);
             draw_line(
@@ -390,11 +399,25 @@ pub fn render_dashboard(
             y += 1;
         }
     }
+    if let Some(name) = remote_footer {
+        let label = format!(" {name} ");
+        let width = label.as_str().width().min(full_area.width.saturating_sub(3) as usize) as u16;
+        if width > 0 && full_area.height > 1 {
+            let x = full_area.x + 1;
+            let y = full_area.bottom() - 1;
+            let remote_color = if name.ends_with("(Mounted)") { green_color } else { theme.get("warning").fg.unwrap_or(Color::Yellow) };
+            let style = Style::default().fg(Color::Rgb(20, 24, 28)).bg(remote_color).add_modifier(Modifier::BOLD);
+            let cap_style = Style::default().fg(remote_color).bg(Color::Reset);
+            surface.set_stringn(x, y, "", 1, cap_style);
+            surface.set_stringn(x + 1, y, &label, width as usize, style);
+            surface.set_stringn(x + width + 1, y, "", 1, cap_style);
+        }
+    }
     if let Some(name) = project_footer {
         if full_area.height > 1 && full_area.width >= 5 {
             let label = format!(" {name} ");
             let width = label.as_str().width().min(full_area.width.saturating_sub(2) as usize) as u16;
-            let x = full_area.x + full_area.width.saturating_sub(width + 2) / 2;
+            let x = full_area.x + full_area.width.saturating_sub(width + 2);
             let y = full_area.bottom() - 1;
             let style = Style::default()
                 .fg(Color::Reset)

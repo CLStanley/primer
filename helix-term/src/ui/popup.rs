@@ -42,6 +42,7 @@ pub struct Popup<T: Component> {
     id: &'static str,
     has_scrollbar: bool,
     force_border: bool,
+    border_scope: &'static str,
     centered: bool,
     top_right: bool,
 }
@@ -59,6 +60,7 @@ impl<T: Component> Popup<T> {
             id,
             has_scrollbar: true,
             force_border: false,
+            border_scope: "ui.window",
             centered: false,
             top_right: false,
         }
@@ -128,6 +130,11 @@ impl<T: Component> Popup<T> {
 
     pub fn with_border(mut self) -> Self {
         self.force_border = true;
+        self
+    }
+
+    pub fn with_border_scope(mut self, scope: &'static str) -> Self {
+        self.border_scope = scope;
         self
     }
 
@@ -385,7 +392,7 @@ impl<T: Component> Component for Popup<T> {
         let mut inner = area;
         if render_borders {
             inner = area.inner(Margin::all(1));
-            Widget::render(Block::bordered().border_type(match cx.editor.config().border_style { UiBorderStyle::Square => BorderType::Plain, UiBorderStyle::Rounded => BorderType::Rounded, UiBorderStyle::Double => BorderType::Double }).border_style(cx.editor.theme.get("ui.window")), area, surface);
+            Widget::render(Block::bordered().border_type(match cx.editor.config().border_style { UiBorderStyle::Square => BorderType::Plain, UiBorderStyle::Rounded => BorderType::Rounded, UiBorderStyle::Double => BorderType::Double }).border_style(cx.editor.theme.get(self.border_scope)), area, surface);
         }
         let border = usize::from(render_borders);
 

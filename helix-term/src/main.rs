@@ -18,6 +18,33 @@ fn setup_logging(verbosity: u64) -> Result<()> {
 }
 
 fn main() -> Result<()> {
+    #[cfg(target_os = "linux")]
+    if let Some(socket) = std::env::var_os("PRIMER_CREDENTIAL_SOCKET") {
+        let kind = std::env::var("SSH_ASKPASS_PROMPT").unwrap_or_default();
+        let mut arguments = std::env::args_os().skip(1);
+        if let (Some(prompt), None) = (arguments.next(), arguments.next()) {
+            if let Ok(response) = helix_term::remote::session::request_credential(std::path::Path::new(&socket), &kind, &prompt.to_string_lossy()) {
+                println!("{response}");
+                return Ok(());
+            }
+        }
+        std::process::exit(1);
+    }
+    #[cfg(target_os = "linux")]
+    if let Some(socket) = std::env::var_os("PRIMER_HOST_CONFIRMATION_SOCKET") {
+        let kind = std::env::var("SSH_ASKPASS_PROMPT").unwrap_or_default();
+        let mut arguments = std::env::args_os().skip(1);
+        let response = match (arguments.next(), arguments.next()) {
+            (Some(prompt), None) => helix_term::remote::host_verification::request_confirmation(
+                std::path::Path::new(&socket),
+                &kind,
+                &prompt.to_string_lossy(),
+            ).unwrap_or_else(|_| "no".into()),
+            _ => "no".into(),
+        };
+        println!("{response}");
+        return Ok(());
+    }
     let exit_code = main_impl()?;
     std::process::exit(exit_code);
 }

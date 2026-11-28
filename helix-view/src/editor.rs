@@ -294,6 +294,7 @@ where
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct Config {
+    pub features: FeatureConfig,
     /// Padding to keep between the edge of the screen and the cursor when scrolling. Defaults to 5.
     pub scrolloff: usize,
     /// Number of lines to scroll at once. Defaults to 3
@@ -1197,9 +1198,22 @@ impl Default for WordCompletion {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct FeatureConfig {
+    pub projects: bool,
+    pub remote_ssh: bool,
+    pub notes: bool,
+}
+
+impl Default for FeatureConfig {
+    fn default() -> Self { Self { projects: false, remote_ssh: false, notes: false } }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
+            features: FeatureConfig::default(),
             scrolloff: 5,
             scroll_lines: 3,
             mouse: true,

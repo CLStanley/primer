@@ -264,7 +264,13 @@ impl MappableCommand {
                     cx.editor.set_error(format!("no such command: '{name}'"));
                 }
             }
-            Self::Static { fun, .. } => (fun)(cx),
+            Self::Static { name, fun, .. } => {
+                let features = &cx.editor.config().features;
+                let enabled = if name.starts_with("primer_project_") { features.projects }
+                    else if name.starts_with("primer_notes_") || name.starts_with("primer_agenda") { features.notes }
+                    else { true };
+                if enabled { (fun)(cx) } else { cx.editor.set_error("This feature is disabled in configuration"); }
+            },
             Self::Macro { keys, .. } => {
                 // Protect against recursive macros.
                 if cx.editor.macro_replaying.contains(&'@') {
@@ -283,6 +289,14 @@ impl MappableCommand {
                 }));
             }
         }
+    }
+
+    pub fn feature_enabled(&self, features: &helix_view::editor::FeatureConfig) -> bool {
+        let name = self.name();
+        if name.starts_with("primer_project_") { features.projects }
+        else if name.starts_with("primer_notes_") || name.starts_with("primer_agenda") { features.notes }
+        else if name.starts_with("ssh-") { features.remote_ssh && cfg!(target_os = "linux") }
+        else { true }
     }
 
     pub fn name(&self) -> &str {
@@ -404,7 +418,6 @@ impl MappableCommand {
         primer_project_picker, "Switch remembered projects",
         primer_project_register, "Add a directory as a project",
         primer_project_clear, "Clear the active project context",
-        primer_project_status, "Show active and focused project status",
         primer_project_forget, "Forget the active project without deleting files",
         file_picker_in_current_buffer_directory, "Open file picker at current buffer's directory",
         file_picker_in_current_directory, "Open file picker at current working directory",
@@ -465,8 +478,6 @@ impl MappableCommand {
         primer_terminal_hsplit, "Open terminal in horizontal split",
         primer_terminal_vsplit, "Open terminal in vertical split",
         primer_terminal_rename, "Rename terminal tab",
-        primer_terminal_lazygit, "Open lazygit in terminal",
-        primer_terminal_lazydocker, "Open lazydocker in terminal",
         primer_buffer_previous, "Previous buffer",
         primer_buffer_next, "Next buffer",
         primer_buffer_new, "New empty buffer",
@@ -2654,7 +2665,11 @@ fn global_search(cx: &mut Context) {
             return async { Ok(()) }.boxed();
         }
 
-        let search_root = editor.active_project_root.clone().unwrap_or_else(helix_stdx::env::current_working_dir);
+        let search_root = match typed::remote_file_root(editor.active_project_root.as_deref()) {
+            Ok(Some(root)) => root,
+            Ok(None) => editor.active_project_root.clone().unwrap_or_else(helix_stdx::env::current_working_dir),
+            Err(error) => return async move { Err(error) }.boxed(),
+        };
         if !search_root.exists() {
             return async { Err(anyhow::anyhow!("Current working directory does not exist")) }
                 .boxed();
@@ -3571,37 +3586,90 @@ fn primer_notes_reference(cx: &mut Context) { primer_notes_picker(cx, Some("04 R
 
 /// Initialize the current directory as an explicit Primer project.
 /// Browse folders, selecting one to remember and activate as a project.
-fn primer_project_register_picker(directory: PathBuf) -> anyhow::Result<Picker<(PathBuf, bool), PathBuf>> {
+fn scoped_projects(registry: &crate::projects::registry::ProjectRegistry) -> anyhow::Result<Vec<crate::projects::Project>> {
+    match typed::remote_project_context()? {
+        None => registry.projects(),
+        Some((host, remote, mount)) => {
+            let working = typed::remote_file_root(None)?.ok_or_else(|| anyhow::anyhow!("Remote working directory unavailable"))?;
+            Ok(registry.remote_projects(&host)
+            .filter_map(|project| project.path.strip_prefix(&remote).ok())
+            .filter_map(|relative| crate::projects::from_directory(&mount.join(relative)).ok())
+            .filter(|project| project.root.starts_with(&mount) && project.root.starts_with(&working))
+            .collect())
+        },
+    }
+}
+
+fn remember_scoped_project(registry: &mut crate::projects::registry::ProjectRegistry, root: &Path) -> anyhow::Result<crate::projects::Project> {
+    match typed::remote_project_context()? {
+        None => registry.register(root),
+        Some((host, remote, mount)) => {
+            let project = crate::projects::from_directory(root)?;
+            registry.register_remote(&host, &remote.join(project.root.strip_prefix(&mount)?))?;
+            Ok(project)
+        }
+    }
+}
+
+fn forget_scoped_project(registry: &mut crate::projects::registry::ProjectRegistry, root: &Path) -> anyhow::Result<()> {
+    match typed::remote_project_context()? {
+        None => registry.forget(root),
+        Some((host, remote, mount)) => registry.forget_remote(&host, &remote.join(root.strip_prefix(&mount)?)),
+    }
+    Ok(())
+}
+
+fn primer_project_register_picker(directory: PathBuf, change_remote: bool) -> anyhow::Result<Picker<(PathBuf, bool), (PathBuf, bool)>> {
     let directory = std::fs::canonicalize(directory)?;
+    let boundary = typed::remote_project_context()?.map(|(_, _, mount)| mount);
+    anyhow::ensure!(boundary.as_ref().map_or(true, |root| directory.starts_with(root)), "Directory is outside remote mount");
     let mut entries: Vec<(PathBuf, bool)> = vec![(directory.clone(), false)];
-    if let Some(parent) = directory.parent() { entries.push((parent.to_path_buf(), true)); }
+    if let Some(parent) = directory.parent().filter(|parent| boundary.as_ref().map_or(true, |root| parent.starts_with(root))) { entries.push((parent.to_path_buf(), true)); }
     for entry in std::fs::read_dir(&directory)? {
         let entry = entry?;
         if entry.path().is_dir() { entries.push((entry.path(), true)); }
     }
-    let columns = [PickerColumn::new("Directory", |entry: &(PathBuf, bool), root: &PathBuf| {
-        if !entry.1 { "./  Add this directory".into() }
+    let columns = [PickerColumn::new("Directory", |entry: &(PathBuf, bool), data: &(PathBuf, bool)| {
+        let (root, change_remote) = data;
+        if !entry.1 { if *change_remote { "./  Select this directory".into() } else { "./  Add this directory".into() } }
         else if entry.0 == root.parent().unwrap_or(root) { "../".into() }
         else { format!("{}/", entry.0.file_name().unwrap_or_default().to_string_lossy()).into() }
     })];
-    Ok(Picker::new(columns, 0, entries, directory, move |cx, entry: &(PathBuf, bool), _| {
+    Ok(Picker::new(columns, 0, entries, (directory, change_remote), move |cx, entry: &(PathBuf, bool), _| {
         if entry.1 {
             let next = entry.0.clone();
             cx.jobs.callback(async move {
                 Ok(Callback::EditorCompositor(Box::new(move |editor, compositor| {
-                    match primer_project_register_picker(next) {
-                        Ok(picker) => compositor.push(Box::new(overlaid(picker.with_title("Add Project")))),
+                    match primer_project_register_picker(next, change_remote) {
+                        Ok(picker) => compositor.push(Box::new(overlaid(picker.with_title(if change_remote { "Change Remote Root Directory" } else { "Add Project" })))),
                         Err(error) => editor.set_error(format!("Cannot browse directory: {error}")),
                     }
                 })))
             });
             return;
         }
+        if change_remote {
+            #[cfg(target_os = "linux")]
+            match typed::remote_project_context() {
+                Ok(Some((_, remote_root, mount))) => {
+                    match entry.0.strip_prefix(&mount) {
+                        Ok(relative) => {
+                            let path = Path::new(&remote_root).join(relative).display().to_string();
+                            typed::ssh_change_directory(cx, path);
+                        }
+                        Err(error) => cx.editor.set_error(error.to_string()),
+                    }
+                }
+                Ok(None) => cx.editor.set_error("Connect to an SSH host first"),
+                Err(error) => cx.editor.set_error(error.to_string()),
+            }
+            return;
+        }
         use crate::projects::registry::ProjectRegistry;
         let result = (|| -> anyhow::Result<crate::projects::Project> {
             let path = ProjectRegistry::default_path()?;
             let mut registry = ProjectRegistry::read(&path)?;
-            let project = registry.register(&entry.0)?;
+            let project = remember_scoped_project(&mut registry, &entry.0)?;
             registry.save(&path)?;
             Ok(project)
         })();
@@ -3617,42 +3685,15 @@ fn primer_project_register_picker(directory: PathBuf) -> anyhow::Result<Picker<(
 }
 
 fn primer_project_register(cx: &mut Context) {
-    let directory = active_buffer_directory(cx.editor);
-    match primer_project_register_picker(directory) {
+    let directory = match typed::remote_file_root(cx.editor.active_project_root.as_deref()) {
+        Ok(Some(root)) => root,
+        Ok(None) => active_buffer_directory(cx.editor),
+        Err(error) => { cx.editor.set_error(error.to_string()); return; }
+    };
+    match primer_project_register_picker(directory, false) {
         Ok(picker) => cx.push_layer(Box::new(overlaid(picker.with_title("Add Project")))),
         Err(error) => cx.editor.set_error(format!("Cannot browse directories: {error}")),
     }
-}
-
-fn primer_project_status(cx: &mut Context) {
-    use crate::projects::registry::ProjectRegistry;
-    let scope = cx.editor.active_project_root.clone()
-        .unwrap_or_else(|| active_buffer_directory(cx.editor));
-    let discovered = crate::projects::discover(&scope).ok().flatten();
-    let active_name = cx.editor.active_project_name.as_deref().unwrap_or("None");
-    let active_root = cx.editor.active_project_root.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "No active project".to_owned());
-    let remembered_root = cx.editor.active_project_root.as_ref()
-        .or_else(|| discovered.as_ref().map(|project| &project.root));
-    let remembered = remembered_root.and_then(|root| {
-        let path = ProjectRegistry::default_path().ok()?;
-        let registry = ProjectRegistry::read(&path).ok()?;
-        Some(registry.roots.contains(root))
-    }).unwrap_or(false);
-    let current = discovered.as_ref().map(|project| project.name.as_str()).unwrap_or("None");
-    let detected_root = discovered.as_ref().map(|project| project.root.display().to_string()).unwrap_or_else(|| "No Git repository".to_owned());
-    let lines = vec![
-        ("Active project  ".to_owned(), active_name.to_owned(), String::new(), String::new()),
-        ("Active root     ".to_owned(), active_root, String::new(), String::new()),
-        ("Detected Git    ".to_owned(), current.to_owned(), String::new(), String::new()),
-        ("Git root        ".to_owned(), detected_root, String::new(), String::new()),
-        ("Remembered      ".to_owned(), if remembered { "Yes" } else { "No" }.to_owned(), String::new(), String::new()),
-    ];
-    cx.callback.push(Box::new(move |compositor, _| {
-        let popup = Popup::new("primer-project-status",
-            ui::GitChangePreview::new("Project information".to_owned(), lines)
-                .with_title("Project status").compact());
-        compositor.replace_or_push("primer-project-status", popup.with_border().centered().with_scrollbar(false));
-    }));
 }
 
 /// Clear project scoping without closing or modifying any buffers.
@@ -3672,7 +3713,7 @@ fn primer_project_forget(cx: &mut Context) {
         Ok(path) => path,
         Err(error) => { cx.editor.set_error(format!("Project registry unavailable: {error}")); return; }
     };
-    let projects = match ProjectRegistry::read(&registry_path).and_then(|registry| registry.projects()) {
+    let projects = match ProjectRegistry::read(&registry_path).and_then(|registry| scoped_projects(&registry)) {
         Ok(projects) => projects,
         Err(error) => { cx.editor.set_error(format!("Could not read projects: {error}")); return; }
     };
@@ -3709,7 +3750,7 @@ fn primer_project_forget(cx: &mut Context) {
                     }
                     let result = (|| -> anyhow::Result<()> {
                         let mut registry = ProjectRegistry::read(&path)?;
-                        registry.forget(&root);
+                        forget_scoped_project(&mut registry, &root)?;
                         registry.save(&path)
                     })();
                     match result {
@@ -3719,28 +3760,9 @@ fn primer_project_forget(cx: &mut Context) {
                                 cx.editor.active_project_name = None;
                             }
                             cx.editor.set_status(format!("Forgot {name}; project files unchanged"));
-                            let confirmation = name.clone();
-                            cx.jobs.callback(async move {
-                                Ok(Callback::EditorCompositor(Box::new(move |_, compositor| {
-                                    let lines = vec![
-                                        ("Project:  ".to_owned(), confirmation, String::new(), String::new()),
-                                        ("Files:    ".to_owned(), "Unchanged".to_owned(), String::new(), String::new()),
-                                    ];
-                                    let popup = Popup::new(
-                                        "primer-project-forgotten",
-                                        ui::GitChangePreview::new(
-                                            "Removed from remembered projects".to_owned(), lines,
-                                        ).with_title("Project forgotten").compact(),
-                                    ).with_border().top_right().with_scrollbar(false).auto_close(true);
-                                    compositor.replace_or_push("primer-project-forgotten", popup);
-                                })))
-                            });
-                            cx.jobs.callback(async move {
-                                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                                Ok(Callback::EditorCompositor(Box::new(move |_, compositor| {
-                                    compositor.remove("primer-project-forgotten");
-                                })))
-                            });
+                            ui::notification::notify(cx.jobs, ui::notification::Severity::Info,
+                                "Project forgotten", format!("{name} — project files unchanged"));
+
                         }
                         Err(error) => cx.editor.set_error(format!("Could not forget project: {error}")),
                     }
@@ -3756,6 +3778,10 @@ fn primer_project_forget(cx: &mut Context) {
 
 /// Pick a previously visited Git repository or manually added directory.
 fn primer_project_picker(cx: &mut Context) {
+    cx.callback.push(Box::new(|compositor, cx| open_project_picker(compositor, cx, false)));
+}
+
+fn open_project_picker(compositor: &mut crate::compositor::Compositor, cx: &mut crate::compositor::Context, remote: bool) {
     use crate::projects::registry::ProjectRegistry;
 
     let registry_path = match ProjectRegistry::default_path() {
@@ -3772,21 +3798,39 @@ fn primer_project_picker(cx: &mut Context) {
             return;
         }
     };
-    let projects = match registry.projects() {
+    let projects = match scoped_projects(&registry) {
         Ok(projects) => projects,
         Err(error) => {
             cx.editor.set_error(format!("Could not load project: {error}"));
             return;
         }
     };
-    if projects.is_empty() {
-        cx.callback.push(Box::new(move |compositor, _| {
-            let popup = Popup::new("primer-project-empty",
-                ui::GitChangePreview::new(String::new(), vec![
-                    ("Add a directory using ".to_owned(), "Space p a (dashboard: b)".to_owned(), String::new(), String::new()),
-                ]).with_title("No remembered projects").compact());
-            compositor.replace_or_push("primer-project-empty", popup.with_border().centered().with_scrollbar(false));
-        }));
+    let connected = match typed::remote_project_context() {
+        Ok(context) => context.is_some(),
+        Err(error) => { cx.editor.set_error(error.to_string()); return; }
+    };
+    #[cfg(target_os = "linux")]
+    if remote && !connected && cx.editor.config().features.remote_ssh {
+        let columns = [
+            PickerColumn::new("Project", |project: &crate::projects::registry::RemoteProject, _| project.path.file_name().unwrap_or_default().to_string_lossy().into_owned().into()),
+            PickerColumn::new("Host", |project: &crate::projects::registry::RemoteProject, _| project.destination.clone().into()),
+            PickerColumn::new("Root", |project: &crate::projects::registry::RemoteProject, _| project.path.display().to_string().into()),
+        ];
+        let picker = Picker::new(columns, 0, registry.remote_roots, (), |cx, project: &crate::projects::registry::RemoteProject, _| {
+            let result = (|| -> anyhow::Result<()> {
+                anyhow::ensure!(typed::remote_project_context()?.is_none(), "Disconnect before opening another remote project");
+                let location = typed::ssh_saved_hosts()?.into_iter()
+                    .filter(|host| host.destination == project.destination && project.path.starts_with(Path::new(&host.remote_path)))
+                    .max_by_key(|host| Path::new(&host.remote_path).components().count())
+                    .unwrap_or_else(|| crate::remote::registry::RemoteLocation {
+                        destination: project.destination.clone(),
+                        remote_path: project.path.display().to_string(),
+                    });
+                typed::ssh_connect_with_project(cx, location, Some(project.path.clone()))
+            })();
+            if let Err(error) = result { cx.editor.set_error(format!("{error:#}")); }
+        }).with_title("Remote Projects · Ctrl-r: Local").with_source_toggle(|compositor, cx| open_project_picker(compositor, cx, false));
+        compositor.push(Box::new(overlaid(picker)));
         return;
     }
     let columns = [
@@ -3805,7 +3849,7 @@ fn primer_project_picker(cx: &mut Context) {
                 return;
             }
         };
-        if let Err(error) = registry.register(&project.root).and_then(|_| registry.save(&registry_path)) {
+        if let Err(error) = remember_scoped_project(&mut registry, &project.root).and_then(|_| registry.save(&registry_path)) {
             cx.editor.set_error(format!("Could not update recent projects: {error}"));
             return;
         }
@@ -3814,11 +3858,20 @@ fn primer_project_picker(cx: &mut Context) {
         cx.editor.active_project_name = Some(project.name.clone());
         cx.editor.set_status(format!("Active project: {} · Space f f to browse files", project.name));
     });
-    cx.push_layer(Box::new(overlaid(picker.with_title("Projects"))));
+    let picker = picker.with_title(if connected { "Remote Projects" } else { "Local Projects" });
+    #[cfg(target_os = "linux")]
+    let picker = if connected || !cx.editor.config().features.remote_ssh { picker } else {
+        picker.with_title("Local Projects · Ctrl-r: Remote").with_source_toggle(|compositor, cx| open_project_picker(compositor, cx, true))
+    };
+    compositor.push(Box::new(overlaid(picker)));
 }
 
 fn file_picker(cx: &mut Context) {
-    let root = cx.editor.active_project_root.clone().unwrap_or_else(|| find_workspace().0);
+    let root = match typed::remote_file_root(cx.editor.active_project_root.as_deref()) {
+        Ok(Some(root)) => root,
+        Ok(None) => cx.editor.active_project_root.clone().unwrap_or_else(|| find_workspace().0),
+        Err(error) => { cx.editor.set_error(error.to_string()); return; }
+    };
     if !root.exists() {
         cx.editor.set_error("Workspace directory does not exist");
         return;
@@ -3865,7 +3918,11 @@ fn file_picker_in_current_directory(cx: &mut Context) {
 }
 
 fn file_explorer(cx: &mut Context) {
-    let root = cx.editor.active_project_root.clone().unwrap_or_else(|| find_workspace().0);
+    let root = match typed::remote_file_root(cx.editor.active_project_root.as_deref()) {
+        Ok(Some(root)) => root,
+        Ok(None) => cx.editor.active_project_root.clone().unwrap_or_else(|| find_workspace().0),
+        Err(error) => { cx.editor.set_error(error.to_string()); return; }
+    };
     if !root.exists() {
         cx.editor.set_error("Workspace directory does not exist");
         return;
@@ -4255,6 +4312,7 @@ pub fn command_palette(cx: &mut Context) {
                     }),
             );
 
+            let commands = commands.filter(|command| command.feature_enabled(&cx.editor.config().features)).collect::<Vec<_>>();
             let columns = [
                 ui::PickerColumn::new("name", |item, _| match item {
                     MappableCommand::Typable { name, .. } => format!(":{name}").into(),
@@ -4754,22 +4812,6 @@ fn primer_terminal_vsplit(cx: &mut Context) {
         name: "terminal-vsplit".to_owned(),
         args: String::new(),
         doc: "Open terminal in vertical split".to_owned(),
-    }.execute(cx);
-}
-
-fn primer_terminal_lazygit(cx: &mut Context) {
-    MappableCommand::Typable {
-        name: "terminal-lazygit".to_owned(),
-        args: String::new(),
-        doc: "Open lazygit in terminal".to_owned(),
-    }.execute(cx);
-}
-
-fn primer_terminal_lazydocker(cx: &mut Context) {
-    MappableCommand::Typable {
-        name: "terminal-lazydocker".to_owned(),
-        args: String::new(),
-        doc: "Open lazydocker in terminal".to_owned(),
     }.execute(cx);
 }
 
@@ -8882,5 +8924,13 @@ fn lsp_or_syntax_workspace_symbol_picker(cx: &mut Context) {
         lsp::workspace_symbol_picker(cx);
     } else {
         syntax_workspace_symbol_picker(cx);
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ssh_directory_picker(cx: &mut crate::compositor::Context, compositor: &mut crate::compositor::Compositor) {
+    match typed::remote_file_root(None).and_then(|root| root.ok_or_else(|| anyhow::anyhow!("Connect to an SSH host first"))).and_then(|root| primer_project_register_picker(root, true)) {
+        Ok(picker) => compositor.push(Box::new(overlaid(picker.with_title("Change Remote Root Directory")))),
+        Err(error) => cx.editor.set_error(format!("Cannot browse remote directories: {error}")),
     }
 }

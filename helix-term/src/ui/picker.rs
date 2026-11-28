@@ -260,6 +260,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     selection_only: bool,
     /// Hide the visual column header without changing searchable column names.
     hide_column_headers: bool,
+    source_toggle: Option<fn(&mut Compositor, &mut Context)>,
     /// Constraints for tabular formatting
     widths: Vec<Constraint>,
 
@@ -403,6 +404,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             file_fn: None,
             preview_highlight_handler: PreviewHighlightHandler::<T, D>::default().spawn(),
             dynamic_query_handler: None,
+            source_toggle: None,
         }
     }
 
@@ -424,6 +426,11 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
+        self
+    }
+
+    pub fn with_source_toggle(mut self, toggle: fn(&mut Compositor, &mut Context)) -> Self {
+        self.source_toggle = Some(toggle);
         self
     }
 
@@ -1137,6 +1144,13 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         };
 
         match key_event {
+            ctrl!('r') if self.source_toggle.is_some() => {
+                let toggle = self.source_toggle.unwrap();
+                return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+                    compositor.pop();
+                    toggle(compositor, cx);
+                })));
+            }
             shift!(Tab) | key!(Up) | ctrl!('p') => {
                 self.move_by(1, Direction::Backward);
             }

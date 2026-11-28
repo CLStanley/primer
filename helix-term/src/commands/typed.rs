@@ -169,7 +169,7 @@ fn open(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow:
 fn open_impl(cx: &mut compositor::Context, args: Args, action: Action) -> anyhow::Result<()> {
     for arg in args {
         let (path, pos) = crate::args::parse_file(&arg);
-        let path = helix_stdx::path::expand_tilde(path);
+        let path = resolve_environment_path(path.as_ref(), cx.editor.active_project_root.as_deref())?;
         // If the path is a directory, open a file picker on that directory and update the status
         // message
         if let Ok(true) = std::fs::canonicalize(&path).map(|p| p.is_dir()) {
@@ -177,7 +177,7 @@ fn open_impl(cx: &mut compositor::Context, args: Args, action: Action) -> anyhow
                 let call: job::Callback = job::Callback::EditorCompositor(Box::new(
                     move |editor: &mut Editor, compositor: &mut Compositor| {
                         let picker =
-                            ui::file_picker(editor, path.into_owned()).with_default_action(action);
+                            ui::file_picker(editor, path).with_default_action(action);
                         compositor.push(Box::new(overlaid(picker)));
                     },
                 ));
@@ -423,7 +423,7 @@ fn write_impl(
 
     let auto_format = config.auto_format && options.auto_format;
     let force = options.force;
-    let path: Option<PathBuf> = path.map(Into::into);
+    let path: Option<PathBuf> = path.map(|path| resolve_environment_path(Path::new(path), cx.editor.active_project_root.as_deref())).transpose()?;
 
     // Does the document configure any code actions to run on save?
     let run_code_actions = options.code_actions
@@ -3041,14 +3041,6 @@ fn open_terminal_hsplit(cx: &mut compositor::Context, args: Args, event: PromptE
     open_terminal_with_action(cx, args, event, Action::HorizontalSplit)
 }
 
-fn open_lazygit(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
-    open_terminal_program(cx, args, event, Action::Replace, Some("lazygit"))
-}
-
-fn open_lazydocker(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
-    open_terminal_program(cx, args, event, Action::Replace, Some("lazydocker"))
-}
-
 fn open_terminal_with_action(
     cx: &mut compositor::Context,
     _args: Args,
@@ -3075,8 +3067,42 @@ fn open_terminal_program(
     cx.jobs.callback(async move {
         Ok(job::Callback::EditorCompositor(Box::new(
             move |editor: &mut Editor, compositor: &mut Compositor| {
+                let mut executable = executable;
+                let mut directory = directory;
+                let mut arguments: Vec<String> = Vec::new();
+                #[cfg(target_os = "linux")]
+                {
+                    match remote_terminal_context(editor.active_project_root.as_deref()) {
+                        Ok(Some((destination, path, session))) => {
+                            if program.is_some() {
+                                editor.set_error("Use the remote terminal for Git and Docker commands");
+                                return;
+                            }
+                            match crate::remote::terminal_args(&destination, &path) {
+                                Ok(mut args) => {
+                                    if let Some(session) = session {
+                                        args.splice(0..0, ["-S".to_owned(), session.control_path().to_string_lossy().into_owned(), "-o".to_owned(), "ControlMaster=no".to_owned()]);
+                                    }
+                                    arguments = args;
+                                },
+                                Err(err) => {
+                                    editor.set_error(format!("Unable to open remote terminal: {err}"));
+                                    return;
+                                }
+                            }
+                            executable = "ssh".to_owned();
+                            directory = std::env::temp_dir();
+                        }
+                        Ok(None) => {}
+                        Err(err) => {
+                            editor.set_error(format!("Unable to open remote terminal: {err}"));
+                            return;
+                        }
+                    }
+                }
+                let args: Vec<&str> = arguments.iter().map(String::as_str).collect();
                 match crate::terminal::runtime::RunningTerminal::spawn(
-                    &executable, &[], &directory, 80, 24, 1000,
+                    &executable, &args, &directory, 80, 24, 1000,
                 ) {
                     Ok(terminal) => {
                         let id = editor.new_file(action);
@@ -3094,20 +3120,551 @@ fn open_terminal_program(
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+fn remote_terminal_context(project: Option<&Path>) -> anyhow::Result<Option<(String, String, Option<std::sync::Arc<crate::remote::session::Session>>)>> {
+    let active = active_remote().try_lock().map_err(|_| anyhow::anyhow!("Remote context is busy"))?;
+    let Some(location) = active.as_ref() else { return Ok(None); };
+    let registry = remote_registry().try_lock().map_err(|_| anyhow::anyhow!("Remote connection is busy"))?;
+    let mount = registry.mounted_path(location)?;
+    let directory = remote_directory().try_lock().map_err(|_| anyhow::anyhow!("Remote directory is busy"))?;
+    let relative = project.and_then(|path| path.strip_prefix(&mount).ok()).unwrap_or(&*directory);
+    let path = Path::new(&location.remote_path).join(relative);
+    let path = path.to_str().ok_or_else(|| anyhow::anyhow!("Remote directory is not UTF-8"))?;
+    let session = registry.session(location);
+    if let Some(session) = &session {
+        anyhow::ensure!(session.ready(), "SSH authentication session expired; disconnect and reconnect");
+    }
+    Ok(Some((location.destination.clone(), path.to_owned(), session)))
+}
+
+#[cfg(target_os = "linux")]
+fn saved_hosts_path() -> PathBuf {
+    helix_loader::config_dir().join("ssh-hosts.json")
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ssh_saved_hosts() -> anyhow::Result<Vec<crate::remote::registry::RemoteLocation>> {
+    let raw = match std::fs::read(saved_hosts_path()) {
+        Ok(raw) => raw,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => return Err(err.into()),
+    };
+    let entries: Vec<(String, String)> = serde_json::from_slice(&raw)?;
+    Ok(entries.into_iter().map(|(destination, remote_path)| crate::remote::registry::RemoteLocation { destination, remote_path }).collect())
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn remember_ssh_host(location: &crate::remote::registry::RemoteLocation) -> anyhow::Result<()> {
+    let mut hosts = ssh_saved_hosts()?;
+    if hosts.contains(location) { return Ok(()); }
+    crate::remote::mount_source(&location.destination, &location.remote_path)?;
+    hosts.push(location.clone());
+    write_saved_hosts(hosts)
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn edit_saved_host(old: &crate::remote::registry::RemoteLocation, replacement: Option<crate::remote::registry::RemoteLocation>) -> anyhow::Result<()> {
+    let mut hosts = ssh_saved_hosts()?;
+    let index = hosts.iter().position(|host| host == old).ok_or_else(|| anyhow::anyhow!("Saved connection no longer exists"))?;
+    if let Some(replacement) = replacement {
+        crate::remote::mount_source(&replacement.destination, &replacement.remote_path)?;
+        anyhow::ensure!(replacement == *old || !hosts.contains(&replacement), "Connection already saved");
+        hosts[index] = replacement;
+    } else { hosts.remove(index); }
+    write_saved_hosts(hosts)
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn cleanup_unused_ssh_password(destination: &str) -> anyhow::Result<()> {
+    if ssh_saved_hosts()?.iter().any(|host| host.destination == destination) {
+        return Ok(());
+    }
+    crate::remote::credentials::forget(destination)
+}
+
+#[cfg(target_os = "linux")]
+fn write_saved_hosts(hosts: Vec<crate::remote::registry::RemoteLocation>) -> anyhow::Result<()> {
+    let entries: Vec<_> = hosts.into_iter().map(|host| (host.destination, host.remote_path)).collect();
+    let path = saved_hosts_path();
+    if let Some(parent) = path.parent() { std::fs::create_dir_all(parent)?; }
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let temp = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temp)?;
+    let result = (|| -> anyhow::Result<()> {
+        file.write_all(&serde_json::to_vec_pretty(&entries)?)?;
+        std::fs::rename(&temp, &path)?;
+        Ok(())
+    })();
+    if result.is_err() { let _ = std::fs::remove_file(&temp); }
+    result
+}
+
+#[cfg(target_os = "linux")]
+fn active_remote() -> &'static std::sync::Mutex<Option<crate::remote::registry::RemoteLocation>> {
+    static ACTIVE: std::sync::Mutex<Option<crate::remote::registry::RemoteLocation>> = std::sync::Mutex::new(None);
+    &ACTIVE
+}
+
+/// Translate a user-entered path into the mounted remote namespace.
+fn resolve_environment_path(path: &Path, project: Option<&Path>) -> anyhow::Result<PathBuf> {
+    #[cfg(target_os = "linux")]
+    {
+        let active = active_remote().try_lock().map_err(|_| anyhow::anyhow!("Remote context is busy"))?;
+        if let Some(location) = active.as_ref() {
+            let registry = remote_registry().try_lock().map_err(|_| anyhow::anyhow!("Remote connection is busy"))?;
+            let root = registry.mounted_path(location)?;
+            let directory = remote_directory().try_lock().map_err(|_| anyhow::anyhow!("Remote directory is busy"))?;
+            let candidate = if path.is_absolute() {
+                root.join(path.strip_prefix(&location.remote_path)
+                    .map_err(|_| anyhow::anyhow!("Path is outside the mounted remote root"))?)
+            } else {
+                anyhow::ensure!(!path.starts_with("~"), "Use an absolute remote path or a relative path");
+                project.filter(|path| path.starts_with(&root)).map(Path::to_path_buf).unwrap_or_else(|| root.join(&*directory)).join(path)
+            };
+            // Resolve existing ancestors, including symlinks, before accepting new files.
+            let mut ancestor = candidate.as_path();
+            let mut suffix = Vec::new();
+            let canonical = loop {
+                match ancestor.canonicalize() {
+                    Ok(value) => break value,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        anyhow::ensure!(ancestor.symlink_metadata().is_err(), "Cannot resolve remote symlink");
+                        let name = ancestor.file_name().ok_or_else(|| anyhow::anyhow!("Invalid remote path"))?;
+                        suffix.push(name);
+                        ancestor = ancestor.parent().ok_or_else(|| anyhow::anyhow!("Invalid remote path"))?;
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            };
+            anyhow::ensure!(canonical.starts_with(&root), "Path is outside the mounted remote root");
+            let mut resolved = canonical;
+            for name in suffix.into_iter().rev() { resolved.push(name); }
+            return Ok(resolved);
+        }
+    }
+    Ok(helix_stdx::path::expand_tilde(path).into_owned())
+}
+
+/// Return the stable host identity and mounted root for project operations.
+pub(crate) fn remote_project_context() -> anyhow::Result<Option<(String, PathBuf, PathBuf)>> {
+    #[cfg(target_os = "linux")]
+    {
+        let active = active_remote().try_lock().map_err(|_| anyhow::anyhow!("Remote context is busy"))?;
+        if let Some(location) = active.as_ref() {
+            let registry = remote_registry().try_lock().map_err(|_| anyhow::anyhow!("Remote connection is busy"))?;
+            return Ok(Some((location.destination.clone(), PathBuf::from(&location.remote_path), registry.mounted_path(location)?.to_path_buf())));
+        }
+    }
+    Ok(None)
+}
+
+/// Resolve the active remote working directory without falling back to local files.
+pub(crate) fn remote_file_root(project: Option<&Path>) -> anyhow::Result<Option<PathBuf>> {
+    #[cfg(target_os = "linux")]
+    {
+        let active = active_remote().try_lock().map_err(|_| anyhow::anyhow!("Remote context is busy"))?;
+        if let Some(location) = active.as_ref() {
+            let registry = remote_registry().try_lock().map_err(|_| anyhow::anyhow!("Remote connection is busy"))?;
+            let directory = remote_directory().try_lock().map_err(|_| anyhow::anyhow!("Remote directory is busy"))?;
+            let mount = registry.mounted_path(location)?;
+            return Ok(Some(project.filter(|path| path.starts_with(&mount)).map(Path::to_path_buf).unwrap_or_else(|| mount.join(&*directory))));
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(target_os = "linux")]
+fn remote_directory() -> &'static std::sync::Mutex<PathBuf> {
+    static DIRECTORY: std::sync::OnceLock<std::sync::Mutex<PathBuf>> = std::sync::OnceLock::new();
+    DIRECTORY.get_or_init(|| std::sync::Mutex::new(PathBuf::new()))
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ssh_change_directory(cx: &mut compositor::Context, input: String) {
+    cx.jobs.spawn(async move {
+        let result = tokio::task::spawn_blocking(move || -> anyhow::Result<(PathBuf, String)> {
+            let active = active_remote().lock().map_err(|_| anyhow::anyhow!("Remote context unavailable"))?;
+            let location = active.as_ref().ok_or_else(|| anyhow::anyhow!("Connect to an SSH host first"))?;
+            let registry = remote_registry().lock().map_err(|_| anyhow::anyhow!("Remote registry unavailable"))?;
+            let root = registry.mounted_path(location)?;
+            let mut directory = remote_directory().lock().map_err(|_| anyhow::anyhow!("Remote directory unavailable"))?;
+            let input = Path::new(input.trim());
+            let candidate = if input.is_absolute() {
+                root.join(input.strip_prefix(&location.remote_path).map_err(|_| anyhow::anyhow!("Directory is outside the mounted remote root"))?)
+            } else {
+                root.join(&*directory).join(input)
+            };
+            let canonical = candidate.canonicalize()?;
+            anyhow::ensure!(canonical.starts_with(root) && canonical.is_dir(), "Choose a directory inside the mounted remote root");
+            *directory = canonical.strip_prefix(root)?.to_owned();
+            Ok((canonical, Path::new(&location.remote_path).join(&*directory).display().to_string()))
+        }).await;
+        use ui::notification::{dispatch_notification, Severity};
+        match result {
+            Ok(Ok((directory, path))) => job::dispatch(move |editor, compositor| {
+                let cleared = editor.active_project_root.as_ref().is_some_and(|root| !directory.starts_with(root) && !root.starts_with(&directory));
+                if cleared {
+                    editor.active_project_root = None;
+                    editor.active_project_name = None;
+                }
+                let message = if cleared { format!("{path} — active project cleared") } else { path };
+                ui::notification::show_operation(compositor, None, Severity::Success, "Remote directory changed", message, false);
+            }).await,
+            Ok(Err(err)) => dispatch_notification(Severity::Warning, "Change directory failed", format!("{err:#}")).await,
+            Err(err) => dispatch_notification(Severity::Error, "SSH worker failed", err.to_string()).await,
+        }
+        Ok(())
+    });
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ssh_dashboard_indicator() -> Option<String> {
+    let active = active_remote().try_lock().ok()?.clone()?;
+    let registry = match remote_registry().try_lock() {
+        Ok(registry) => registry,
+        Err(_) => return Some(format!("SSH: {} (busy)", active.destination)),
+    };
+    let state = if registry.mounted_path(&active).is_ok() { "Mounted" } else { "Disconnected" };
+    Some(format!("SSH: {} ({state})", active.destination))
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ssh_disconnect_dashboard(cx: &mut compositor::Context) {
+    let result = (|| -> anyhow::Result<()> {
+        let mut active = active_remote().try_lock().map_err(|_| anyhow::anyhow!("Remote context is busy"))?;
+        let location = active.clone().ok_or_else(|| anyhow::anyhow!("No active SSH connection"))?;
+        let mut registry = remote_registry().try_lock().map_err(|_| anyhow::anyhow!("Remote connection is busy"))?;
+        let mount = registry.get(&location).ok_or_else(|| anyhow::anyhow!("Unknown remote connection"))?;
+        anyhow::ensure!(!cx.editor.documents().any(|doc| doc.path().is_some_and(|path| path.starts_with(mount.path()))),
+            "Close all remote buffers before disconnecting");
+        anyhow::ensure!(cx.editor.terminal_documents.is_empty(),
+            "Close terminal buffers before disconnecting");
+        // Keep the dashboard transition serialized with editor actions. Never force unmount.
+        registry.disconnect(&location)?;
+        *active = None;
+        cx.editor.active_project_root = None;
+        cx.editor.active_project_name = None;
+        if let Ok(mut saved) = suspended_local_project().lock() {
+            if let Some((root, name)) = saved.take() {
+                cx.editor.active_project_root = root;
+                cx.editor.active_project_name = name;
+            }
+        }
+        if let Ok(mut directory) = remote_directory().lock() { directory.clear(); }
+        Ok(())
+    })();
+    match result {
+        Ok(()) => ui::notification::notify(cx.jobs, ui::notification::Severity::Success,
+            "SSH disconnected", "Local environment restored"),
+        Err(err) => ui::notification::notify(cx.jobs, ui::notification::Severity::Warning,
+            "SSH disconnect failed", format!("{err:#}")),
+    };
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ssh_browse(cx: &mut compositor::Context) {
+    cx.jobs.callback(async move {
+        let result = tokio::task::spawn_blocking(|| -> anyhow::Result<PathBuf> {
+            let active = active_remote().lock().map_err(|_| anyhow::anyhow!("Remote context unavailable"))?
+                .clone().ok_or_else(|| anyhow::anyhow!("Connect to an SSH host first"))?;
+            let registry = remote_registry().lock().map_err(|_| anyhow::anyhow!("Remote registry unavailable"))?;
+            Ok(registry.mounted_path(&active)?.join(&*remote_directory().lock().map_err(|_| anyhow::anyhow!("Remote directory unavailable"))?))
+        }).await;
+        Ok(job::Callback::EditorCompositor(Box::new(move |editor, compositor| {
+            match result {
+                Ok(Ok(path)) => compositor.push(Box::new(overlaid(ui::file_picker(editor, path)))),
+                Ok(Err(err)) => remote_feedback(compositor, format!("Remote files\n\n{err:#}")),
+                Err(err) => remote_feedback(compositor, format!("SSH worker failed\n\n{err}")),
+            }
+        })))
+    });
+}
+
+#[cfg(target_os = "linux")]
+fn remote_registry() -> &'static std::sync::Mutex<crate::remote::registry::ConnectionRegistry> {
+    static REGISTRY: std::sync::OnceLock<std::sync::Mutex<crate::remote::registry::ConnectionRegistry>> =
+        std::sync::OnceLock::new();
+    REGISTRY.get_or_init(Default::default)
+}
+
+#[cfg(target_os = "linux")]
+fn ssh_connect(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    let location = crate::remote::registry::RemoteLocation {
+        destination: args[0].to_string(),
+        remote_path: args[1].to_string(),
+    };
+    ssh_connect_location(cx, location)
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ssh_connect_location(cx: &mut compositor::Context, location: crate::remote::registry::RemoteLocation) -> anyhow::Result<()> {
+    ssh_connect_confirmed(cx, location)
+}
+
+#[cfg(target_os = "linux")]
+fn suspended_local_project() -> &'static std::sync::Mutex<Option<(Option<PathBuf>, Option<String>)>> {
+    static PROJECT: std::sync::Mutex<Option<(Option<PathBuf>, Option<String>)>> = std::sync::Mutex::new(None);
+    &PROJECT
+}
+
+#[cfg(target_os = "linux")]
+fn ssh_connect_confirmed(cx: &mut compositor::Context, location: crate::remote::registry::RemoteLocation) -> anyhow::Result<()> {
+    ssh_connect_with_project(cx, location, None)
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ssh_connect_with_project(cx: &mut compositor::Context, location: crate::remote::registry::RemoteLocation, project: Option<PathBuf>) -> anyhow::Result<()> {
+    ssh_connect_with_options(cx, location, project, false)
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ssh_connect_with_options(cx: &mut compositor::Context, location: crate::remote::registry::RemoteLocation, project: Option<PathBuf>, save_host: bool) -> anyhow::Result<()> {
+    crate::remote::mount_source(&location.destination, &location.remote_path)?;
+    {
+        let active = active_remote().try_lock().map_err(|_| anyhow::anyhow!("Remote context is busy"))?;
+        if let Some(previous) = active.as_ref().filter(|previous| *previous != &location) {
+            let registry = remote_registry().try_lock().map_err(|_| anyhow::anyhow!("Remote connection is busy"))?;
+            let mount = registry.get(previous).ok_or_else(|| anyhow::anyhow!("Unknown remote connection"))?;
+            anyhow::ensure!(!cx.editor.documents().any(|doc| doc.path().is_some_and(|path| path.starts_with(mount.path()))), "Close all remote buffers before switching connections");
+            anyhow::ensure!(cx.editor.terminal_documents.is_empty(), "Close terminal buffers before switching connections");
+        }
+    }
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .ok_or_else(|| anyhow::anyhow!("XDG_RUNTIME_DIR is not set"))?;
+    cx.editor.set_status("Checking SSH and Tailscale connectivity...");
+    cx.jobs.callback(ssh_connection_job(location, runtime, project, save_host));
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) async fn ssh_connection_job(location: crate::remote::registry::RemoteLocation, runtime: PathBuf, project: Option<PathBuf>, save_host: bool) -> anyhow::Result<job::Callback> {
+        let host = location.destination.clone();
+        job::dispatch(move |_, compositor| {
+            ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Info, "Connecting to SSH", host, true);
+        }).await;
+        let retry_location = location.clone();
+        let retry_project = project.clone();
+        let result = async {
+            let destination = location.destination.clone();
+            tokio::task::spawn_blocking(move || crate::remote::tailscale_preflight(&destination)).await??;
+            job::dispatch(|_, compositor| {
+                ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Info, "Connecting to SSH", "Checking SSH authentication and SFTP", true);
+            }).await;
+            let destination = location.destination.clone();
+            let mut preflight = tokio::task::spawn_blocking(move || crate::remote::ssh_auth_preflight(&destination)).await?;
+            if preflight.as_ref().err().is_some_and(|error| crate::remote::unknown_host_key(&format!("{error:#}"))) {
+                let destination = location.destination.clone();
+                let verification_runtime = runtime.clone();
+                let handle = tokio::runtime::Handle::current();
+                let verification = tokio::task::spawn_blocking(move || {
+                    let host = destination.clone();
+                    crate::remote::host_verification::verify_host(&verification_runtime, &destination, move |pending| {
+                        handle.block_on(job::dispatch(move |_, compositor| {
+                            ui::dashboard::host_verification_dialog(compositor, host, pending);
+                        }));
+                    })
+                }).await;
+                job::dispatch(|_, compositor| { compositor.remove("ssh-host-verification"); }).await;
+                verification??;
+                let destination = location.destination.clone();
+                preflight = tokio::task::spawn_blocking(move || crate::remote::ssh_auth_preflight(&destination)).await?;
+            }
+            let session = if let Err(error) = preflight {
+                let diagnostic = format!("{error:#}");
+                if !diagnostic.contains("Permission denied") || crate::remote::authentication_url(&diagnostic).is_some() {
+                    return Err(error);
+                }
+                let destination = location.destination.clone();
+                let authentication_runtime = runtime.clone();
+                let handle = tokio::runtime::Handle::current();
+                let authenticated = tokio::task::spawn_blocking(move || {
+                    let session = crate::remote::session::Session::authenticate(&authentication_runtime, &destination, |pending| {
+                        let host = destination.clone();
+                        handle.block_on(job::dispatch(move |_, compositor| {
+                            ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Info, "SSH authentication required", "Waiting for your response", true);
+                            ui::dashboard::credential_dialog(compositor, host, pending);
+                        }));
+                    })?;
+                    crate::remote::ssh_auth_preflight_with_session(&destination, Some(&session))?;
+                    Ok::<_, anyhow::Error>(std::sync::Arc::new(session))
+                }).await;
+                job::dispatch(|_, compositor| { compositor.remove("ssh-credential"); }).await;
+                let session = authenticated??;
+                if let Some(warning) = session.credential_warning().map(str::to_owned) {
+                    job::dispatch(move |_, compositor| {
+                        ui::notification::show_operation(compositor, None, ui::notification::Severity::Error, "SSH password not saved", warning, false);
+                    }).await;
+                }
+                Some(session)
+            } else { None };
+            let previous = active_remote().lock().map_err(|_| anyhow::anyhow!("Remote context unavailable"))?.clone();
+            if let Some(previous) = previous.filter(|previous| previous != &location) {
+                let target = location.clone();
+                let target_session = session.clone();
+                let runtime = runtime.clone();
+                let (sender, receiver) = tokio::sync::oneshot::channel();
+                job::dispatch(move |editor, compositor| {
+                    let result = (|| -> anyhow::Result<()> {
+                        let mut active = active_remote().try_lock().map_err(|_| anyhow::anyhow!("Remote context is busy"))?;
+                        anyhow::ensure!(active.as_ref() == Some(&previous), "Active connection changed during authentication");
+                        let mut registry = remote_registry().try_lock().map_err(|_| anyhow::anyhow!("Remote connection is busy"))?;
+                        let mount = registry.mounted_path(&previous)?.to_path_buf();
+                        anyhow::ensure!(!editor.documents().any(|doc| doc.path().is_some_and(|path| path.starts_with(&mount))), "Close all remote buffers before switching connections");
+                        anyhow::ensure!(editor.terminal_documents.is_empty(), "Close terminal buffers before switching connections");
+                        ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Info, "Switching SSH connection", "Replacing previous mount", true);
+                        let previous_session = registry.session(&previous);
+                        registry.disconnect(&previous)?;
+                        if let Err(error) = registry.connect_with_session(&runtime, target.clone(), target_session) {
+                            match registry.connect_with_session(&runtime, previous.clone(), previous_session) {
+                                Ok(restored) => {
+                                    if let Some(root) = editor.active_project_root.as_mut() {
+                                        if let Ok(relative) = root.strip_prefix(&mount) { *root = restored.join(relative); }
+                                    }
+                                    anyhow::bail!("New mount failed: {error:#}. Previous connection restored.");
+                                }
+                                Err(restore) => {
+                                    *active = None;
+                                    editor.active_project_root = None;
+                                    editor.active_project_name = None;
+                                    if let Ok(mut saved) = suspended_local_project().lock() {
+                                        if let Some((root, name)) = saved.take() {
+                                            editor.active_project_root = root;
+                                            editor.active_project_name = name;
+                                        }
+                                    }
+                                    if let Ok(mut directory) = remote_directory().lock() { directory.clear(); }
+                                    anyhow::bail!("New mount failed: {error:#}. Previous connection could not be restored: {restore:#}. Local environment restored.");
+                                }
+                            }
+                        }
+                        *active = Some(target);
+                        editor.active_project_root = None;
+                        editor.active_project_name = None;
+                        if let Ok(mut directory) = remote_directory().lock() { directory.clear(); }
+                        Ok(())
+                    })();
+                    let _ = sender.send(result);
+                }).await;
+                receiver.await??;
+            }
+            job::dispatch(|_, compositor| {
+                ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Info, "Connecting to SSH", "Mounting remote filesystem", true);
+            }).await;
+            tokio::task::spawn_blocking(move || {
+            let mut registry = remote_registry().lock()
+                .map_err(|_| anyhow::anyhow!("Remote registry unavailable"))?;
+            let mount = registry.connect_with_session(&runtime, location.clone(), session)?;
+            let selected = project.map(|path| -> anyhow::Result<_> {
+                let relative = path.strip_prefix(Path::new(&location.remote_path))?;
+                let project = crate::projects::from_directory(&mount.join(relative))?;
+                anyhow::ensure!(project.root.starts_with(&mount), "Project is outside remote mount");
+                Ok(project)
+            }).transpose();
+            match selected {
+                Ok(project) => Ok::<_, anyhow::Error>((location, project)),
+                Err(error) => {
+                    registry.disconnect(&location)?;
+                    Err(error)
+                }
+            }
+            }).await?
+        }.await;
+        Ok(job::Callback::EditorCompositor(Box::new(move |editor, compositor| {
+            match result {
+                Ok((location, project)) => {
+                    let save_error = if save_host { remember_ssh_host(&location).err() } else { None };
+                    if let Ok(mut active) = active_remote().lock() {
+                        if active.is_none() {
+                            if let Ok(mut saved) = suspended_local_project().lock() {
+                                *saved = Some((editor.active_project_root.take(), editor.active_project_name.take()));
+                            }
+                        }
+                        if active.as_ref() != Some(&location) {
+                            editor.active_project_root = None;
+                            editor.active_project_name = None;
+                            if let Ok(mut directory) = remote_directory().lock() { directory.clear(); }
+                        }
+                        *active = Some(location);
+                    }
+                    if let Some(project) = project {
+                        editor.active_project_root = Some(project.root);
+                        editor.active_project_name = Some(project.name);
+                    }
+                    editor.set_status("Remote filesystem mounted");
+                    ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Success, "SSH connected", if save_host && save_error.is_none() { "Remote filesystem mounted; host saved" } else { "Remote filesystem mounted" }, false);
+                    if let Some(error) = save_error {
+                        ui::notification::show_operation(compositor, None, ui::notification::Severity::Warning, "SSH host not saved", format!("{error:#}"), false);
+                    }
+                }
+                Err(err) => {
+                    let diagnostic = format!("{err:#}");
+                    if crate::remote::unknown_host_key(&diagnostic) {
+                        ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Error, "SSH host not trusted", format!("{}\nInitialize with ssh {} in a terminal. Verify the host fingerprint before accepting, then reconnect in Primer.", diagnostic, retry_location.destination), false);
+                    } else if let Some(url) = crate::remote::authentication_url(&diagnostic) {
+                        ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Warning, "SSH authentication required", retry_location.destination.clone(), false);
+                        ui::dashboard::authentication_dialog(compositor, retry_location, url, retry_project, save_host);
+                    } else {
+                        ui::notification::show_operation(compositor, Some("ssh-connect"), ui::notification::Severity::Error, "SSH connection failed", diagnostic, false);
+                    }
+                }
+            }
+        })))
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn ssh_connections(cx: &mut compositor::Context, _args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate { return Ok(()); }
+    cx.jobs.callback(async move {
+        let result = tokio::task::spawn_blocking(|| -> anyhow::Result<_> {
+            let active = active_remote().lock().map_err(|_| anyhow::anyhow!("Remote context unavailable"))?.clone();
+            let indicator = ssh_dashboard_indicator();
+            let directory = remote_directory().lock().map_err(|_| anyhow::anyhow!("Remote directory unavailable"))?.clone();
+            let hosts = ssh_saved_hosts()?;
+            let summary = active.map(|location| format!("{}\n{}", indicator.unwrap_or(location.destination), Path::new(&location.remote_path).join(directory).display()));
+            let passwords: std::collections::HashMap<String, Option<bool>> = hosts.iter().map(|host| (host.destination.clone(), crate::remote::credentials::has_saved(&host.destination).ok())).collect();
+            Ok((hosts, summary, passwords))
+        }).await;
+        Ok(job::Callback::EditorCompositor(Box::new(move |_, compositor| {
+            match result {
+                Ok(Ok((hosts, active, passwords))) => ui::dashboard::connections_dialog(compositor, hosts, active, passwords),
+                Ok(Err(err)) => ui::notification::show_operation(compositor, None, ui::notification::Severity::Error, "SSH connections unavailable", format!("{err:#}"), false),
+                Err(err) => ui::notification::show_operation(compositor, None, ui::notification::Severity::Error, "SSH worker failed", err.to_string(), false),
+            }
+        })))
+    });
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn remote_feedback(compositor: &mut Compositor, message: String) {
+    let (title, body) = message.split_once("\n\n").unwrap_or((&message, ""));
+    let lines = body.lines().map(|line| (line.to_owned(), String::new(), String::new(), String::new())).collect();
+    let content = ui::GitChangePreview::new("Esc to close".to_owned(), lines).with_title(title).compact();
+    compositor.push(Box::new(crate::ui::popup::Popup::new("remote-ssh-feedback", content)
+        .centered().with_border()));
+}
+
 pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
+    #[cfg(target_os = "linux")]
     TypableCommand {
-        name: "terminal-lazygit",
+        name: "ssh-connect",
         aliases: &[],
-        doc: "Open lazygit in a terminal buffer.",
-        fun: open_lazygit,
+        doc: "Mount an SSH host and absolute remote directory, and select the remote context.",
+        fun: ssh_connect,
         completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+        signature: Signature { positionals: (2, Some(2)), ..Signature::DEFAULT },
     },
+    #[cfg(target_os = "linux")]
     TypableCommand {
-        name: "terminal-lazydocker",
+        name: "ssh-connections",
         aliases: &[],
-        doc: "Open lazydocker in a terminal buffer.",
-        fun: open_lazydocker,
+        doc: "Show registered remote SSH connections.",
+        fun: ssh_connections,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
     },
@@ -4282,6 +4839,10 @@ pub(super) fn execute_command(
     args: &str,
     event: PromptEvent,
 ) -> anyhow::Result<()> {
+    if !typed_feature_enabled(cmd.name, &cx.editor.config().features) {
+        if event == PromptEvent::Validate { anyhow::bail!("Remote SSH is disabled in configuration"); }
+        return Ok(());
+    }
     let args = if event == PromptEvent::Validate {
         Args::parse(args, cmd.signature, true, |token| {
             expansion::expand(cx.editor, token).map_err(|err| err.into())
@@ -4307,7 +4868,13 @@ pub(super) fn command_mode(cx: &mut Context) {
             }
         },
     );
-    prompt.doc_fn = Box::new(command_line_doc);
+    let features = cx.editor.config().features.clone();
+    prompt.doc_fn = Box::new(move |input| {
+        let (name, _, _) = command_line::split(input);
+        let command = TYPABLE_COMMAND_MAP.get(name)?;
+        if !typed_feature_enabled(command.name, &features) { return None; }
+        command_line_doc(input)
+    });
 
     // Calculate initial completion
     prompt.recalculate_completion(cx.editor);
@@ -4386,13 +4953,17 @@ fn command_line_doc(input: &str) -> Option<Cow<'_, str>> {
     Some(Cow::Owned(doc))
 }
 
+fn typed_feature_enabled(name: &str, features: &helix_view::editor::FeatureConfig) -> bool {
+    !name.starts_with("ssh-") || (features.remote_ssh && cfg!(target_os = "linux"))
+}
+
 fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Completion> {
     let (command, rest, complete_command) = command_line::split(input);
 
     if complete_command {
         fuzzy_match(
             input,
-            TYPABLE_COMMAND_LIST.iter().map(|command| command.name),
+            TYPABLE_COMMAND_LIST.iter().filter(|command| typed_feature_enabled(command.name, &editor.config().features)).map(|command| command.name),
             false,
         )
         .into_iter()
@@ -4401,6 +4972,7 @@ fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Comple
     } else {
         TYPABLE_COMMAND_MAP
             .get(command)
+            .filter(|cmd| typed_feature_enabled(cmd.name, &editor.config().features))
             .map_or_else(Vec::new, |cmd| {
                 let args_offset = command.len() + 1;
                 complete_command_args(editor, cmd.signature, &cmd.completer, rest, args_offset)
