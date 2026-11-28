@@ -30,10 +30,19 @@ pub struct DocumentSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum PaneLayout {
+    Pane { document: DocumentSnapshot, focused: bool },
+    Group { horizontal: bool, children: Vec<PaneLayout> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceSnapshot {
     pub project: ProjectIdentity,
     pub documents: Vec<DocumentSnapshot>,
     pub active_document: Option<usize>,
+    #[serde(default)]
+    pub layout: Option<PaneLayout>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -124,7 +133,46 @@ pub fn capture(
         documents.push(DocumentSnapshot { path: root.join(relative), cursor, scroll,
             ranges, primary, horizontal_offset, vertical_offset });
     }
-    Ok(WorkspaceSnapshot { project, documents, active_document })
+    fn capture_layout(
+        editor: &helix_view::Editor,
+        tree: helix_view::tree::SplitTree,
+        root: &Path,
+        mounted_root: &Path,
+    ) -> Option<PaneLayout> {
+        use helix_view::tree::{Layout, SplitTree};
+        match tree {
+            SplitTree::Pane(id) => {
+                let view = editor.tree.get(id);
+                let doc = editor.document(view.doc)?;
+                let relative = doc.path()?.strip_prefix(mounted_root).ok()?;
+                let selection = doc.selection(id);
+                let offset = doc.view_offset(id);
+                Some(PaneLayout::Pane {
+                    document: DocumentSnapshot {
+                        path: root.join(relative),
+                        cursor: selection.primary().cursor(doc.text().slice(..)),
+                        scroll: offset.anchor,
+                        ranges: selection.ranges().iter().map(|range| (range.anchor, range.head)).collect(),
+                        primary: selection.primary_index(),
+                        horizontal_offset: offset.horizontal_offset,
+                        vertical_offset: offset.vertical_offset,
+                    },
+                    focused: editor.tree.focus == id,
+                })
+            }
+            SplitTree::Group { layout, children } => {
+                let mut children: Vec<_> = children.into_iter()
+                    .filter_map(|child| capture_layout(editor, child, root, mounted_root)).collect();
+                match children.len() {
+                    0 => None,
+                    1 => children.pop(),
+                    _ => Some(PaneLayout::Group { horizontal: layout == Layout::Horizontal, children }),
+                }
+            }
+        }
+    }
+    let layout = capture_layout(editor, editor.tree.split_tree(), root, mounted_root);
+    Ok(WorkspaceSnapshot { project, documents, active_document, layout })
 }
 
 /// Restore file-backed buffers additively. Never close existing documents.
@@ -191,6 +239,7 @@ mod tests {
             store.insert(WorkspaceSnapshot {
                 project, documents: vec![DocumentSnapshot { path: PathBuf::from("/code/main.rs"), cursor: 12, scroll: 3, ranges: vec![(12, 8), (20, 22)], primary: 1, horizontal_offset: 4, vertical_offset: 2 }],
                 active_document: Some(0),
+                layout: None,
             });
         }
         store.save(&path).unwrap();
