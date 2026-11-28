@@ -3175,6 +3175,14 @@ pub(crate) fn edit_saved_host(old: &crate::remote::registry::RemoteLocation, rep
 }
 
 #[cfg(target_os = "linux")]
+pub(crate) fn cleanup_unused_ssh_password(destination: &str) -> anyhow::Result<()> {
+    if ssh_saved_hosts()?.iter().any(|host| host.destination == destination) {
+        return Ok(());
+    }
+    crate::remote::credentials::forget(destination)
+}
+
+#[cfg(target_os = "linux")]
 fn write_saved_hosts(hosts: Vec<crate::remote::registry::RemoteLocation>) -> anyhow::Result<()> {
     let entries: Vec<_> = hosts.into_iter().map(|host| (host.destination, host.remote_path)).collect();
     let path = saved_hosts_path();
