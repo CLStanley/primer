@@ -41,6 +41,7 @@ name = "hx"
 path = "src/main.rs"
 
 [dependencies]
+tempfile.workspace = true
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 helix-stdx = { path = "../helix-stdx" }
 helix-core = { path = "../helix-core" }
@@ -108,5 +109,4 @@ helix-loader = { path = "../helix-loader" }
 [dev-dependencies]
 smallvec = "1.15"
 indoc = "2.0.6"
-tempfile.workspace = true
 same-file = "1.0.1"

@@ -234,7 +234,11 @@ implementation.
 
 ### Planned: project workspace sessions
 
-Implement in a separate project-sessions feature branch after the SSH work.
+Implementation is underway in `feature/project-sessions`. The first milestone
+is the persistent snapshot model and storage, followed by editor capture and
+restore, then safe workspace transitions and terminal lifecycle integration.
+Session storage must not contain unsaved document contents or credentials.
+Missing or invalid snapshots must not destroy the current workspace.
 A project is a registered directory; its workspace is the current editing
 environment, and a saved session is an optional persistent snapshot.
 
