@@ -1,6 +1,7 @@
 //! Git-root discovery and manually remembered directory projects.
 //! No project marker or per-repository configuration is required.
 pub mod registry;
+pub mod sessions;
 
 use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
