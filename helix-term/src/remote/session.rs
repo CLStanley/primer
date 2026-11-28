@@ -10,6 +10,7 @@ pub struct Session {
     directory: PathBuf,
     destination: String,
     child: Option<Child>,
+    credential_warning: Option<String>,
 }
 
 impl Session {
@@ -18,8 +19,10 @@ impl Session {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let directory = runtime.join(format!("primer-session-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
         std::fs::DirBuilder::new().mode(0o700).create(&directory)?;
-        Ok(Self { directory, destination: destination.into(), child: None })
+        Ok(Self { directory, destination: destination.into(), child: None, credential_warning: None })
     }
+
+    pub fn credential_warning(&self) -> Option<&str> { self.credential_warning.as_deref() }
 
     pub fn control_path(&self) -> PathBuf {
         self.directory.join("control")
@@ -214,7 +217,9 @@ impl Session {
             loop {
                 if session.ready() {
                     if let Some(password) = candidate.take() {
-                        let _ = super::credentials::store(destination, &password);
+                        if let Err(error) = super::credentials::store(destination, &password) {
+                            session.credential_warning = Some(format!("Could not save SSH password: {error:#}"));
+                        }
                     }
                     return Ok(());
                 }
