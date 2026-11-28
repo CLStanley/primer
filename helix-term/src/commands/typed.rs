@@ -3494,7 +3494,13 @@ pub(crate) async fn ssh_connection_job(location: crate::remote::registry::Remote
                     Ok::<_, anyhow::Error>(std::sync::Arc::new(session))
                 }).await;
                 job::dispatch(|_, compositor| { compositor.remove("ssh-credential"); }).await;
-                Some(authenticated??)
+                let session = authenticated??;
+                if let Some(warning) = session.credential_warning().map(str::to_owned) {
+                    job::dispatch(move |_, compositor| {
+                        ui::notification::show_operation(compositor, None, ui::notification::Severity::Error, "SSH password not saved", warning, false);
+                    }).await;
+                }
+                Some(session)
             } else { None };
             let previous = active_remote().lock().map_err(|_| anyhow::anyhow!("Remote context unavailable"))?.clone();
             if let Some(previous) = previous.filter(|previous| previous != &location) {
