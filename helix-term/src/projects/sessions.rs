@@ -197,11 +197,7 @@ pub fn restore(
         anyhow::ensure!(path.starts_with(&canonical_root) && path.is_file(), "Session document outside project or not a file");
         Ok(path)
     }).collect::<Result<Vec<_>>>()?;
-    let mut active_id = None;
-    for (index, (path, saved)) in paths.iter().zip(&snapshot.documents).enumerate() {
-        let action = if editor.tree.is_empty() { Action::VerticalSplit } else { Action::Load };
-        let id = editor.open(path, action)?;
-        let view_id = editor.tree.focus;
+    fn apply_state(editor: &mut helix_view::Editor, id: helix_view::DocumentId, view_id: helix_view::ViewId, saved: &DocumentSnapshot) {
         if let Some(doc) = editor.document_mut(id) {
             let len = doc.text().len_chars();
             let selection = if saved.ranges.is_empty() {
@@ -214,11 +210,111 @@ pub fn restore(
             doc.set_view_offset(view_id, ViewPosition { anchor: saved.scroll.min(len),
                 horizontal_offset: saved.horizontal_offset, vertical_offset: saved.vertical_offset });
         }
+    }
+
+    fn validate_layout(layout: &PaneLayout, documents: &[DocumentSnapshot], depth: usize) -> Result<usize> {
+        anyhow::ensure!(depth <= 64, "Session layout is too deeply nested");
+        match layout {
+            PaneLayout::Pane { document, focused } => {
+                anyhow::ensure!(documents.iter().any(|doc| doc.path == document.path), "Pane document missing from session");
+                Ok(usize::from(*focused))
+            }
+            PaneLayout::Group { children, .. } => {
+                anyhow::ensure!(children.len() >= 2, "Invalid session split group");
+                let mut focused = 0;
+                for child in children {
+                    focused += validate_layout(child, documents, depth + 1)?;
+                }
+                Ok(focused)
+            }
+        }
+    }
+
+    if let Some(layout) = &snapshot.layout {
+        anyhow::ensure!(validate_layout(layout, &snapshot.documents, 0)? <= 1, "Multiple focused session panes");
+        anyhow::ensure!(editor.tree.views().count() <= 1, "Restore requires an empty or single-pane workspace");
+    }
+
+    let mut ids = std::collections::BTreeMap::new();
+    let mut active_id = None;
+    for (index, (path, saved)) in paths.iter().zip(&snapshot.documents).enumerate() {
+        let action = if editor.tree.is_empty() { Action::VerticalSplit } else { Action::Load };
+        let id = editor.open(path, action)?;
+        ids.insert(saved.path.clone(), id);
+        let view_id = editor.tree.focus;
+        apply_state(editor, id, view_id, saved);
         if snapshot.active_document == Some(index) {
             active_id = Some(id);
         }
     }
-    if let Some(id) = active_id {
+
+    fn first_document(layout: &PaneLayout) -> &Path {
+        match layout {
+            PaneLayout::Pane { document, .. } => &document.path,
+            PaneLayout::Group { children, .. } => first_document(&children[0]),
+        }
+    }
+
+    fn rebuild(
+        editor: &mut helix_view::Editor,
+        layout: &PaneLayout,
+        ids: &std::collections::BTreeMap<PathBuf, helix_view::DocumentId>,
+        view: helix_view::ViewId,
+        focused: &mut Option<helix_view::ViewId>,
+    ) {
+        editor.focus(view);
+        match layout {
+            PaneLayout::Pane { document, focused: is_focused } => {
+                let id = ids[&document.path];
+                editor.switch(id, Action::Replace);
+                if *is_focused { *focused = Some(view); }
+            }
+            PaneLayout::Group { horizontal, children } => {
+                let mut views = vec![view];
+                // Create siblings before nesting their descendants.
+                for child in &children[1..] {
+                    let action = if *horizontal { Action::HorizontalSplit } else { Action::VerticalSplit };
+                    editor.switch(ids[first_document(child)], action);
+                    views.push(editor.tree.focus);
+                }
+                for (child, view) in children.iter().zip(views) {
+                    rebuild(editor, child, ids, view, focused);
+                }
+            }
+        }
+    }
+
+    fn restore_pane_state(editor: &mut helix_view::Editor, layout: &PaneLayout, views: &mut impl Iterator<Item = helix_view::ViewId>) {
+        match layout {
+            PaneLayout::Pane { document, .. } => {
+                if let Some(view) = views.next() {
+                    let id = editor.tree.get(view).doc;
+                    apply_state(editor, id, view, document);
+                }
+            }
+            PaneLayout::Group { children, .. } => {
+                for child in children { restore_pane_state(editor, child, views); }
+            }
+        }
+    }
+
+    if let Some(layout) = &snapshot.layout {
+        let mut focused = None;
+        let view = editor.tree.focus;
+        rebuild(editor, layout, &ids, view, &mut focused);
+        if let Some(view) = focused { editor.focus(view); }
+        fn leaves(tree: helix_view::tree::SplitTree, out: &mut Vec<helix_view::ViewId>) {
+            match tree {
+                helix_view::tree::SplitTree::Pane(view) => out.push(view),
+                helix_view::tree::SplitTree::Group { children, .. } => {
+                    for child in children { leaves(child, out); }
+                }
+            }
+        }
+        let mut views = Vec::new();
+        leaves(editor.tree.split_tree(), &mut views);
+        restore_pane_state(editor, layout, &mut views.into_iter());
+    } else if let Some(id) = active_id {
         editor.switch(id, Action::Replace);
     }
     Ok(())
