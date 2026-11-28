@@ -83,7 +83,27 @@ impl Default for Container {
     }
 }
 
+/// Geometry-independent representation of the current split hierarchy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SplitTree {
+    Pane(ViewId),
+    Group { layout: Layout, children: Vec<SplitTree> },
+}
+
 impl Tree {
+    pub fn split_tree(&self) -> SplitTree {
+        fn visit(tree: &Tree, id: ViewId) -> SplitTree {
+            match &tree.nodes[id].content {
+                Content::View(_) => SplitTree::Pane(id),
+                Content::Container(container) => SplitTree::Group {
+                    layout: container.layout,
+                    children: container.children.iter().map(|&child| visit(tree, child)).collect(),
+                },
+            }
+        }
+        visit(self, self.root)
+    }
+
     pub fn new(area: Rect) -> Self {
         let root = Node::container(Layout::Vertical);
 
