@@ -559,7 +559,22 @@ impl Component for DeleteConnection {
                     EventResult::Consumed(Some(Box::new(move |compositor, cx| {
                         compositor.pop();
                         compositor.pop();
-                        saved_connection_feedback(compositor, commands::typed::edit_saved_host(&location, None), "SSH connection deleted");
+                        let result = commands::typed::edit_saved_host(&location, None);
+                        if result.is_ok() {
+                            let destination = location.destination.clone();
+                            cx.jobs.callback(async move {
+                                let cleanup = tokio::task::spawn_blocking(move || commands::typed::cleanup_unused_ssh_password(&destination)).await;
+                                Ok(crate::job::Callback::EditorCompositor(Box::new(move |_, compositor| {
+                                    use crate::ui::notification::{show_operation, Severity};
+                                    match cleanup {
+                                        Ok(Ok(())) => {},
+                                        Ok(Err(error)) => show_operation(compositor, None, Severity::Error, "SSH connection deleted; password cleanup failed", format!("{error:#}"), false),
+                                        Err(error) => show_operation(compositor, None, Severity::Error, "SSH password cleanup failed", error.to_string(), false),
+                                    }
+                                })))
+                            });
+                        }
+                        saved_connection_feedback(compositor, result, "SSH connection deleted");
                         let _ = commands::ssh_connections(cx, Default::default(), crate::ui::prompt::PromptEvent::Validate);
                     })))
                 }
