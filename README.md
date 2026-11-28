@@ -101,6 +101,20 @@ no dedicated default or Enzyme editor-mode SSH keybindings.
 | `w` | Disconnect |
 
 Typed commands: `:ssh-connect` and `:ssh-connections`.
+
+Password authentication uses Primer's masked dialogue. Tab toggles Remember
+Password when an unlocked Linux Secret Service keyring is available. Primer
+stores opted-in passwords after successful SSH authentication and attempts a
+saved password once on subsequent authentication. No plaintext fallback or
+additional credential-management executable is used. Without a compatible
+keyring, manual authentication remains available.
+
+In SSH Connections, Password saved indicates a stored credential; press `f`
+to forget it after confirmation. Credentials are shared by destination, not
+remote directory. Deleting the last saved connection attempts to remove its
+credential; forgetting a password does not disconnect an active session.
+Keyring errors are reported without invalidating successful authentication.
+
 The Connections popup supports Enter to connect, `e` to edit and `d` to
 delete a saved connection. Saving a connection is independent of connecting.
 
