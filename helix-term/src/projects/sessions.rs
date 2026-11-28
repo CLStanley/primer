@@ -19,6 +19,14 @@ pub struct DocumentSnapshot {
     pub path: PathBuf,
     pub cursor: usize,
     pub scroll: usize,
+    #[serde(default)]
+    pub ranges: Vec<(usize, usize)>,
+    #[serde(default)]
+    pub primary: usize,
+    #[serde(default)]
+    pub horizontal_offset: usize,
+    #[serde(default)]
+    pub vertical_offset: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,7 +115,14 @@ pub fn capture(
         if focused.is_some_and(|view| view.doc == doc.id()) {
             active_document = Some(documents.len());
         }
-        documents.push(DocumentSnapshot { path: root.join(relative), cursor, scroll });
+        let (ranges, primary, horizontal_offset, vertical_offset) = view.map(|view| {
+            let selection = doc.selection(view.id);
+            let offset = doc.view_offset(view.id);
+            (selection.ranges().iter().map(|range| (range.anchor, range.head)).collect(),
+             selection.primary_index(), offset.horizontal_offset, offset.vertical_offset)
+        }).unwrap_or_default();
+        documents.push(DocumentSnapshot { path: root.join(relative), cursor, scroll,
+            ranges, primary, horizontal_offset, vertical_offset });
     }
     Ok(WorkspaceSnapshot { project, documents, active_document })
 }
@@ -120,7 +135,7 @@ pub fn restore(
     mounted_root: &Path,
 ) -> Result<()> {
     use helix_view::{editor::Action, view::ViewPosition};
-    use helix_core::Selection;
+    use helix_core::{Range, Selection};
     let root = match &snapshot.project {
         ProjectIdentity::Local { root } | ProjectIdentity::Remote { root, .. } => root,
     };
@@ -134,18 +149,29 @@ pub fn restore(
         anyhow::ensure!(path.starts_with(&canonical_root) && path.is_file(), "Session document outside project or not a file");
         Ok(path)
     }).collect::<Result<Vec<_>>>()?;
+    let mut active_id = None;
     for (index, (path, saved)) in paths.iter().zip(&snapshot.documents).enumerate() {
         let action = if editor.tree.is_empty() { Action::VerticalSplit } else { Action::Load };
         let id = editor.open(path, action)?;
         let view_id = editor.tree.focus;
         if let Some(doc) = editor.document_mut(id) {
             let len = doc.text().len_chars();
-            doc.set_selection(view_id, Selection::point(saved.cursor.min(len)));
-            doc.set_view_offset(view_id, ViewPosition { anchor: saved.scroll.min(len), horizontal_offset: 0, vertical_offset: 0 });
+            let selection = if saved.ranges.is_empty() {
+                Selection::point(saved.cursor.min(len))
+            } else {
+                Selection::new(saved.ranges.iter().map(|&(anchor, head)| Range::new(anchor.min(len), head.min(len))).collect(),
+                    saved.primary.min(saved.ranges.len() - 1))
+            };
+            doc.set_selection(view_id, selection);
+            doc.set_view_offset(view_id, ViewPosition { anchor: saved.scroll.min(len),
+                horizontal_offset: saved.horizontal_offset, vertical_offset: saved.vertical_offset });
         }
         if snapshot.active_document == Some(index) {
-            editor.switch(id, Action::Replace);
+            active_id = Some(id);
         }
+    }
+    if let Some(id) = active_id {
+        editor.switch(id, Action::Replace);
     }
     Ok(())
 }
@@ -163,7 +189,7 @@ mod tests {
         let remote = ProjectIdentity::Remote { destination: "user@host".into(), root: PathBuf::from("/code") };
         for project in [local.clone(), remote.clone()] {
             store.insert(WorkspaceSnapshot {
-                project, documents: vec![DocumentSnapshot { path: PathBuf::from("/code/main.rs"), cursor: 12, scroll: 3 }],
+                project, documents: vec![DocumentSnapshot { path: PathBuf::from("/code/main.rs"), cursor: 12, scroll: 3, ranges: vec![(12, 8), (20, 22)], primary: 1, horizontal_offset: 4, vertical_offset: 2 }],
                 active_document: Some(0),
             });
         }
